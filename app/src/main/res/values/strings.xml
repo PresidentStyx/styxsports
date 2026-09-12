@@ -4,6 +4,34 @@
     <string name="hint_controls">Styx Sports v%1$s\nD-pad moves the pointer · OK clicks · Back goes back · Menu reloads</string>
     <string name="reloading">Reloading…</string>
 
+    <!-- Native home -->
+    <string name="brand_suffix">SPORTS</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_open_site">Open website</string>
+    <string name="action_retry">Retry</string>
+    <string name="refreshing">Refreshing…</string>
+    <string name="loading_events">Loading today’s games…</string>
+    <string name="load_failed">Couldn’t load the schedule.\n%1$s</string>
+    <string name="no_events">Nothing is listed right now.</string>
+    <string name="status_offline">Offline · showing schedule from %1$s</string>
+    <plurals name="status_updated">
+        <item quantity="one">Updated %1$s · %2$d live</item>
+        <item quantity="other">Updated %1$s · %2$d live</item>
+    </plurals>
+    <string name="row_live_now">Live Now</string>
+    <plurals name="count_live">
+        <item quantity="one">%d game</item>
+        <item quantity="other">%d games</item>
+    </plurals>
+    <string name="row_sub_live_upcoming">%1$d live · %2$d upcoming</string>
+    <string name="row_sub_upcoming">%1$d upcoming</string>
+    <string name="pill_live">LIVE</string>
+    <string name="pill_upcoming">Upcoming</string>
+    <string name="versus">vs</string>
+    <string name="badge_hot">🔥 Trending</string>
+    <string name="badge_hot_rank">🔥 #%1$d</string>
+    <string name="badge_premium">★ Premium</string>
+
     <string name="update_title">Update available</string>
     <string name="update_message">Styx Sports %1$s is available (you have %2$s).</string>
     <string name="update_install">Install</string>

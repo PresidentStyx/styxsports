@@ -26,47 +26,86 @@ final class RemoteConfig {
     private static final String KEY_JSON = "config_json";
 
     private static final String DEFAULT_HOME_URL = "https://v5.gostreameast.link/";
+    private static final String DEFAULT_DATA_BASE_URL = "https://v2.streameast.ga";
     // "streamea.st" is the site's SSO/help/status domain and is spelled differently.
     private static final List<String> DEFAULT_ALLOWED = Arrays.asList("streameast", "streamea.st");
     private static final List<String> DEFAULT_BLOCKED = Arrays.asList("adexchangeclear.com", "adcash");
 
+    /** Player-first styling for stream pages; overridable via config so it can track site changes. */
+    static final String DEFAULT_PLAYER_CSS =
+            "header.se-chrome,#mobileMenu,.se-sidebar,.se-announce,#pp-toast-container,footer,"
+                    + ".se-footer,#live-chat-iframe,.se-chat,[id^=nl-],.nl-newsletter-sidebar,.se-progate,"
+                    + ".se-board__promo,.discount-feed-banner,.se-ended__card,#se-nprog,.se-mob-topbar"
+                    + "{display:none!important}"
+                    + "html,body{background:#000!important;margin:0!important;padding:0!important;"
+                    + "overflow-x:hidden!important}"
+                    + "main.main-content,.streameast-main,.se-video,.se-layout,.se-main"
+                    + "{max-width:none!important;width:100%!important;margin:0!important;padding:0!important}"
+                    + ".se-layout{display:block!important}"
+                    + ".se-board{padding:6px 16px!important;margin:0!important}"
+                    + "#se-player-root,.se-player{width:100%!important;aspect-ratio:16/9;"
+                    + "max-height:calc(100vh - 48px)!important;margin:0 auto!important}"
+                    + "#se-player-root iframe{width:100%!important;height:100%!important}"
+                    + "::-webkit-scrollbar{display:none!important}"
+                    + "*{-webkit-user-select:none!important;user-select:none!important;"
+                    + "-webkit-tap-highlight-color:transparent!important}";
+
+    /** Page loaded when the native home is disabled or "Open website" is chosen. */
     final String homeUrl;
+    /** Origin of the site whose listing pages are parsed for the native home. */
+    final String dataBaseUrl;
+    /** Kill switch: false shows the plain WebView experience instead of the native home. */
+    final boolean nativeHome;
     final List<String> allowedHostFragments;
     final List<String> blockedHostFragments;
     /** Empty means "use the app's built-in user agent". */
     final String userAgent;
     /** Extra JavaScript run after every page load; may be empty. */
     final String pageScript;
+    /** CSS injected into stream pages opened from the native home. */
+    final String playerCss;
+    /** JavaScript injected into stream pages opened from the native home; may be empty. */
+    final String playerScript;
     final String rawJson;
 
-    private RemoteConfig(String homeUrl, List<String> allowed, List<String> blocked,
-                         String userAgent, String pageScript, String rawJson) {
+    private RemoteConfig(String homeUrl, String dataBaseUrl, boolean nativeHome,
+                         List<String> allowed, List<String> blocked, String userAgent,
+                         String pageScript, String playerCss, String playerScript, String rawJson) {
         this.homeUrl = homeUrl;
+        this.dataBaseUrl = stripTrailingSlash(dataBaseUrl);
+        this.nativeHome = nativeHome;
         this.allowedHostFragments = lower(allowed);
         this.blockedHostFragments = lower(blocked);
         this.userAgent = userAgent;
         this.pageScript = pageScript;
+        this.playerCss = playerCss;
+        this.playerScript = playerScript;
         this.rawJson = rawJson;
     }
 
     static RemoteConfig defaults() {
-        return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_ALLOWED, DEFAULT_BLOCKED, "", "", "");
+        return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_DATA_BASE_URL, true, DEFAULT_ALLOWED,
+                DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "", "");
     }
 
     static RemoteConfig parse(String json) throws JSONException {
         JSONObject o = new JSONObject(json);
-        String home = o.optString("homeUrl", DEFAULT_HOME_URL).trim();
-        if (!home.startsWith("http://") && !home.startsWith("https://")) {
-            home = DEFAULT_HOME_URL;
-        }
+        String home = httpOr(o.optString("homeUrl", ""), DEFAULT_HOME_URL);
+        String dataBase = httpOr(o.optString("dataBaseUrl", ""), DEFAULT_DATA_BASE_URL);
         List<String> allowed = toList(o.optJSONArray("allowedHostFragments"));
         if (allowed.isEmpty()) allowed = DEFAULT_ALLOWED;
+        String playerCss = o.optString("playerCss", "").trim();
+        if (playerCss.isEmpty()) playerCss = DEFAULT_PLAYER_CSS;
         return new RemoteConfig(
                 home,
+                dataBase,
+                o.optBoolean("nativeHome", true),
                 allowed,
                 toList(o.optJSONArray("blockedHostFragments")),
                 o.optString("userAgent", "").trim(),
                 o.optString("pageScript", "").trim(),
+                playerCss,
+                o.optString("playerScript", "").trim(),
                 json);
     }
 
@@ -103,6 +142,15 @@ final class RemoteConfig {
             if (!f.isEmpty() && h.contains(f)) return true;
         }
         return false;
+    }
+
+    private static String httpOr(String value, String fallback) {
+        String v = value.trim();
+        return (v.startsWith("http://") || v.startsWith("https://")) ? v : fallback;
+    }
+
+    private static String stripTrailingSlash(String s) {
+        return s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
     }
 
     private static List<String> toList(JSONArray arr) {

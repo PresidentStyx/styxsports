@@ -1,10 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.StyxSports" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
-        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowBackground">@color/bg</item>
         <item name="android:colorPrimary">#0F172A</item>
         <item name="android:colorPrimaryDark">#000000</item>
-        <item name="android:colorAccent">#38BDF8</item>
+        <item name="android:colorAccent">@color/accent</item>
         <item name="android:windowContentOverlay">@null</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/muted</item>
+    </style>
+
+    <!-- Launcher screen: the window background doubles as the splash. -->
+    <style name="Theme.StyxSports.Home">
+        <item name="android:windowBackground">@drawable/splash</item>
+    </style>
+
+    <!-- WebView screen: pure black behind video. -->
+    <style name="Theme.StyxSports.Player">
+        <item name="android:windowBackground">@android:color/black</item>
     </style>
 </resources>

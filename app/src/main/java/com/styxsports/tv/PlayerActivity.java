@@ -2,9 +2,9 @@ package com.styxsports.tv;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -13,7 +13,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
-import android.provider.Settings;
+import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -28,30 +28,34 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
-public class MainActivity extends Activity {
+/**
+ * The WebView screen. Opened by {@link HomeActivity} either for one stream page ("player mode",
+ * with the site's chrome stripped by injected CSS) or for the plain website as a fallback.
+ * Navigation is by a D-pad driven virtual pointer.
+ */
+public class PlayerActivity extends Activity {
 
-    /**
-     * Site, host allow/block lists, UA and page script all come from {@link RemoteConfig}
-     * (cached copy first, refreshed from GitHub on each launch). Top-level navigations to hosts
-     * outside the allow list are dropped so a TV remote never gets stuck on an ad page.
-     */
-    private volatile RemoteConfig config;
-
-    private static final int REQ_INSTALL_PERMISSION = 1001;
-
-    private static final String DESKTOP_UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    + "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+    static final String EXTRA_URL = "url";
+    static final String EXTRA_PLAYER_MODE = "player";
 
     private static final long CURSOR_HIDE_DELAY_MS = 4000L;
+    private static final long LOADING_OVERLAY_TIMEOUT_MS = 12_000L;
+
+    /** Applied to every page: no scrollbars, no text selection, no tap highlight. */
+    private static final String BASE_CSS =
+            "::-webkit-scrollbar{display:none!important}"
+                    + "*{-webkit-user-select:none!important;user-select:none!important;"
+                    + "-webkit-tap-highlight-color:transparent!important;-webkit-touch-callout:none!important}";
 
     /** Removes target="_blank" from all links, now and as the page adds more. */
     private static final String STRIP_BLANK_TARGETS_JS =
@@ -64,18 +68,26 @@ public class MainActivity extends Activity {
                     + "});window.__styxObs.observe(document.documentElement,{childList:true,subtree:true});}"
                     + "})();";
 
+    static Intent intent(Context ctx, String url, boolean playerMode) {
+        return new Intent(ctx, PlayerActivity.class)
+                .putExtra(EXTRA_URL, url)
+                .putExtra(EXTRA_PLAYER_MODE, playerMode);
+    }
+
+    private RemoteConfig config;
+    private boolean playerMode;
+
     private FrameLayout root;
     private WebView webView;
     private CursorView cursor;
+    private View loadingOverlay;
 
     private View fullscreenView;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideCursorRunnable = () -> cursor.animate().alpha(0f).setDuration(250).start();
-
-    private final ExecutorService io = Executors.newSingleThreadExecutor();
-    private File pendingInstall;
+    private final Runnable hideOverlayRunnable = this::hideLoadingOverlay;
 
     private float density;
     private long touchDownTime;
@@ -87,6 +99,9 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         density = getResources().getDisplayMetrics().density;
         config = RemoteConfig.load(this);
+        playerMode = getIntent().getBooleanExtra(EXTRA_PLAYER_MODE, false);
+        String url = getIntent().getStringExtra(EXTRA_URL);
+        if (url == null || url.isEmpty()) url = config.homeUrl;
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         applyImmersiveMode();
@@ -98,7 +113,17 @@ public class MainActivity extends Activity {
         webView.setBackgroundColor(Color.BLACK);
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
+        webView.setVerticalScrollBarEnabled(false);
+        webView.setHorizontalScrollBarEnabled(false);
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setLongClickable(false);
+        webView.setOnLongClickListener(v -> true);
+        webView.setHapticFeedbackEnabled(false);
         root.addView(webView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        loadingOverlay = buildLoadingOverlay();
+        root.addView(loadingOverlay, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         cursor = new CursorView(this);
@@ -111,115 +136,71 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl(config.homeUrl);
-            Toast.makeText(this, getString(R.string.hint_controls,
-                    AppUpdater.installedVersion(this)), Toast.LENGTH_LONG).show();
-            refreshConfigAndCheckForUpdate();
+            webView.loadUrl(url);
+            if (!playerMode) {
+                Toast.makeText(this, getString(R.string.hint_controls,
+                        AppUpdater.installedVersion(this)), Toast.LENGTH_LONG).show();
+            }
         }
         scheduleCursorHide();
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Remote config + self-update
-    // ---------------------------------------------------------------------------------------------
+    private View buildLoadingOverlay() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setBackgroundColor(androidx.core.content.ContextCompat.getColor(this, R.color.bg));
+        box.setClickable(false);
 
-    private void refreshConfigAndCheckForUpdate() {
-        io.execute(() -> {
-            try {
-                RemoteConfig fresh = RemoteConfig.parse(Http.getText(RemoteConfig.CONFIG_URL));
-                handler.post(() -> applyConfig(fresh));
-            } catch (Exception ignored) {
-                // Offline or GitHub unreachable: keep using the cached copy.
-            }
-            try {
-                AppUpdater.Release latest = AppUpdater.fetchLatest();
-                if (latest != null
-                        && AppUpdater.isNewer(latest.version, AppUpdater.installedVersion(this))) {
-                    handler.post(() -> offerUpdate(latest));
-                }
-            } catch (Exception ignored) {
-                // Update check is best-effort.
-            }
-        });
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.wordmark);
+        int w = (int) (220 * density);
+        int h = (int) (61 * density);
+        box.addView(logo, new LinearLayout.LayoutParams(w, h));
+
+        ProgressBar spinner = new ProgressBar(this);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                (int) (36 * density), (int) (36 * density));
+        sp.topMargin = (int) (28 * density);
+        box.addView(spinner, sp);
+        return box;
     }
 
-    private void applyConfig(RemoteConfig fresh) {
-        if (isFinishing() || isDestroyed()) return;
-        String previousHome = config.homeUrl;
-        fresh.save(this);
-        config = fresh;
-        applyUserAgent();
+    private void showLoadingOverlay() {
+        handler.removeCallbacks(hideOverlayRunnable);
+        loadingOverlay.animate().cancel();
+        loadingOverlay.setAlpha(1f);
+        loadingOverlay.setVisibility(View.VISIBLE);
+        handler.postDelayed(hideOverlayRunnable, LOADING_OVERLAY_TIMEOUT_MS);
+    }
 
-        // If the site moved and the user hasn't navigated anywhere yet, jump to the new home.
-        if (!previousHome.equals(fresh.homeUrl) && webView.copyBackForwardList().getSize() <= 1) {
-            webView.loadUrl(fresh.homeUrl);
-        }
+    private void hideLoadingOverlay() {
+        handler.removeCallbacks(hideOverlayRunnable);
+        if (loadingOverlay.getVisibility() != View.VISIBLE) return;
+        loadingOverlay.animate().alpha(0f).setDuration(220)
+                .withEndAction(() -> loadingOverlay.setVisibility(View.GONE)).start();
     }
 
     private void applyUserAgent() {
-        String ua = config.userAgent.isEmpty() ? DESKTOP_UA : config.userAgent;
+        String ua = config.userAgent.isEmpty() ? Http.DESKTOP_UA : config.userAgent;
         if (!ua.equals(webView.getSettings().getUserAgentString())) {
             webView.getSettings().setUserAgentString(ua);
         }
     }
 
-    private void offerUpdate(AppUpdater.Release release) {
-        if (isFinishing() || isDestroyed()) return;
-        String message = getString(R.string.update_message,
-                release.version, AppUpdater.installedVersion(this));
-        if (!release.notes.isEmpty()) message += "\n\n" + release.notes;
-
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.update_title)
-                .setMessage(message)
-                .setPositiveButton(R.string.update_install, (d, w) -> downloadAndInstall(release))
-                .setNegativeButton(R.string.update_later, null)
-                .show();
+    /** Idempotent: adds a <style id=...> once per document. */
+    private void injectCss(WebView view, String id, String css) {
+        if (css.isEmpty()) return;
+        String js = "(function(){if(document.getElementById(" + JSONObject.quote(id) + "))return;"
+                + "var s=document.createElement('style');s.id=" + JSONObject.quote(id) + ";"
+                + "s.textContent=" + JSONObject.quote(css) + ";"
+                + "(document.head||document.documentElement).appendChild(s);})();";
+        view.evaluateJavascript(js, null);
     }
 
-    private void downloadAndInstall(AppUpdater.Release release) {
-        Toast.makeText(this, R.string.update_downloading, Toast.LENGTH_SHORT).show();
-        io.execute(() -> {
-            try {
-                File apk = AppUpdater.download(this, release);
-                handler.post(() -> installApk(apk));
-            } catch (Exception e) {
-                handler.post(() -> Toast.makeText(this,
-                        getString(R.string.update_failed, e.getMessage()), Toast.LENGTH_LONG).show());
-            }
-        });
-    }
-
-    private void installApk(File apk) {
-        if (isFinishing() || isDestroyed()) return;
-        if (!AppUpdater.canInstall(this)) {
-            // One-time: the OS needs "Install unknown apps" enabled for this app.
-            pendingInstall = apk;
-            Toast.makeText(this, R.string.update_allow_source, Toast.LENGTH_LONG).show();
-            try {
-                startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        Uri.parse("package:" + getPackageName())), REQ_INSTALL_PERMISSION);
-            } catch (ActivityNotFoundException e) {
-                Toast.makeText(this, R.string.update_allow_source_manual, Toast.LENGTH_LONG).show();
-            }
-            return;
-        }
-        try {
-            startActivity(AppUpdater.installIntent(this, apk));
-        } catch (ActivityNotFoundException e) {
-            Toast.makeText(this, getString(R.string.update_failed, e.getMessage()),
-                    Toast.LENGTH_LONG).show();
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQ_INSTALL_PERMISSION && pendingInstall != null) {
-            File apk = pendingInstall;
-            pendingInstall = null;
-            if (AppUpdater.canInstall(this)) installApk(apk);
-        }
+    private void injectStyles(WebView view) {
+        injectCss(view, "styx-base", BASE_CSS);
+        if (playerMode) injectCss(view, "styx-player", config.playerCss);
     }
 
     private void configureWebView() {
@@ -269,12 +250,29 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                showLoadingOverlay();
+            }
+
+            @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                // First paint of the new document: style it before the user sees it.
+                injectStyles(view);
+                handler.removeCallbacks(hideOverlayRunnable);
+                handler.postDelayed(hideOverlayRunnable, 250);
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
+                injectStyles(view);
                 // Make target="_blank" links navigate in place. onCreateWindow() below is the
                 // fallback for anything this misses (e.g. window.open from scripts).
                 view.evaluateJavascript(STRIP_BLANK_TARGETS_JS, null);
-                String extra = config.pageScript;
-                if (!extra.isEmpty()) view.evaluateJavascript(extra, null);
+                if (!config.pageScript.isEmpty()) view.evaluateJavascript(config.pageScript, null);
+                if (playerMode && !config.playerScript.isEmpty()) {
+                    view.evaluateJavascript(config.playerScript, null);
+                }
+                hideLoadingOverlay();
             }
         });
 
@@ -294,7 +292,7 @@ public class MainActivity extends Activity {
 
                 // Otherwise (window.open from script, etc.) a throwaway WebView receives the
                 // navigation; we capture its first URL and load it in the main view instead.
-                final WebView popup = new WebView(MainActivity.this);
+                final WebView popup = new WebView(PlayerActivity.this);
                 popup.setWebViewClient(new WebViewClient() {
                     private boolean handled;
 
@@ -314,7 +312,7 @@ public class MainActivity extends Activity {
                     }
 
                     @Override
-                    public void onPageStarted(WebView v, String url, android.graphics.Bitmap favicon) {
+                    public void onPageStarted(WebView v, String url, Bitmap favicon) {
                         // Some WebView versions skip shouldOverrideUrlLoading for a popup's
                         // initial navigation; this catches it.
                         if (url != null && !url.equals("about:blank")) redirect(Uri.parse(url));
@@ -364,6 +362,8 @@ public class MainActivity extends Activity {
         RemoteConfig c = config;
         String homeHost = Uri.parse(c.homeUrl).getHost();
         if (homeHost != null && host.equals(homeHost.toLowerCase(Locale.ROOT))) return true;
+        String dataHost = Uri.parse(c.dataBaseUrl).getHost();
+        if (dataHost != null && host.equals(dataHost.toLowerCase(Locale.ROOT))) return true;
         return c.isAllowedHost(host);
     }
 
@@ -586,7 +586,6 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        io.shutdownNow();
         handler.removeCallbacksAndMessages(null);
         exitFullscreen();
         root.removeView(webView);
