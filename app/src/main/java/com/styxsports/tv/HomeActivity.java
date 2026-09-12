@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -48,7 +49,7 @@ import java.util.concurrent.Executors;
  */
 public class HomeActivity extends Activity {
 
-    private static final long STATUS_INTERVAL_MS = 60_000L;
+    private static final long STATUS_INTERVAL_MS = 30_000L;
     private static final long FULL_REFRESH_INTERVAL_MS = 5 * 60_000L;
     private static final long STALE_ON_RESUME_MS = 90_000L;
 
@@ -59,10 +60,21 @@ public class HomeActivity extends Activity {
     private static final int WORDMARK_H = 30;
     private static final int WORDMARK_W = 196;
 
+    private static final String PREFS = "styxsports";
+    private static final String KEY_FILTER = "filter_category";
+    private static final int MAX_CONTINUE = 6;
+
     private RemoteConfig config;
     private SiteRepository repo;
     private ImageLoader images;
     private UpdateFlow updates;
+    private Favorites favorites;
+    /** Selected sport chip (category name), or null for All. */
+    private String filterCategory;
+    private LinearLayout chips;
+    private HorizontalScrollView chipsScroller;
+    /** Identity of the Continue Watching row at the last render, to re-render when it changes. */
+    private String recentsKey = "";
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -125,6 +137,8 @@ public class HomeActivity extends Activity {
         repo = new SiteRepository(this);
         images = new ImageLoader(dp(CREST_DP));
         updates = new UpdateFlow(this, io);
+        favorites = new Favorites(this);
+        filterCategory = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_FILTER, null);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         applyImmersiveMode();
@@ -199,6 +213,8 @@ public class HomeActivity extends Activity {
 
         column.addView(buildTopBar(), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        column.addView(buildChips(), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         scroller = new ScrollView(this) {
             @Override
@@ -267,6 +283,72 @@ public class HomeActivity extends Activity {
         vp.leftMargin = dp(14);
         bar.addView(version, vp);
         return bar;
+    }
+
+    /** Sport filter chips: All + one per category, remembered across launches. */
+    private View buildChips() {
+        chipsScroller = new HorizontalScrollView(this);
+        chipsScroller.setHorizontalScrollBarEnabled(false);
+        chipsScroller.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        chipsScroller.setFocusable(false);
+        chipsScroller.setClipToPadding(false);
+        chipsScroller.setPadding(dp(48), dp(2), dp(48), dp(4));
+        chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        chipsScroller.addView(chips, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return chipsScroller;
+    }
+
+    private void renderChips(Snapshot s) {
+        View focused = getCurrentFocus();
+        String focusedChip = focused != null && focused.getParent() == chips ? (String) focused.getTag() : null;
+        chips.removeAllViews();
+        List<String> names = new ArrayList<>();
+        names.add(null); // All
+        for (Snapshot.Category c : s.byCategory().keySet()) names.add(c.name);
+        if (filterCategory != null && !names.contains(filterCategory)) filterCategory = null;
+        for (final String name : names) {
+            final TextView chip = new TextView(this);
+            chip.setText(name == null ? getString(R.string.chip_all) : name);
+            chip.setTag(name);
+            chip.setTextColor(ContextCompat.getColorStateList(this, R.color.button_text));
+            chip.setTextSize(13);
+            chip.setTypeface(Typeface.DEFAULT_BOLD);
+            chip.setPadding(dp(15), dp(6), dp(15), dp(6));
+            chip.setBackgroundResource(R.drawable.chip_bg);
+            chip.setFocusable(true);
+            chip.setClickable(true);
+            chip.setSelected(name == null ? filterCategory == null : name.equals(filterCategory));
+            chip.setOnClickListener(v -> selectFilter(name));
+            chip.setOnFocusChangeListener((v, has) -> {
+                if (has) {
+                    int target = v.getLeft() + v.getWidth() / 2 - chipsScroller.getWidth() / 2
+                            + chipsScroller.getPaddingLeft();
+                    chipsScroller.smoothScrollTo(Math.max(0, target), 0);
+                }
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.rightMargin = dp(8);
+            chip.setId(View.generateViewId());
+            chips.addView(chip, lp);
+            if (focusedChip != null && focusedChip.equals(name)) chip.requestFocus();
+        }
+        // Keep Left/Right inside the chip row instead of drifting into the top bar.
+        if (chips.getChildCount() > 0) {
+            View first = chips.getChildAt(0);
+            View last = chips.getChildAt(chips.getChildCount() - 1);
+            first.setNextFocusLeftId(first.getId());
+            last.setNextFocusRightId(last.getId());
+        }
+    }
+
+    private void selectFilter(String name) {
+        if (name == null ? filterCategory == null : name.equals(filterCategory)) return;
+        filterCategory = name;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_FILTER, name).apply();
+        if (snapshot != null) render(snapshot);
     }
 
     private TextView pillButton(String label, View.OnClickListener onClick) {
@@ -394,7 +476,7 @@ public class HomeActivity extends Activity {
         final Snapshot s = snapshot;
         if (s == null || loading) return;
         io.execute(() -> {
-            repo.refreshStatus(s);
+            repo.refreshStatus(config, s);
             handler.post(() -> {
                 if (snapshot != s || isFinishing() || isDestroyed()) return;
                 for (List<CardHolder> list : holders.values()) {
@@ -425,30 +507,109 @@ public class HomeActivity extends Activity {
         restoreCardFocus = !initialFocusDone || cardHadFocus;
         holders.clear();
         rows.removeAllViews();
+        favorites.setCategories(s);
+        renderChips(s);
 
-        List<Event> live = s.liveEvents();
+        Map<Snapshot.Category, List<Event>> byCat = s.byCategory();
+        Snapshot.Category filter = null;
+        if (filterCategory != null) {
+            for (Snapshot.Category c : byCat.keySet()) if (c.name.equals(filterCategory)) filter = c;
+        }
+
+        // Continue watching: games opened recently that are still listed (fresh data) or recent
+        // enough to matter. Only on the unfiltered view.
+        List<Event> recent = continueWatching(s);
+        recentsKey = keyOf(recent);
+        if (filter == null && !recent.isEmpty()) {
+            addRow(getString(R.string.row_continue), getString(R.string.row_continue_sub), recent);
+        }
+
+        // Starred teams / leagues.
+        if (!favorites.isEmpty()) {
+            List<Event> mine = new ArrayList<>();
+            for (Event e : s.events) {
+                if (favorites.matches(e) && (filter == null || e.categoryId == filter.id)) mine.add(e);
+            }
+            if (!mine.isEmpty()) {
+                Collections.sort(mine, ROW_ORDER);
+                addRow(getString(R.string.row_favorites), getString(R.string.row_favorites_sub), mine);
+            }
+        }
+
+        List<Event> live = new ArrayList<>();
+        for (Event e : s.liveEvents()) if (filter == null || e.categoryId == filter.id) live.add(e);
         if (!live.isEmpty()) {
             addRow(getString(R.string.row_live_now), getResources().getQuantityString(
-                    R.plurals.count_live, live.size(), live.size()), live);
+                    R.plurals.count_live, live.size(), live.size()), favoritesFirst(live));
         }
-        for (Map.Entry<Snapshot.Category, List<Event>> en : s.byCategory().entrySet()) {
+        for (Map.Entry<Snapshot.Category, List<Event>> en : byCat.entrySet()) {
             Snapshot.Category c = en.getKey();
+            if (filter != null && c != filter) continue;
             int liveN = 0;
             for (Event e : en.getValue()) if (e.live) liveN++;
             String sub = liveN > 0
                     ? getString(R.string.row_sub_live_upcoming, liveN, en.getValue().size() - liveN)
                     : getString(R.string.row_sub_upcoming, en.getValue().size());
-            addRow(c.name, sub, en.getValue());
+            addRow(c.name, sub, favoritesFirst(en.getValue()));
         }
 
         if (rows.getChildCount() == 0) {
-            showProblem(getString(R.string.no_events));
-            return;
+            if (filter != null) {
+                TextView empty = new TextView(this);
+                empty.setText(getString(R.string.no_events_filtered, filter.name));
+                empty.setTextColor(color(R.color.muted));
+                empty.setTextSize(16);
+                empty.setPadding(dp(48), dp(40), dp(48), 0);
+                rows.addView(empty);
+            } else {
+                showProblem(getString(R.string.no_events));
+                return;
+            }
         }
         overlay.setVisibility(View.GONE);
         updateStatusText();
         afterLayout(this::restoreFocus);
     }
+
+    /** Recently opened games, using the snapshot's copy when it is still listed. */
+    private List<Event> continueWatching(Snapshot s) {
+        List<Event> out = new ArrayList<>();
+        Map<String, Event> byId = new HashMap<>();
+        for (Event e : s.events) byId.put(e.id, e);
+        for (Recents.Item it : Recents.load(this)) {
+            Event fresh = byId.get(it.event.id);
+            out.add(fresh != null ? fresh : it.event);
+            if (out.size() >= MAX_CONTINUE) break;
+        }
+        return out;
+    }
+
+    private static String keyOf(List<Event> events) {
+        StringBuilder b = new StringBuilder();
+        for (Event e : events) b.append(e.id).append(',');
+        return b.toString();
+    }
+
+    /** Stable: starred games first, everything else in its existing order. */
+    private List<Event> favoritesFirst(List<Event> in) {
+        if (favorites.isEmpty()) return in;
+        List<Event> out = new ArrayList<>(in.size());
+        for (Event e : in) if (favorites.matches(e)) out.add(e);
+        if (out.isEmpty()) return in;
+        for (Event e : in) if (!favorites.matches(e)) out.add(e);
+        return out;
+    }
+
+    /** Live first (ranked), then by start time — same as the site's rows. */
+    private static final java.util.Comparator<Event> ROW_ORDER = (a, b) -> {
+        if (a.live != b.live) return a.live ? -1 : 1;
+        if (a.live) {
+            int ra = a.hotRank > 0 ? a.hotRank : Integer.MAX_VALUE;
+            int rb = b.hotRank > 0 ? b.hotRank : Integer.MAX_VALUE;
+            if (ra != rb) return Integer.compare(ra, rb);
+        }
+        return Long.compare(a.startTs, b.startTs);
+    };
 
     /** Runs once the freshly added rows have been measured and laid out (so focus can land). */
     private void afterLayout(final Runnable r) {
@@ -617,6 +778,10 @@ public class HomeActivity extends Activity {
         bindDynamic(h);
 
         card.setOnClickListener(v -> openEvent(e));
+        card.setOnLongClickListener(v -> {
+            showFavoritesDialog(e);
+            return true;
+        });
         card.setOnFocusChangeListener((v, has) -> {
             v.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f).setDuration(120).start();
             if (has) {
@@ -682,7 +847,10 @@ public class HomeActivity extends Activity {
             }
         }
         StringBuilder b = new StringBuilder();
+        boolean starred = favorites.matches(e);
+        if (starred) b.append(getString(R.string.badge_favorite));
         if (e.hot) {
+            if (b.length() > 0) b.append("   ");
             b.append(e.hotRank > 0 ? getString(R.string.badge_hot_rank, e.hotRank) : getString(R.string.badge_hot));
         }
         if (e.premium) {
@@ -690,7 +858,7 @@ public class HomeActivity extends Activity {
             b.append(getString(R.string.badge_premium));
         }
         h.badges.setText(b);
-        h.badges.setTextColor(color(e.hot ? R.color.hot : R.color.gold));
+        h.badges.setTextColor(color(e.hot && !starred ? R.color.hot : R.color.gold));
     }
 
     private GradientDrawable pillBackground(int color) {
@@ -717,7 +885,49 @@ public class HomeActivity extends Activity {
 
     private void openEvent(Event e) {
         if (e.url.isEmpty()) return;
-        startActivity(PlayerActivity.intent(this, e.url, true));
+        Recents.record(this, e);
+        if (config.nativePlayer) {
+            startActivity(NativePlayerActivity.intent(this, e));
+        } else {
+            startActivity(PlayerActivity.intent(this, e.url, true));
+        }
+    }
+
+    /** Long-press on a card: star/unstar either team or the league. */
+    private void showFavoritesDialog(final Event e) {
+        final List<String> labels = new ArrayList<>();
+        final List<Runnable> actions = new ArrayList<>();
+        for (final String team : new String[] {e.home, e.away}) {
+            if (team.isEmpty()) continue;
+            boolean on = favorites.isTeam(team);
+            labels.add(getString(on ? R.string.fav_remove_team : R.string.fav_add_team, team));
+            actions.add(() -> {
+                boolean now = favorites.toggleTeam(team);
+                Toast.makeText(this, getString(now ? R.string.fav_added : R.string.fav_removed, team),
+                        Toast.LENGTH_SHORT).show();
+            });
+        }
+        final String leagueKey = favorites.leagueOf(e);
+        if (!leagueKey.isEmpty()) {
+            final String league = e.league.isEmpty() ? leagueKey : prettyLeague(leagueKey);
+            boolean on = favorites.isLeague(leagueKey);
+            labels.add(getString(on ? R.string.fav_remove_league : R.string.fav_add_league, league));
+            actions.add(() -> {
+                boolean now = favorites.toggleLeague(leagueKey);
+                Toast.makeText(this, getString(now ? R.string.fav_added : R.string.fav_removed, league),
+                        Toast.LENGTH_SHORT).show();
+            });
+        }
+        if (labels.isEmpty()) return;
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.fav_title)
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    actions.get(which).run();
+                    focusedEventId = e.id;
+                    if (snapshot != null) render(snapshot);
+                })
+                .setNegativeButton(R.string.action_dismiss, null)
+                .show();
     }
 
     private void openWebsite() {
@@ -824,6 +1034,7 @@ public class HomeActivity extends Activity {
         handler.postDelayed(statusTick, STATUS_INTERVAL_MS);
         handler.postDelayed(fullTick, FULL_REFRESH_INTERVAL_MS);
         if (snapshot != null && !loading) {
+            if (!keyOf(continueWatching(snapshot)).equals(recentsKey)) render(snapshot);
             if (System.currentTimeMillis() - snapshot.fetchedAtMs > STALE_ON_RESUME_MS) {
                 fullRefresh(false);
             } else {

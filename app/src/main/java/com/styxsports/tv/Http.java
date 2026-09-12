@@ -42,8 +42,14 @@ final class Http {
 
     /** @param referer sent as the Referer header when non-null (embed hosts insist on one). */
     static String getText(String url, String referer) throws IOException {
+        return getText(url, referer, TIMEOUT_MS);
+    }
+
+    /** @param readTimeoutMs how long to wait for the response; some embed hosts take ~15 s. */
+    static String getText(String url, String referer, int readTimeoutMs) throws IOException {
         HttpURLConnection c = open(url);
         try {
+            c.setReadTimeout(readTimeoutMs);
             if (referer != null) c.setRequestProperty("Referer", referer);
             check(c);
             return readText(c);

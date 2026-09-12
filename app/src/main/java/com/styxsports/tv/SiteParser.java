@@ -17,29 +17,8 @@ import java.util.regex.Pattern;
  */
 final class SiteParser {
 
-    /** Team cards are <div class="m-card ..."> with an inner link; event cards are <a class="m-card ..." href>. */
-    private static final Pattern CARD_START =
-            Pattern.compile("<(?:div|a)\\s+class=\"m-card\\b([^\"]*)\"([^>]*)>");
-    private static final Pattern CARD_TITLE = Pattern.compile("m-card__title\"[^>]*>([^<]*)<");
     private static final Pattern ATTR =
             Pattern.compile("([a-zA-Z][\\w-]*)=\"([^\"]*)\"");
-    private static final Pattern CARD_LINK =
-            Pattern.compile("class=\"m-card__link\"[^>]*?href=\"([^\"]+)\"");
-    private static final Pattern LIVE_TEXT =
-            Pattern.compile("status-live\"[^>]*>([^<]*)<");
-    private static final Pattern HOME_SCORE =
-            Pattern.compile("data-split-home-score=\"[^\"]*\"[^>]*>([^<]*)<");
-    private static final Pattern AWAY_SCORE =
-            Pattern.compile("data-split-away-score=\"[^\"]*\"[^>]*>([^<]*)<");
-
-    private static final Pattern CAT_BUTTON =
-            Pattern.compile("<button\\b[^>]*class=\"m-cat-band__item[^\"]*\"[^>]*>");
-    private static final Pattern CAT_LABEL = Pattern.compile("m-cat-band__label\">([^<]*)<");
-    private static final Pattern CAT_LIVE = Pattern.compile("m-hud-live\">(\\d+)<");
-    private static final Pattern CAT_SOON = Pattern.compile("m-hud-soon\">(\\d+)<");
-
-    private static final Pattern SHOW_MORE =
-            Pattern.compile("<button\\b[^>]*class=\"m-show-more\"[^>]*>");
 
     /** A "Load more" control: the IDs the server did not inline, fetched via an AJAX endpoint. */
     static final class ShowMore {
@@ -51,34 +30,34 @@ final class SiteParser {
     private SiteParser() {}
 
     /** Parses the category band and all inline cards of a listing page. */
-    static Snapshot parseListing(String html, String baseUrl) {
+    static Snapshot parseListing(ParserRules r, String html, String baseUrl) {
         Snapshot s = new Snapshot();
         s.sourceBaseUrl = baseUrl;
-        parseCategories(html, s);
-        s.events.addAll(parseCards(html, baseUrl));
+        parseCategories(r, html, s);
+        s.events.addAll(parseCards(r, html, baseUrl));
         return s;
     }
 
-    static void parseCategories(String html, Snapshot into) {
-        Matcher m = CAT_BUTTON.matcher(html);
+    static void parseCategories(ParserRules r, String html, Snapshot into) {
+        Matcher m = r.catButton.matcher(html);
         while (m.find()) {
             Map<String, String> attrs = attrs(m.group());
             String cat = attrs.get("data-m-cat");
             if (cat == null || !cat.matches("\\d+")) continue; // skips the "All" entry
             int end = html.indexOf("</button>", m.end());
             String inner = end > 0 ? html.substring(m.end(), end) : "";
-            String name = firstGroup(CAT_LABEL, inner, "Category " + cat);
+            String name = firstGroup(r.catLabel, inner, "Category " + cat);
             Snapshot.Category c = new Snapshot.Category(Integer.parseInt(cat), unescape(name).trim());
-            c.liveCount = parseInt(firstGroup(CAT_LIVE, inner, "0"));
-            c.soonCount = parseInt(firstGroup(CAT_SOON, inner, "0"));
+            c.liveCount = parseInt(firstGroup(r.catLive, inner, "0"));
+            c.soonCount = parseInt(firstGroup(r.catSoon, inner, "0"));
             if (into.category(c.id) == null) into.categories.add(c);
         }
     }
 
     /** Parses every match card in an HTML fragment (a page or an AJAX payload). */
-    static List<Event> parseCards(String html, String baseUrl) {
+    static List<Event> parseCards(ParserRules r, String html, String baseUrl) {
         List<Event> out = new ArrayList<>();
-        Matcher m = CARD_START.matcher(html);
+        Matcher m = r.cardStart.matcher(html);
         List<int[]> spans = new ArrayList<>();
         while (m.find()) spans.add(new int[]{m.start(), m.end()});
 
@@ -88,29 +67,29 @@ final class SiteParser {
             int next = i + 1 < spans.size() ? spans.get(i + 1)[0] : Math.min(html.length(), tagEnd + 6000);
             String tag = html.substring(start, tagEnd);
             String body = html.substring(tagEnd, next);
-            Event e = parseCard(tag, body, baseUrl);
+            Event e = parseCard(r, tag, body, baseUrl);
             if (e != null) out.add(e);
         }
         return out;
     }
 
-    private static Event parseCard(String tag, String body, String baseUrl) {
-        Matcher cm = CARD_START.matcher(tag);
+    private static Event parseCard(ParserRules r, String tag, String body, String baseUrl) {
+        Matcher cm = r.cardStart.matcher(tag);
         if (!cm.find()) return null;
         String classes = cm.group(1);
         Map<String, String> a = attrs(cm.group(2));
 
         Event e = new Event();
-        e.id = firstNonEmpty(a.get("data-match-id"), a.get("data-mac-id"));
-        e.categoryId = parseInt(a.get("data-cat-id"));
-        e.startTs = parseLong(a.get("data-time"));
-        e.live = classes.contains("m-card--live");
-        e.hot = classes.contains("m-card--hot") || "1".equals(a.get("data-hot-game"));
-        e.hotRank = parseInt(a.get("data-hot-rank"));
-        e.premium = "1".equals(a.get("data-pro-only"));
-        e.league = firstNonEmpty(a.get("data-league-key"), a.get("data-sport-tag"));
+        e.id = firstNonEmpty(a.get(r.attrId), a.get(r.attrIdAlt));
+        e.categoryId = parseInt(a.get(r.attrCategory));
+        e.startTs = parseLong(a.get(r.attrTime));
+        e.live = classes.contains(r.liveClass);
+        e.hot = classes.contains(r.hotClass) || "1".equals(a.get(r.attrHot));
+        e.hotRank = parseInt(a.get(r.attrHotRank));
+        e.premium = "1".equals(a.get(r.attrPro));
+        e.league = firstNonEmpty(a.get(r.attrLeague), a.get(r.attrLeagueAlt));
 
-        String names = unescape(a.get("data-team-names"));
+        String names = unescape(a.get(r.attrTeams));
         if (names != null && !names.isEmpty()) {
             int bar = names.indexOf('|');
             if (bar >= 0) {
@@ -122,11 +101,11 @@ final class SiteParser {
         }
 
         String href = a.get("href"); // <a class="m-card"> variant
-        if (href == null || href.isEmpty()) href = firstGroup(CARD_LINK, body, "");
+        if (href == null || href.isEmpty()) href = firstGroup(r.cardLink, body, "");
         if (href.isEmpty()) return null;
         e.url = absolute(unescape(href), baseUrl);
 
-        if (e.home.isEmpty()) e.home = unescape(firstGroup(CARD_TITLE, body, "")).trim();
+        if (e.home.isEmpty()) e.home = unescape(firstGroup(r.cardTitle, body, "")).trim();
         if (e.home.isEmpty()) {
             Matcher al = Pattern.compile("aria-label=\"([^\"]+)\"").matcher(body);
             if (al.find()) e.home = unescape(al.group(1));
@@ -134,19 +113,19 @@ final class SiteParser {
         if (e.home.isEmpty()) return null;
         if (e.id.isEmpty()) e.id = e.url;
 
-        e.crestHome = absolute(unescape(a.get("data-mark-home")), baseUrl);
-        e.crestAway = absolute(unescape(a.get("data-mark-away")), baseUrl);
+        e.crestHome = absolute(unescape(a.get(r.attrMarkHome)), baseUrl);
+        e.crestAway = absolute(unescape(a.get(r.attrMarkAway)), baseUrl);
 
-        e.liveText = unescape(firstGroup(LIVE_TEXT, body, "")).trim();
-        String hs = firstGroup(HOME_SCORE, body, "").trim();
-        String as = firstGroup(AWAY_SCORE, body, "").trim();
+        e.liveText = unescape(firstGroup(r.liveText, body, "")).trim();
+        String hs = firstGroup(r.homeScore, body, "").trim();
+        String as = firstGroup(r.awayScore, body, "").trim();
         if (!hs.isEmpty() && !as.isEmpty()) e.score = hs + " - " + as;
         return e;
     }
 
-    static List<ShowMore> parseShowMore(String html) {
+    static List<ShowMore> parseShowMore(ParserRules r, String html) {
         List<ShowMore> out = new ArrayList<>();
-        Matcher m = SHOW_MORE.matcher(html);
+        Matcher m = r.showMore.matcher(html);
         while (m.find()) {
             Map<String, String> a = attrs(m.group());
             ShowMore sm = new ShowMore();

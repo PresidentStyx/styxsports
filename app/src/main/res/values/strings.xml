@@ -16,12 +16,18 @@
     <string name="loading_events">Loading today’s games…</string>
     <string name="load_failed">Couldn’t load the schedule.\n%1$s</string>
     <string name="no_events">Nothing is listed right now.</string>
+    <string name="no_events_filtered">Nothing in %1$s right now.</string>
     <string name="status_offline">Offline · showing schedule from %1$s</string>
     <plurals name="status_updated">
         <item quantity="one">Updated %1$s · %2$d live</item>
         <item quantity="other">Updated %1$s · %2$d live</item>
     </plurals>
     <string name="row_live_now">Live Now</string>
+    <string name="row_continue">Continue Watching</string>
+    <string name="row_continue_sub">Games you opened recently</string>
+    <string name="row_favorites">Your Teams</string>
+    <string name="row_favorites_sub">Starred teams and leagues</string>
+    <string name="chip_all">All</string>
     <plurals name="count_live">
         <item quantity="one">%d game</item>
         <item quantity="other">%d games</item>
@@ -34,10 +40,40 @@
     <string name="badge_hot">🔥 Trending</string>
     <string name="badge_hot_rank">🔥 #%1$d</string>
     <string name="badge_premium">★ Premium</string>
+    <string name="badge_favorite">★</string>
 
+    <!-- Favourites dialog (long-press on a card) -->
+    <string name="fav_title">Favorites</string>
+    <string name="fav_add_team">☆  Star %1$s</string>
+    <string name="fav_remove_team">★  Unstar %1$s</string>
+    <string name="fav_add_league">☆  Star league: %1$s</string>
+    <string name="fav_remove_league">★  Unstar league: %1$s</string>
+    <string name="fav_added">Starred %1$s</string>
+    <string name="fav_removed">Unstarred %1$s</string>
+
+    <!-- Native player -->
+    <string name="np_connecting">Connecting…</string>
+    <string name="np_connecting_to">Connecting to %1$s…\n\n▶ tries the next server</string>
+    <string name="np_buffering">Buffering…</string>
+    <string name="np_paused">Paused</string>
+    <string name="np_server_of">Server %1$d of %2$d  ·  %3$s</string>
+    <string name="np_hint">◀ ▶ switch server   ·   OK play/pause   ·   Back home</string>
+    <string name="np_reconnecting">Reconnecting to %1$s…</string>
+    <string name="np_trying_next">%1$s isn’t responding — trying %2$s</string>
+    <string name="np_only_server">This game has only one server.</string>
+    <string name="np_all_failed">None of the servers are playing right now.\nThe stream may not have started yet — try again in a minute.</string>
+    <string name="np_premium_only">This stream is for the site’s premium members only.\nPick another game from the home screen.</string>
+    <string name="np_page_failed">Couldn’t open this game.\n%1$s</string>
+    <string name="np_open_web">Open web player</string>
+    <string name="np_back_home">Back to home</string>
+
+    <!-- Updates -->
     <string name="update_title">Update available</string>
+    <string name="update_ready_title">Update ready to install</string>
     <string name="update_message">Styx Sports %1$s is available (you have %2$s).</string>
+    <string name="update_ready_message">Styx Sports %1$s has been downloaded (you have %2$s). Install takes a few seconds; the app reopens itself.</string>
     <string name="update_install">Install</string>
+    <string name="update_install_now">Install now</string>
     <string name="update_later">Later</string>
     <string name="update_downloading">Downloading update…</string>
     <string name="update_failed">Update failed: %1$s</string>

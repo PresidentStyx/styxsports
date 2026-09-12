@@ -25,7 +25,6 @@ final class SiteRepository {
     private static final String PREFS = "styxsports";
     private static final String KEY_SNAPSHOT = "snapshot_json";
     private static final String KEY_DISCOVERED_BASE = "discovered_base";
-    private static final String STATUS_PATH = "/data/espn_status_batch.json";
     private static final int AJAX_BATCH = 50;
 
     private final Context ctx;
@@ -55,7 +54,7 @@ final class SiteRepository {
         IOException last = null;
         for (String base : candidates) {
             try {
-                Snapshot s = fetchFrom(base);
+                Snapshot s = fetchFrom(cfg.parser, base);
                 if (!s.events.isEmpty()) {
                     remember(base, s);
                     return s;
@@ -68,7 +67,7 @@ final class SiteRepository {
         // Both known origins failed: find where the gateway's mirror links land today.
         String found = discoverBase(cfg);
         if (found != null && !candidates.contains(found)) {
-            Snapshot s = fetchFrom(found);
+            Snapshot s = fetchFrom(cfg.parser, found);
             if (!s.events.isEmpty()) {
                 remember(found, s);
                 return s;
@@ -78,31 +77,31 @@ final class SiteRepository {
     }
 
     /** Cheap refresh of live clocks/scores for an existing snapshot. */
-    void refreshStatus(Snapshot s) {
+    void refreshStatus(RemoteConfig cfg, Snapshot s) {
         if (s.sourceBaseUrl.isEmpty()) return;
         try {
-            SiteParser.mergeStatus(Http.getText(s.sourceBaseUrl + STATUS_PATH), s.events);
+            SiteParser.mergeStatus(Http.getText(s.sourceBaseUrl + cfg.parser.statusPath), s.events);
         } catch (IOException ignored) {
             // optional
         }
     }
 
-    private Snapshot fetchFrom(String base) throws IOException {
+    private Snapshot fetchFrom(ParserRules r, String base) throws IOException {
         String html = Http.getText(base + "/");
-        Snapshot s = SiteParser.parseListing(html, base);
+        Snapshot s = SiteParser.parseListing(r, html, base);
         if (s.events.isEmpty()) return s;
 
         Set<String> seen = new HashSet<>();
         for (Event e : s.events) seen.add(e.id);
 
-        for (SiteParser.ShowMore sm : SiteParser.parseShowMore(html)) {
+        for (SiteParser.ShowMore sm : SiteParser.parseShowMore(r, html)) {
             for (int i = 0; i < sm.ids.size(); i += AJAX_BATCH) {
                 List<String> batch = sm.ids.subList(i, Math.min(sm.ids.size(), i + AJAX_BATCH));
                 try {
                     String body = "category_id=" + sm.categoryId + "&ids=" + join(batch);
                     JSONObject payload = new JSONObject(Http.postForm(base + sm.endpoint, body));
                     if (!payload.optBoolean("ok", false)) continue;
-                    for (Event e : SiteParser.parseCards(payload.optString("html", ""), base)) {
+                    for (Event e : SiteParser.parseCards(r, payload.optString("html", ""), base)) {
                         if (seen.add(e.id)) s.events.add(e);
                     }
                 } catch (Exception ignored) {
@@ -114,14 +113,14 @@ final class SiteRepository {
         // Small categories (UFC, Boxing, ...) are often not inlined on the front page at all;
         // their dedicated "/<sport>-streams/" page lists them.
         List<String> sportPaths = new ArrayList<>();
-        Matcher pm = Pattern.compile("href=\"(/([a-z0-9-]+)-streams/)\"").matcher(html);
+        Matcher pm = r.sportPage.matcher(html);
         while (pm.find()) if (!sportPaths.contains(pm.group(1))) sportPaths.add(pm.group(1));
         for (Snapshot.Category c : s.categories) {
             if (c.liveCount + c.soonCount == 0 || hasEvents(s, c.id)) continue;
             String path = sportPathFor(c.name, sportPaths);
             if (path == null) continue;
             try {
-                for (Event e : SiteParser.parseCards(Http.getText(base + path), base)) {
+                for (Event e : SiteParser.parseCards(r, Http.getText(base + path), base)) {
                     if (e.categoryId == 0) e.categoryId = c.id;
                     if (seen.add(e.id)) s.events.add(e);
                 }
@@ -131,7 +130,7 @@ final class SiteRepository {
         }
 
         try {
-            SiteParser.mergeStatus(Http.getText(base + STATUS_PATH), s.events);
+            SiteParser.mergeStatus(Http.getText(base + r.statusPath), s.events);
         } catch (IOException ignored) {
             // optional
         }

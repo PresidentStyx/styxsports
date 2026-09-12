@@ -58,6 +58,8 @@ public class PlayerActivity extends Activity {
     private static final String STATE_DIRECT = "direct";
     private static final String STATE_DIRECT_HOST = "directHost";
     static final String EXTRA_PLAYER_MODE = "player";
+    static final String EXTRA_EMBED_URL = "embedUrl";
+    static final String EXTRA_EMBED_REFERER = "embedReferer";
 
     private static final long CURSOR_HIDE_DELAY_MS = 4000L;
     private static final long LOADING_OVERLAY_TIMEOUT_MS = 12_000L;
@@ -83,6 +85,13 @@ public class PlayerActivity extends Activity {
         return new Intent(ctx, PlayerActivity.class)
                 .putExtra(EXTRA_URL, url)
                 .putExtra(EXTRA_PLAYER_MODE, playerMode);
+    }
+
+    /** Opens an already resolved embed page full screen (fallback from the native player). */
+    static Intent embedIntent(Context ctx, String streamPageUrl, String embedUrl, String referer) {
+        return intent(ctx, streamPageUrl, true)
+                .putExtra(EXTRA_EMBED_URL, embedUrl)
+                .putExtra(EXTRA_EMBED_REFERER, referer);
     }
 
     /** Full-screen styling for a resolved player page (Clappr/hls.js on a black body). */
@@ -222,6 +231,9 @@ public class PlayerActivity extends Activity {
                 cursorVisible = false;
             }
             webView.restoreState(savedInstanceState);
+        } else if (playerMode && getIntent().hasExtra(EXTRA_EMBED_URL)) {
+            loadDirect(new StreamResolver.Target(getIntent().getStringExtra(EXTRA_EMBED_URL),
+                    getIntent().getStringExtra(EXTRA_EMBED_REFERER)));
         } else if (playerMode && config.directPlayer) {
             openDirect(url);
         } else {
@@ -309,10 +321,16 @@ public class PlayerActivity extends Activity {
         showLoadingOverlay();
         handler.removeCallbacks(hideOverlayRunnable); // keep the splash up while resolving
         resolver.execute(() -> {
-            StreamResolver.Target target = StreamResolver.resolve(pageUrl);
+            StreamResolver.Target target = null;
+            try {
+                target = new StreamResolver(config.parser).resolve(pageUrl).active.embed;
+            } catch (Exception e) {
+                Log.w(TAG, "resolve failed: " + e);
+            }
+            final StreamResolver.Target resolved = target;
             handler.post(() -> {
                 if (isFinishing() || webView == null) return;
-                if (target == null) {
+                if (resolved == null) {
                     // Show the stream page; onPageFinished() gets a second chance to find the
                     // embed in the rendered page (see tryEmbedFromPage).
                     Log.i(TAG, "no player embed resolved; loading stream page");
@@ -321,7 +339,7 @@ public class PlayerActivity extends Activity {
                     webView.loadUrl(pageUrl);
                     return;
                 }
-                loadDirect(target);
+                loadDirect(resolved);
             });
         });
     }
@@ -880,7 +898,7 @@ public class PlayerActivity extends Activity {
     protected void onStop() {
         // Reached on every orderly exit (Back, Home button, another app on top). A process that
         // dies while a stream is open never gets here, which is what the marker detects.
-        CrashLog.clearPlayerOpen(this);
+        CrashLog.notePlayerClosedNormally(this);
         super.onStop();
     }
 

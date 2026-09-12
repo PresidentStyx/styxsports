@@ -3,19 +3,33 @@
 ![Styx Sports](art/logo-banner.png)
 
 A small native Android TV app for StreamEast: a real TV-style home screen
-built from the site's schedule, with a WebView only for the player.
+built from the site's schedule and a native full-screen player.
 
 - Shows up in the Android TV / Google TV / Fire TV launcher (leanback entry + banner).
 - **Native home**: rows per sport ("Live Now" first) of focusable cards with
   team crests, live clock and score, kick-off time, trending / premium badges.
   D-pad moves between cards, **OK** opens the stream, **Menu** refreshes,
-  **Back** exits. Live clocks refresh every minute, the schedule every 5.
+  **Back** exits. Live clocks and scores refresh every 30 s, the schedule every 5 min.
+- **Sport chips** under the logo (All · MLB · Soccer · UFC · CFB …) filter the
+  rows; the pick is remembered.
+- **Continue Watching** row: the games you opened in the last few hours.
+- **Favorites**: long-press **OK** on a card to star either team or the league/sport.
+  Starred games get a ★, sort first in every row and fill a **Your Teams** row.
+- **Native player**: picking a game resolves the stream page to its HLS playlist
+  and plays it with ExoPlayer (hardware decode, no web player, no ads).
+  **◀ ▶** (or channel / media prev-next keys) switch between the site's free
+  servers, **OK** or Play/Pause pauses, **Up/Down** shows the HUD (title, live
+  clock, score, "Server 2 of 4"), **Menu** reconnects, **Back** returns home.
+  A server that fails to start, stalls or returns an error is retried once with
+  a fresh playlist and then skipped automatically; the server that worked is
+  remembered per game. If no server can be played natively, the site's own web
+  player is offered as a fallback (below).
 - The schedule is parsed from the site's match cards (the site has no event
   JSON; the cards carry everything as `data-*` attributes) plus its live-status
   feed. The last result is cached, so the home paints instantly on launch.
 - If the site's domain changes, the app follows the mirror links on the
   gateway page to find the new one, and remembers it.
-- **Player**: the stream page opens in a WebView with the site's header, chat,
+- **WebView player** (fallback, or `nativePlayer: false`): the stream page opens in a WebView with the site's header, chat,
   newsletter and promos hidden by injected CSS, so the video is the page.
   Dark loading screen instead of a white flash; no scrollbars or text selection.
 - In the WebView, D-pad drives an on-screen pointer; **OK** clicks (hold OK +
@@ -33,7 +47,10 @@ built from the site's schedule, with a WebView only for the player.
 - Desktop user-agent so the site serves its full layout on a 1080p screen.
 - **Remote config**: site URL, host lists, UA and page script come from
   [`config.json`](config.json), fetched on every launch.
-- **Self-updating**: checks GitHub Releases on launch and offers a one-click install.
+- **Self-updating**: checks GitHub Releases on launch, downloads a newer APK in
+  the background and shows a single **Install now** card.
+- Crash reporter shows what happened on the next launch; force-stops, background
+  kills and updates are recognised from the OS exit reason and not reported.
 
 ## Install with Downloader (Fire Stick / Google TV)
 
@@ -67,7 +84,9 @@ the next launch (raw.githubusercontent.com caches for up to ~5 minutes).
 | `playerCss`            | CSS injected into stream pages opened from the home screen (hides site chrome, makes the player fill the width). Empty = built-in default. |
 | `playerScript`         | JavaScript run on stream pages opened from the home screen; empty = none.   |
 | `playerViewportWidth`  | CSS px width stream pages are laid out at in the player (default 1280, desktop layout scaled to fit the TV). 0 = leave the site's own viewport. |
-| `directPlayer`         | `true` (default): picking a game resolves the stream page's player embed and shows just the video full screen with autoplay; OK = play/pause, Back = home. `false`: show the site's stream page (server tabs etc.) as before. Falls back to the stream page automatically when there is no free embed (premium gate, not started). |
+| `nativePlayer`         | `true` (default): games play in the built-in ExoPlayer (server switching, HUD, auto-fallback). `false`: the WebView player below. |
+| `directPlayer`         | WebView player only. `true` (default): resolve the stream page's player embed and show just the video full screen with autoplay; OK = play/pause, Back = home. `false`: show the site's stream page (server tabs etc.). Falls back to the stream page automatically when there is no free embed (premium gate, not started). |
+| `parser`               | Object of site-markup rules (regexes, `data-*` attribute names, the status feed path, server-tab and player-embed patterns). Every key is optional and overrides the built-in default in [`ParserRules.java`](app/src/main/java/com/styxsports/tv/ParserRules.java); use it to repair parsing when the site changes its HTML without shipping an APK. |
 
 What the parser relies on (all on the `dataBaseUrl` front page): the category
 band buttons (`.m-cat-band__item[data-m-cat]`), the match cards
@@ -75,8 +94,12 @@ band buttons (`.m-cat-band__item[data-m-cat]`), the match cards
 `data-league-key`, `data-hot-rank`, `data-pro-only`, `data-mark-home/away`,
 and an `href`), the "Load more" buttons (`.m-show-more[data-ids]`, fetched
 through `/ajax/ajax_match_cards.php`), and `/data/espn_status_batch.json` for
-live clocks and scores. If the site changes that markup, flip `nativeHome` to
-`false` until the parser is updated.
+live clocks and scores. The player relies on the stream page's server tabs
+(`li.se-stream > a[href]`, `.is-active` / `.is-pro`), its `iframe#iframe` embed,
+and a playlist URL inside the embed chain (a quoted `….m3u8…` string or a
+base64 `atob("…")` argument). If the site changes any of that, patch the matching
+`parser` key in `config.json`; as a last resort flip `nativePlayer` /
+`nativeHome` to `false`.
 
 ### With a new APK (code changes)
 

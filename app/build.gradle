@@ -24,8 +24,8 @@ android {
         minSdk 21
         targetSdk 35
         // Keep versionName == git tag without the "v"; the in-app updater compares them.
-        versionCode 11
-        versionName '2.5'
+        versionCode 12
+        versionName '3.0'
     }
 
     signingConfigs {
@@ -67,4 +67,8 @@ dependencies {
     implementation 'androidx.core:core:1.13.1'
     // Team crests are served as SVG; Android has no built-in SVG decoder.
     implementation 'com.caverock:androidsvg-aar:1.4'
+    // Native HLS playback (server switching, HUD, hardware decode) instead of the site's web player.
+    implementation 'androidx.media3:media3-exoplayer:1.4.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
+    implementation 'androidx.media3:media3-ui:1.4.1'
 }

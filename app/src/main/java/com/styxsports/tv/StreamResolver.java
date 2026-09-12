@@ -1,22 +1,50 @@
 package com.styxsports.tv;
 
 import android.net.Uri;
+import android.util.Base64;
 import android.util.Log;
 
+import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Finds the actual video player behind a stream page.
+ * Turns a stream page into something playable.
  *
- * A stream page embeds the site's default server as {@code <iframe id="iframe" src=...>}; that
- * embed page usually wraps yet another iframe holding the real player (Clappr + hls.js). Loading
- * that innermost page directly gives a full-screen player with nothing else on it. Every hop is
- * fetched with the previous page as Referer because the embed hosts return 403 without one.
+ * A stream page lists its servers as tabs and embeds the active one as an iframe. The embed is a
+ * wrapper page around the real player page, which holds the HLS playlist URL (signed, expiring)
+ * in a script. Every hop is fetched with the previous page as Referer because the embed hosts
+ * return 403 without one, and the CDN expects the player page's origin as Referer/Origin.
+ *
+ * All methods block; call from a background thread.
  */
 final class StreamResolver {
+
+    private static final String TAG = "StyxResolver";
+    private static final int MAX_HOPS = 4;
+    /** Embed hosts answer slowly (measured ~14 s for the site's primary one) but do answer. */
+    private static final int HOP_READ_TIMEOUT_MS = 22_000;
+
+    /** One server tab on the stream page. */
+    static final class Server {
+        final String name;
+        /** Stream page URL for this server. */
+        final String pageUrl;
+        final boolean active;
+        final boolean premium;
+
+        Server(String name, String pageUrl, boolean active, boolean premium) {
+            this.name = name;
+            this.pageUrl = pageUrl;
+            this.active = active;
+            this.premium = premium;
+        }
+    }
 
     /** The page to load in the WebView and the Referer it must be loaded with. */
     static final class Target {
@@ -29,72 +57,230 @@ final class StreamResolver {
         }
     }
 
-    private static final String TAG = "StyxResolver";
+    /** A fully resolved server: HLS playlist for the native player, embed for the WebView. */
+    static final class Stream {
+        final Server server;
+        /** Signed HLS playlist URL; null when the server has no HLS player we understand. */
+        final String hlsUrl;
+        /** Origin of the page that hosts the player, sent as Referer/Origin to the CDN. */
+        final String playerOrigin;
+        /** Outer embed page (WebView fallback); null for a gated/empty server. */
+        final Target embed;
+        /** Player state on the page, e.g. "live", "gate", "" when unknown. */
+        final String state;
 
-    private static final Pattern IFRAME = Pattern.compile(
-            "<iframe\\b([^>]*)>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern ATTR = Pattern.compile(
-            "\\b(id|src|class)\\s*=\\s*\"([^\"]*)\"", Pattern.CASE_INSENSITIVE);
-    /** Iframes that are never the player. */
+        Stream(Server server, String hlsUrl, String playerOrigin, Target embed, String state) {
+            this.server = server;
+            this.hlsUrl = hlsUrl;
+            this.playerOrigin = playerOrigin;
+            this.embed = embed;
+            this.state = state;
+        }
+
+        boolean playableNatively() {
+            return hlsUrl != null;
+        }
+    }
+
+    /** The stream page with its server tabs and the active server resolved. */
+    static final class Resolved {
+        final List<Server> servers;
+        /** Index of the active server in {@link #servers}. */
+        final int activeIndex;
+        final Stream active;
+
+        Resolved(List<Server> servers, int activeIndex, Stream active) {
+            this.servers = servers;
+            this.activeIndex = activeIndex;
+            this.active = active;
+        }
+    }
+
     private static final Pattern IGNORE_SRC = Pattern.compile(
             "about:blank|sso-frame|streamea\\.st|chat|recaptcha|google|facebook|twitter|"
                     + "histats|doubleclick|adsystem", Pattern.CASE_INSENSITIVE);
 
-    private StreamResolver() {}
+    private final ParserRules rules;
 
-    /**
-     * @return the stream page's embed (the outer player page) and the Referer to load it with, or
-     *         null when the page has no playable embed (premium gate, not started yet, unknown
-     *         markup, fetch failed) and should be shown as-is.
-     *
-     * Only the first hop is resolved on purpose: the innermost player pages refuse to run outside
-     * an iframe ({@code if(window==window.top) location="/"}), while the outer embed page is a
-     * plain full-size iframe wrapper that is same-origin with the player, so the WebView can
-     * script play/pause into it.
-     */
-    static Target resolve(String streamPageUrl) {
-        String html;
-        try {
-            html = Http.getText(streamPageUrl);
-        } catch (Exception e) {
-            Log.w(TAG, "stream page fetch failed: " + e);
-            return null;
+    StreamResolver(ParserRules rules) {
+        this.rules = rules;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Stream page
+    // ---------------------------------------------------------------------------------------------
+
+    /** A fetched stream page: its server tabs and the HTML (which embeds the active server). */
+    static final class Page {
+        final List<Server> servers;
+        final int activeIndex;
+        final String html;
+
+        Page(List<Server> servers, int activeIndex, String html) {
+            this.servers = servers;
+            this.activeIndex = activeIndex;
+            this.html = html;
         }
-        String embed = mainEmbed(html, streamPageUrl);
-        Log.i(TAG, "stream page " + html.length() + " chars, player-root=" + html.contains("se-player-root")
-                + ", iframes=" + countIframes(html) + ", state=" + attr(html, "data-state") + ", embed=" + embed);
-        return embed == null ? null : new Target(embed, streamPageUrl);
+    }
+
+    /** Fetches the stream page and its server tabs only (fast; no embed hops). */
+    Page page(String streamPageUrl) throws IOException {
+        String html = Http.getText(streamPageUrl);
+        List<Server> servers = parseServers(html, streamPageUrl);
+        int activeIndex = 0;
+        for (int i = 0; i < servers.size(); i++) if (servers.get(i).active) activeIndex = i;
+        if (servers.isEmpty()) {
+            servers.add(new Server("Server 1", streamPageUrl, true, false));
+        }
+        Log.i(TAG, "stream page: " + servers.size() + " servers, active=" + activeIndex);
+        return new Page(servers, activeIndex, html);
+    }
+
+    /** Fetches the stream page: server tabs plus the active server fully resolved. */
+    Resolved resolve(String streamPageUrl) throws IOException {
+        Page p = page(streamPageUrl);
+        Stream active = resolve(p.servers.get(p.activeIndex), p);
+        return new Resolved(p.servers, p.activeIndex, active);
+    }
+
+    /** Resolves one server, reusing the page HTML when it is the page's active server. */
+    Stream resolve(Server server, Page page) throws IOException {
+        if (page != null && page.servers.get(page.activeIndex) == server) {
+            return resolveFromHtml(server, page.html);
+        }
+        return resolveFromHtml(server, Http.getText(server.pageUrl));
+    }
+
+    /** Server tabs, in page order. Empty when the markup has none. */
+    List<Server> parseServers(String html, String pageUrl) {
+        List<Server> out = new ArrayList<>();
+        Matcher m = rules.serverItem.matcher(html);
+        while (m.find()) {
+            String classes = m.group(1) == null ? "" : m.group(1);
+            String href = m.group(2);
+            String inner = m.group(3) == null ? "" : m.group(3);
+            String name = SiteParser.unescape(firstGroup(rules.serverName, inner, "")).trim();
+            if (name.isEmpty()) name = "Server " + (out.size() + 1);
+            out.add(new Server(name, resolveUrl(href, pageUrl),
+                    classes.contains(rules.serverActiveClass), classes.contains(rules.serverProClass)));
+        }
+        return out;
+    }
+
+    private Stream resolveFromHtml(Server server, String pageHtml) {
+        String state = firstGroup(rules.playerState, pageHtml, "");
+        String embedUrl = mainEmbed(pageHtml, server.pageUrl);
+        if (embedUrl == null) {
+            Log.i(TAG, server.name + ": no embed (state=" + state + ")");
+            return new Stream(server, null, null, null, state);
+        }
+        Target embed = new Target(embedUrl, server.pageUrl);
+
+        // Walk the embed chain until a page carries the playlist URL.
+        Target hop = embed;
+        for (int depth = 0; depth < MAX_HOPS; depth++) {
+            String inner;
+            try {
+                inner = fetchWithRetry(hop);
+            } catch (IOException e) {
+                Log.w(TAG, server.name + ": hop " + depth + " failed: " + e.getMessage());
+                break;
+            }
+            String hls = findHls(inner);
+            if (hls != null) {
+                Log.i(TAG, server.name + ": hls at depth " + depth + " on " + hostOf(hop.url));
+                return new Stream(server, hls, originOf(hop.url), embed, state);
+            }
+            String next = firstEmbed(inner, hop.url);
+            if (next == null) {
+                Log.i(TAG, server.name + ": dead end at " + hostOf(hop.url) + " (" + inner.length()
+                        + " chars) " + fingerprint(inner));
+                break;
+            }
+            hop = new Target(next, hop.url);
+        }
+        Log.i(TAG, server.name + ": embed only (no hls found)");
+        return new Stream(server, null, null, embed, state);
+    }
+
+    /** Embed hosts are flaky: one dropped connection is not a verdict on the server. */
+    private static String fetchWithRetry(Target hop) throws IOException {
+        try {
+            return Http.getText(hop.url, hop.referer, HOP_READ_TIMEOUT_MS);
+        } catch (SocketTimeoutException timeout) {
+            throw timeout; // a host this slow will not recover within a retry; move on
+        } catch (IOException first) {
+            Log.w(TAG, "retrying " + hostOf(hop.url) + " after: " + first.getMessage());
+            return Http.getText(hop.url, hop.referer, HOP_READ_TIMEOUT_MS);
+        }
+    }
+
+    /** Playlist URL in a player page: plain (JSON-escaped) first, then base64 (atob). */
+    private String findHls(String html) {
+        String plain = firstGroup(rules.hlsUrl, html, null);
+        if (plain != null) return unescapeJs(plain);
+        Matcher m = rules.hlsUrlBase64.matcher(html);
+        while (m.find()) {
+            try {
+                String decoded = new String(Base64.decode(m.group(1), Base64.DEFAULT), "UTF-8").trim();
+                if (decoded.startsWith("http") && (decoded.contains(".m3u8") || decoded.contains("/hls"))) {
+                    return decoded;
+                }
+            } catch (Exception ignored) {
+                // not a URL
+            }
+        }
+        return null;
+    }
+
+    /** Script/iframe sources and playback hints of a page, for diagnosing unsupported players. */
+    private static String fingerprint(String html) {
+        StringBuilder b = new StringBuilder("scripts=");
+        Matcher m = Pattern.compile("<script[^>]*\\ssrc=\"([^\"]+)\"").matcher(html);
+        int n = 0;
+        while (m.find() && n++ < 8) b.append(m.group(1)).append(' ');
+        b.append("hints=");
+        Matcher h = Pattern.compile("[^\\s\"'<>]{0,60}(m3u8|\\.mpd|hls\\(|\\.php\\?|source:|file:|src:)[^\\s\"'<>]{0,60}")
+                .matcher(html);
+        n = 0;
+        while (h.find() && n++ < 8) b.append(h.group()).append(' ');
+        return b.toString();
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------------------------------
+
+    /** The stream page's player iframe: the configured id first, else the first off-site iframe. */
+    private String mainEmbed(String html, String pageUrl) {
+        String byId = firstGroup(rules.embedIframe, html, null);
+        if (byId != null && !IGNORE_SRC.matcher(byId).find()) return resolveUrl(byId, pageUrl);
+        String pageHost = hostOf(pageUrl);
+        Matcher m = rules.anyIframe.matcher(html);
+        while (m.find()) {
+            String src = m.group(1);
+            if (src == null || src.isEmpty() || IGNORE_SRC.matcher(src).find()) continue;
+            String abs = resolveUrl(src, pageUrl);
+            if (!hostOf(abs).equals(pageHost)) return abs;
+        }
+        return null;
+    }
+
+    private String firstEmbed(String html, String pageUrl) {
+        Matcher m = rules.anyIframe.matcher(html);
+        while (m.find()) {
+            String src = m.group(1);
+            if (src != null && !src.isEmpty() && !IGNORE_SRC.matcher(src).find()) {
+                return resolveUrl(src, pageUrl);
+            }
+        }
+        return null;
     }
 
     /** True for an embed URL a stream page may hand us (not the site itself, not an SSO frame). */
     static boolean isEmbedUrl(String src, String pageUrl) {
         if (src == null || src.isEmpty() || IGNORE_SRC.matcher(src).find()) return false;
         return !hostOf(src).equals(hostOf(pageUrl));
-    }
-    /** The stream page's player iframe: id="iframe" first, else the first non-site iframe. */
-    private static String mainEmbed(String html, String pageUrl) {
-        String byId = null;
-        String fallback = null;
-        Matcher m = IFRAME.matcher(html);
-        String pageHost = hostOf(pageUrl);
-        while (m.find()) {
-            String attrs = m.group(1);
-            String id = null, src = null;
-            Matcher a = ATTR.matcher(attrs);
-            while (a.find()) {
-                String name = a.group(1).toLowerCase(Locale.ROOT);
-                if (name.equals("id")) id = a.group(2);
-                else if (name.equals("src")) src = a.group(2);
-            }
-            if (src == null || src.isEmpty() || IGNORE_SRC.matcher(src).find()) continue;
-            String abs = resolveUrl(src, pageUrl);
-            if ("iframe".equals(id)) {
-                byId = abs;
-                break;
-            }
-            if (fallback == null && !hostOf(abs).equals(pageHost)) fallback = abs;
-        }
-        return byId != null ? byId : fallback;
     }
 
     /** Resolves a (possibly relative, HTML-escaped) src against the page it appeared on. */
@@ -107,25 +293,30 @@ final class StreamResolver {
         }
     }
 
-    private static String originOf(String url) {
+    /** Undoes JSON/JS string escaping: \u0026 -> &, \/ -> /. */
+    static String unescapeJs(String s) {
+        Matcher m = Pattern.compile("\\\\u([0-9a-fA-F]{4})").matcher(s);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            m.appendReplacement(sb, Matcher.quoteReplacement(
+                    String.valueOf((char) Integer.parseInt(m.group(1), 16))));
+        }
+        m.appendTail(sb);
+        return sb.toString().replace("\\/", "/");
+    }
+
+    static String originOf(String url) {
         Uri u = Uri.parse(url);
         return u.getScheme() + "://" + u.getHost();
-    }
-
-    private static int countIframes(String html) {
-        int n = 0;
-        Matcher m = IFRAME.matcher(html);
-        while (m.find()) n++;
-        return n;
-    }
-
-    private static String attr(String html, String name) {
-        Matcher m = Pattern.compile(name + "=\"([^\"]*)\"").matcher(html);
-        return m.find() ? m.group(1) : "-";
     }
 
     static String hostOf(String url) {
         String h = Uri.parse(url).getHost();
         return h == null ? "" : h.toLowerCase(Locale.ROOT);
+    }
+
+    private static String firstGroup(Pattern p, String in, String fallback) {
+        Matcher m = p.matcher(in);
+        return m.find() ? m.group(1) : fallback;
     }
 }

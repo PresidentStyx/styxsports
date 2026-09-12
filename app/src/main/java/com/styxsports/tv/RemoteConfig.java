@@ -74,12 +74,17 @@ final class RemoteConfig {
     final int playerViewportWidth;
     /** Load the innermost player page full screen instead of the site's stream page. */
     final boolean directPlayer;
+    /** Play streams with the built-in ExoPlayer (server switching, HUD); false = WebView player. */
+    final boolean nativePlayer;
+    /** Site markup rules; overridable from config so parsing can be fixed without an APK. */
+    final ParserRules parser;
     final String rawJson;
 
     private RemoteConfig(String homeUrl, String dataBaseUrl, boolean nativeHome,
                          List<String> allowed, List<String> blocked, String userAgent,
                          String pageScript, String playerCss, String playerScript,
-                         int playerViewportWidth, boolean directPlayer, String rawJson) {
+                         int playerViewportWidth, boolean directPlayer, boolean nativePlayer,
+                         ParserRules parser, String rawJson) {
         this.homeUrl = homeUrl;
         this.dataBaseUrl = stripTrailingSlash(dataBaseUrl);
         this.nativeHome = nativeHome;
@@ -91,12 +96,15 @@ final class RemoteConfig {
         this.playerScript = playerScript;
         this.playerViewportWidth = playerViewportWidth;
         this.directPlayer = directPlayer;
+        this.nativePlayer = nativePlayer;
+        this.parser = parser;
         this.rawJson = rawJson;
     }
 
     static RemoteConfig defaults() {
         return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_DATA_BASE_URL, true, DEFAULT_ALLOWED,
-                DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "", DEFAULT_PLAYER_VIEWPORT_WIDTH, true, "");
+                DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "", DEFAULT_PLAYER_VIEWPORT_WIDTH, true, true,
+                ParserRules.defaults(), "");
     }
 
     static RemoteConfig parse(String json) throws JSONException {
@@ -119,6 +127,8 @@ final class RemoteConfig {
                 o.optString("playerScript", "").trim(),
                 o.optInt("playerViewportWidth", DEFAULT_PLAYER_VIEWPORT_WIDTH),
                 o.optBoolean("directPlayer", true),
+                o.optBoolean("nativePlayer", true),
+                ParserRules.from(o.optJSONObject("parser")),
                 json);
     }
 

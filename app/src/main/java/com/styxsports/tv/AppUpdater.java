@@ -83,12 +83,44 @@ final class AppUpdater {
     }
 
     static File download(Context ctx, Release release) throws IOException {
-        File dir = new File(ctx.getCacheDir(), "updates");
-        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Cannot create " + dir);
+        File dir = updatesDir(ctx);
         File apk = new File(dir, ASSET_NAME);
         Http.getToFile(release.apkUrl, apk, MAX_APK_BYTES);
         if (apk.length() < 10_000) throw new IOException("Downloaded APK is suspiciously small");
         return apk;
+    }
+
+    /**
+     * Background pre-download: the APK is kept under a version-specific name so a copy fetched
+     * on an earlier launch is reused and stale versions are removed.
+     */
+    static File downloadIfNeeded(Context ctx, Release release) throws IOException {
+        File dir = updatesDir(ctx);
+        File apk = new File(dir, "StyxSports-" + release.version + ".apk");
+        File[] old = dir.listFiles();
+        if (old != null) {
+            for (File f : old) if (!f.equals(apk)) f.delete();
+        }
+        if (apk.isFile() && apk.length() > 10_000) return apk;
+        File tmp = new File(dir, apk.getName() + ".part");
+        Http.getToFile(release.apkUrl, tmp, MAX_APK_BYTES);
+        if (tmp.length() < 10_000 || !tmp.renameTo(apk)) {
+            tmp.delete();
+            throw new IOException("Update download incomplete");
+        }
+        return apk;
+    }
+
+    /** Nothing to install: drop any leftover downloads. */
+    static void cleanup(Context ctx) {
+        File[] files = new File(ctx.getCacheDir(), "updates").listFiles();
+        if (files != null) for (File f : files) f.delete();
+    }
+
+    private static File updatesDir(Context ctx) throws IOException {
+        File dir = new File(ctx.getCacheDir(), "updates");
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Cannot create " + dir);
+        return dir;
     }
 
     static Intent installIntent(Context ctx, File apk) {

@@ -39,6 +39,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Native HLS player for a game (server switching, HUD). -->
+        <activity
+            android:name=".NativePlayerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.StyxSports.Player" />
+
         <!-- WebView for the stream page (or the whole site as a fallback). -->
         <activity
             android:name=".PlayerActivity"

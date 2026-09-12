@@ -46,7 +46,13 @@
 
   "_playerViewportWidth": "CSS px width stream pages are laid out at in the player (desktop layout, scaled to fit). 0 = leave the site's own viewport.",
   "playerViewportWidth": 1280,
-  "_directPlayer": "true = resolve the stream page to its inner video player and show that full screen with autoplay; false = show the site's stream page with server tabs.",
+  "_directPlayer": "WebView player only (nativePlayer=false or native fallback): true = resolve the stream page to its inner video player and show that full screen with autoplay; false = show the site's stream page with server tabs.",
   "directPlayer": true,
-  "playerScript": ""
+  "playerScript": "",
+
+  "_nativePlayer": "true = play streams with the built-in player (ExoPlayer: server switching with Left/Right, HUD, automatic fallback). false = the WebView player (v2.x behaviour). The native player falls back to the WebView by itself when it cannot extract a playlist.",
+  "nativePlayer": true,
+
+  "_parser": "Site markup rules. Every key is optional and overrides the app's built-in default (see ParserRules.java for the full list and defaults). Regexes use Java syntax with group 1 as the value. Use this when the site changes its HTML and the home screen or player stop working. Example: {\"cardStart\": \"<(?:div|a)\\\\s+class=\\\"m-card\\\\b([^\\\"]*)\\\"([^>]*)>\", \"statusPath\": \"/data/espn_status_batch.json\", \"serverItem\": \"...\", \"hlsUrl\": \"...\"}",
+  "parser": {}
 }

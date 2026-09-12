@@ -28,15 +28,31 @@ final class UpdateFlow {
         this.io = io;
     }
 
-    /** Background check; shows the offer dialog on the main thread if a newer release exists. */
+    /**
+     * Background check. A newer release is downloaded quietly first, so the card that appears
+     * has a single "Install now" step; if the download fails the classic offer (download on
+     * request) is shown instead.
+     */
     void checkInBackground() {
         io.execute(() -> {
             try {
                 AppUpdater.Release latest = AppUpdater.fetchLatest();
-                if (latest != null
-                        && AppUpdater.isNewer(latest.version, AppUpdater.installedVersion(activity))) {
-                    handler.post(() -> offer(latest));
+                if (latest == null
+                        || !AppUpdater.isNewer(latest.version, AppUpdater.installedVersion(activity))) {
+                    AppUpdater.cleanup(activity);
+                    return;
                 }
+                File apk;
+                try {
+                    apk = AppUpdater.downloadIfNeeded(activity, latest);
+                } catch (Exception e) {
+                    apk = null;
+                }
+                final File ready = apk;
+                handler.post(() -> {
+                    if (ready != null) offerReady(latest, ready);
+                    else offer(latest);
+                });
             } catch (Exception ignored) {
                 // Update check is best-effort.
             }
@@ -45,6 +61,21 @@ final class UpdateFlow {
 
     private boolean gone() {
         return activity.isFinishing() || activity.isDestroyed();
+    }
+
+    /** The APK is already on disk: one button installs it. */
+    private void offerReady(AppUpdater.Release release, File apk) {
+        if (gone()) return;
+        String message = activity.getString(R.string.update_ready_message,
+                release.version, AppUpdater.installedVersion(activity));
+        if (!release.notes.isEmpty()) message += "\n\n" + release.notes;
+
+        new AlertDialog.Builder(activity)
+                .setTitle(R.string.update_ready_title)
+                .setMessage(message)
+                .setPositiveButton(R.string.update_install_now, (d, w) -> install(apk))
+                .setNegativeButton(R.string.update_later, null)
+                .show();
     }
 
     private void offer(AppUpdater.Release release) {
