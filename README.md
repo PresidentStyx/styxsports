@@ -19,7 +19,7 @@ fullscreen WebView, tuned for a TV remote.
 1. On the TV, enable installs from unknown sources for **Downloader**
    (Fire TV: Settings → My Fire TV → Developer Options → Install unknown apps;
    Google TV: Settings → Apps → Security & restrictions → Unknown sources).
-2. Host `dist/StyxSports-v1.0.apk` somewhere the TV can reach (a GitHub release,
+2. Host `dist/StyxSports.apk` somewhere the TV can reach (a GitHub release,
    or any HTTP URL on your LAN).
 3. In Downloader, enter that URL, wait for the download, then choose **Install**.
 
@@ -30,7 +30,7 @@ Requirements: JDK 17 and an Android SDK with `platforms;android-35` and
 
 ```powershell
 .\gradlew.bat assembleRelease
-# → app\build\outputs\apk\release\StyxSports-release-v1.0.apk
+# → app\build\outputs\apk\release\StyxSports.apk
 ```
 
 The release build is signed with the local debug keystore unless a

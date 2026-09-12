@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -44,6 +45,17 @@ public class MainActivity extends Activity {
                     + "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
     private static final long CURSOR_HIDE_DELAY_MS = 4000L;
+
+    /** Removes target="_blank" from all links, now and as the page adds more. */
+    private static final String STRIP_BLANK_TARGETS_JS =
+            "(function(){"
+                    + "var fix=function(r){(r.querySelectorAll?r.querySelectorAll('a[target]'):[])"
+                    + ".forEach(function(a){a.removeAttribute('target');});};"
+                    + "fix(document);"
+                    + "if(!window.__styxObs){window.__styxObs=new MutationObserver(function(ms){"
+                    + "ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeType===1)fix(n);});});"
+                    + "});window.__styxObs.observe(document.documentElement,{childList:true,subtree:true});}"
+                    + "})();";
 
     private FrameLayout root;
     private WebView webView;
@@ -103,7 +115,9 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        s.setSupportMultipleWindows(false);
+        // The site opens every event link with target="_blank". Multiple-window support must be
+        // on for those clicks to reach onCreateWindow(), where we redirect them into this view.
+        s.setSupportMultipleWindows(true);
         s.setJavaScriptCanOpenWindowsAutomatically(false);
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
@@ -121,9 +135,39 @@ public class MainActivity extends Activity {
                 }
                 return !isAllowedTopLevel(request.getUrl());
             }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                // Make target="_blank" links navigate in place. onCreateWindow() below is the
+                // fallback for anything this misses (e.g. window.open from scripts).
+                view.evaluateJavascript(STRIP_BLANK_TARGETS_JS, null);
+            }
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
+                                          Message resultMsg) {
+                // A throwaway WebView receives the new-window navigation; we capture its first
+                // URL, run it through the host guard, and load it in the main view instead.
+                final WebView popup = new WebView(MainActivity.this);
+                popup.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                        Uri target = request.getUrl();
+                        if (isAllowedTopLevel(target)) {
+                            webView.loadUrl(target.toString());
+                        }
+                        handler.post(popup::destroy);
+                        return true;
+                    }
+                });
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(popup);
+                resultMsg.sendToTarget();
+                return true;
+            }
+
             @Override
             public void onShowCustomView(View view, CustomViewCallback callback) {
                 if (fullscreenView != null) {
