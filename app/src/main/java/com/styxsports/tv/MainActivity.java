@@ -2,6 +2,9 @@ package com.styxsports.tv;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -9,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -18,27 +22,29 @@ import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
+import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
 
-    /** Site the app is pinned to. */
-    static final String HOME_URL = "https://v5.gostreameast.link/";
-
     /**
-     * Top-level (main frame) navigations are only allowed to hosts that match one of these
-     * fragments. Everything else (pop-under ads, redirect chains, app-store links) is dropped
-     * so a TV remote never gets stuck on a page it can't get back from.
+     * Site, host allow/block lists, UA and page script all come from {@link RemoteConfig}
+     * (cached copy first, refreshed from GitHub on each launch). Top-level navigations to hosts
+     * outside the allow list are dropped so a TV remote never gets stuck on an ad page.
      */
-    private static final String[] ALLOWED_HOST_FRAGMENTS = {
-            "streameast",
-    };
+    private volatile RemoteConfig config;
+
+    private static final int REQ_INSTALL_PERMISSION = 1001;
 
     private static final String DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -67,6 +73,9 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideCursorRunnable = () -> cursor.animate().alpha(0f).setDuration(250).start();
 
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private File pendingInstall;
+
     private float density;
     private long touchDownTime;
     private boolean centerHeld;
@@ -76,6 +85,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         density = getResources().getDisplayMetrics().density;
+        config = RemoteConfig.load(this);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         applyImmersiveMode();
@@ -100,10 +110,114 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl(HOME_URL);
+            webView.loadUrl(config.homeUrl);
             Toast.makeText(this, R.string.hint_controls, Toast.LENGTH_LONG).show();
+            refreshConfigAndCheckForUpdate();
         }
         scheduleCursorHide();
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Remote config + self-update
+    // ---------------------------------------------------------------------------------------------
+
+    private void refreshConfigAndCheckForUpdate() {
+        io.execute(() -> {
+            try {
+                RemoteConfig fresh = RemoteConfig.parse(Http.getText(RemoteConfig.CONFIG_URL));
+                handler.post(() -> applyConfig(fresh));
+            } catch (Exception ignored) {
+                // Offline or GitHub unreachable: keep using the cached copy.
+            }
+            try {
+                AppUpdater.Release latest = AppUpdater.fetchLatest();
+                if (latest != null
+                        && AppUpdater.isNewer(latest.version, AppUpdater.installedVersion(this))) {
+                    handler.post(() -> offerUpdate(latest));
+                }
+            } catch (Exception ignored) {
+                // Update check is best-effort.
+            }
+        });
+    }
+
+    private void applyConfig(RemoteConfig fresh) {
+        if (isFinishing() || isDestroyed()) return;
+        String previousHome = config.homeUrl;
+        fresh.save(this);
+        config = fresh;
+        applyUserAgent();
+
+        // If the site moved and the user hasn't navigated anywhere yet, jump to the new home.
+        if (!previousHome.equals(fresh.homeUrl) && webView.copyBackForwardList().getSize() <= 1) {
+            webView.loadUrl(fresh.homeUrl);
+        }
+    }
+
+    private void applyUserAgent() {
+        String ua = config.userAgent.isEmpty() ? DESKTOP_UA : config.userAgent;
+        if (!ua.equals(webView.getSettings().getUserAgentString())) {
+            webView.getSettings().setUserAgentString(ua);
+        }
+    }
+
+    private void offerUpdate(AppUpdater.Release release) {
+        if (isFinishing() || isDestroyed()) return;
+        String message = getString(R.string.update_message,
+                release.version, AppUpdater.installedVersion(this));
+        if (!release.notes.isEmpty()) message += "\n\n" + release.notes;
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.update_title)
+                .setMessage(message)
+                .setPositiveButton(R.string.update_install, (d, w) -> downloadAndInstall(release))
+                .setNegativeButton(R.string.update_later, null)
+                .show();
+    }
+
+    private void downloadAndInstall(AppUpdater.Release release) {
+        Toast.makeText(this, R.string.update_downloading, Toast.LENGTH_SHORT).show();
+        io.execute(() -> {
+            try {
+                File apk = AppUpdater.download(this, release);
+                handler.post(() -> installApk(apk));
+            } catch (Exception e) {
+                handler.post(() -> Toast.makeText(this,
+                        getString(R.string.update_failed, e.getMessage()), Toast.LENGTH_LONG).show());
+            }
+        });
+    }
+
+    private void installApk(File apk) {
+        if (isFinishing() || isDestroyed()) return;
+        if (!AppUpdater.canInstall(this)) {
+            // One-time: the OS needs "Install unknown apps" enabled for this app.
+            pendingInstall = apk;
+            Toast.makeText(this, R.string.update_allow_source, Toast.LENGTH_LONG).show();
+            try {
+                startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + getPackageName())), REQ_INSTALL_PERMISSION);
+            } catch (ActivityNotFoundException e) {
+                Toast.makeText(this, R.string.update_allow_source_manual, Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        try {
+            startActivity(AppUpdater.installIntent(this, apk));
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, getString(R.string.update_failed, e.getMessage()),
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_INSTALL_PERMISSION && pendingInstall != null) {
+            File apk = pendingInstall;
+            pendingInstall = null;
+            if (AppUpdater.canInstall(this)) installApk(apk);
+        }
     }
 
     private void configureWebView() {
@@ -122,7 +236,7 @@ public class MainActivity extends Activity {
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setUserAgentString(DESKTOP_UA);
+        applyUserAgent();
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -137,10 +251,22 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                // Runs on a background thread. Swallow requests to known ad/pop-under hosts.
+                if (config.isBlockedHost(request.getUrl().getHost())) {
+                    return new WebResourceResponse("text/plain", "utf-8",
+                            new ByteArrayInputStream(new byte[0]));
+                }
+                return null;
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 // Make target="_blank" links navigate in place. onCreateWindow() below is the
                 // fallback for anything this misses (e.g. window.open from scripts).
                 view.evaluateJavascript(STRIP_BLANK_TARGETS_JS, null);
+                String extra = config.pageScript;
+                if (!extra.isEmpty()) view.evaluateJavascript(extra, null);
             }
         });
 
@@ -199,13 +325,10 @@ public class MainActivity extends Activity {
         if (host == null) return false;
         host = host.toLowerCase(Locale.ROOT);
 
-        String homeHost = Uri.parse(HOME_URL).getHost();
+        RemoteConfig c = config;
+        String homeHost = Uri.parse(c.homeUrl).getHost();
         if (homeHost != null && host.equals(homeHost.toLowerCase(Locale.ROOT))) return true;
-
-        for (String fragment : ALLOWED_HOST_FRAGMENTS) {
-            if (host.contains(fragment)) return true;
-        }
-        return false;
+        return c.isAllowedHost(host);
     }
 
     private void exitFullscreen() {
@@ -415,6 +538,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        io.shutdownNow();
         handler.removeCallbacksAndMessages(null);
         exitFullscreen();
         root.removeView(webView);

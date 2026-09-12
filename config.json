@@ -1,0 +1,34 @@
+{
+  "_comment": "Fetched by the app on every launch. Edit, commit, push - no APK update needed.",
+
+  "homeUrl": "https://v5.gostreameast.link/",
+
+  "allowedHostFragments": [
+    "streameast"
+  ],
+
+  "blockedHostFragments": [
+    "revenuenetwork.com",
+    "popads.net",
+    "popcash.net",
+    "propellerads.com",
+    "propellerclick.com",
+    "adsterra",
+    "hilltopads",
+    "onclickads",
+    "onclicka.com",
+    "exoclick.com",
+    "juicyads.com",
+    "trafficjunky",
+    "doubleclick.net",
+    "googlesyndication.com",
+    "adnxs.com",
+    "mgid.com",
+    "taboola.com",
+    "outbrain.com"
+  ],
+
+  "userAgent": "",
+
+  "pageScript": ""
+}

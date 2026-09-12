@@ -24,11 +24,12 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # Optional: real release signing. Add these repository secrets and the release
-      # APK will be signed with your keystore instead of the debug key:
+      # Signing key from repository secrets. The in-app updater only works if every
+      # release carries the same signature as the build already installed on the TV,
+      # so this MUST be the same key used for local builds:
       #   KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
       - name: Restore release keystore
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
@@ -40,6 +41,13 @@ jobs:
           keyAlias=${{ secrets.KEY_ALIAS }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           EOF
+
+      - name: Refuse to publish a release with a mismatched signature
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.KEYSTORE_BASE64 == '' }}
+        run: |
+          echo "KEYSTORE_BASE64 secret is missing; an APK signed with a different key"
+          echo "would break in-app updates for installed users."
+          exit 1
 
       - name: Build release APK
         run: chmod +x gradlew && ./gradlew --no-daemon assembleRelease
