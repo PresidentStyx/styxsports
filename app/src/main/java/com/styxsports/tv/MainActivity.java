@@ -7,6 +7,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -248,6 +249,12 @@ public class MainActivity extends Activity {
                 if (!request.isForMainFrame()) {
                     return false; // iframes (players) are left alone
                 }
+                // Server-side redirects of a navigation we already approved are the site's own
+                // doing (e.g. its SSO hand-off through a differently spelled domain). Let them
+                // through; only http(s) is ever allowed.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && request.isRedirect()) {
+                    return !isWebScheme(request.getUrl());
+                }
                 return !isAllowedTopLevel(request.getUrl());
             }
 
@@ -340,11 +347,15 @@ public class MainActivity extends Activity {
         });
     }
 
-    private boolean isAllowedTopLevel(Uri uri) {
+    private static boolean isWebScheme(Uri uri) {
         String scheme = uri.getScheme();
         if (scheme == null) return false;
         scheme = scheme.toLowerCase(Locale.ROOT);
-        if (!scheme.equals("http") && !scheme.equals("https")) return false;
+        return scheme.equals("http") || scheme.equals("https");
+    }
+
+    private boolean isAllowedTopLevel(Uri uri) {
+        if (!isWebScheme(uri)) return false;
 
         String host = uri.getHost();
         if (host == null) return false;

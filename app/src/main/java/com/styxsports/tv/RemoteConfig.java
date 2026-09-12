@@ -8,6 +8,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -25,7 +26,9 @@ final class RemoteConfig {
     private static final String KEY_JSON = "config_json";
 
     private static final String DEFAULT_HOME_URL = "https://v5.gostreameast.link/";
-    private static final List<String> DEFAULT_ALLOWED = Collections.singletonList("streameast");
+    // "streamea.st" is the site's SSO/help/status domain and is spelled differently.
+    private static final List<String> DEFAULT_ALLOWED = Arrays.asList("streameast", "streamea.st");
+    private static final List<String> DEFAULT_BLOCKED = Arrays.asList("adexchangeclear.com", "adcash");
 
     final String homeUrl;
     final List<String> allowedHostFragments;
@@ -47,7 +50,7 @@ final class RemoteConfig {
     }
 
     static RemoteConfig defaults() {
-        return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_ALLOWED, Collections.emptyList(), "", "", "");
+        return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_ALLOWED, DEFAULT_BLOCKED, "", "", "");
     }
 
     static RemoteConfig parse(String json) throws JSONException {
