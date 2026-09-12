@@ -44,5 +44,7 @@
   "_playerCss": "Injected into stream pages opened from the native home. Empty = use the app's built-in default (RemoteConfig.DEFAULT_PLAYER_CSS). Only set this to hot-fix the player layout without shipping an APK; a value here overrides every app version.",
   "playerCss": "",
 
+  "_playerViewportWidth": "CSS px width stream pages are laid out at in the player (desktop layout, scaled to fit). 0 = leave the site's own viewport.",
+  "playerViewportWidth": 1280,
   "playerScript": ""
 }

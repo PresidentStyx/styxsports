@@ -202,7 +202,25 @@ public class PlayerActivity extends Activity {
 
     private void injectStyles(WebView view) {
         injectCss(view, "styx-base", BASE_CSS);
-        if (playerMode) injectCss(view, "styx-player", config.playerCss);
+        if (playerMode) {
+            applyViewport(view);
+            injectCss(view, "styx-player", config.playerCss);
+        }
+    }
+
+    /**
+     * A 1080p TV at the WebView's usual density is only ~960 CSS px wide, so the site serves its
+     * tablet layout (cramped player, mobile chat bar). Forcing a desktop viewport width makes it
+     * lay out like a desktop page, which wide-viewport/overview mode then scales to fit.
+     */
+    private void applyViewport(WebView view) {
+        if (config.playerViewportWidth <= 0) return;
+        String js = "(function(){var c='width=" + config.playerViewportWidth + "';"
+                + "var m=document.querySelector('meta[name=viewport]');"
+                + "if(!m){m=document.createElement('meta');m.name='viewport';"
+                + "(document.head||document.documentElement).appendChild(m);}"
+                + "if(m.content!==c)m.content=c;})();";
+        view.evaluateJavascript(js, null);
     }
 
     private void configureWebView() {

@@ -32,11 +32,12 @@ final class RemoteConfig {
     private static final List<String> DEFAULT_BLOCKED = Arrays.asList("adexchangeclear.com", "adcash");
 
     /** Player-first styling for stream pages; overridable via config so it can track site changes. */
+    static final int DEFAULT_PLAYER_VIEWPORT_WIDTH = 1280;
     static final String DEFAULT_PLAYER_CSS =
             "header.se-chrome,#mobileMenu,.se-sidebar,.se-announce,#pp-toast-container,footer,"
                     + ".se-footer,#live-chat-iframe,.se-chat,[id^=nl-],.nl-newsletter-sidebar,"
                     + ".se-board__promo,.discount-feed-banner,.se-ended__card,#se-nprog,.se-mob-topbar,"
-                    + "#se-player-share,.se-player-share,.se-share-modal"
+                    + "#se-player-share,.se-player-share,.se-share-modal,.se-chat__bottom-cta,.se-chat__floating"
                     + "{display:none!important}"
                     + "html,body{background:#000!important;margin:0!important;padding:0!important;"
                     + "overflow-x:hidden!important}"
@@ -69,11 +70,14 @@ final class RemoteConfig {
     final String playerCss;
     /** JavaScript injected into stream pages opened from the native home; may be empty. */
     final String playerScript;
+    /** CSS px width the stream page is laid out at (0 = leave the site's own viewport). */
+    final int playerViewportWidth;
     final String rawJson;
 
     private RemoteConfig(String homeUrl, String dataBaseUrl, boolean nativeHome,
                          List<String> allowed, List<String> blocked, String userAgent,
-                         String pageScript, String playerCss, String playerScript, String rawJson) {
+                         String pageScript, String playerCss, String playerScript,
+                         int playerViewportWidth, String rawJson) {
         this.homeUrl = homeUrl;
         this.dataBaseUrl = stripTrailingSlash(dataBaseUrl);
         this.nativeHome = nativeHome;
@@ -83,12 +87,13 @@ final class RemoteConfig {
         this.pageScript = pageScript;
         this.playerCss = playerCss;
         this.playerScript = playerScript;
+        this.playerViewportWidth = playerViewportWidth;
         this.rawJson = rawJson;
     }
 
     static RemoteConfig defaults() {
         return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_DATA_BASE_URL, true, DEFAULT_ALLOWED,
-                DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "", "");
+                DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "", DEFAULT_PLAYER_VIEWPORT_WIDTH, "");
     }
 
     static RemoteConfig parse(String json) throws JSONException {
@@ -109,6 +114,7 @@ final class RemoteConfig {
                 o.optString("pageScript", "").trim(),
                 playerCss,
                 o.optString("playerScript", "").trim(),
+                o.optInt("playerViewportWidth", DEFAULT_PLAYER_VIEWPORT_WIDTH),
                 json);
     }
 
