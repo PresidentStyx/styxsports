@@ -111,7 +111,8 @@ public class MainActivity extends Activity {
             webView.restoreState(savedInstanceState);
         } else {
             webView.loadUrl(config.homeUrl);
-            Toast.makeText(this, R.string.hint_controls, Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.hint_controls,
+                    AppUpdater.installedVersion(this)), Toast.LENGTH_LONG).show();
             refreshConfigAndCheckForUpdate();
         }
         scheduleCursorHide();
@@ -274,18 +275,42 @@ public class MainActivity extends Activity {
             @Override
             public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
                                           Message resultMsg) {
-                // A throwaway WebView receives the new-window navigation; we capture its first
-                // URL, run it through the host guard, and load it in the main view instead.
+                // Fast path: for a tapped <a target="_blank">, the hit-test result already
+                // holds the link URL, so we can navigate directly without a popup window.
+                WebView.HitTestResult hit = view.getHitTestResult();
+                String hitUrl = hit != null ? hit.getExtra() : null;
+                if (hitUrl != null && (hit.getType() == WebView.HitTestResult.SRC_ANCHOR_TYPE
+                        || hit.getType() == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE)) {
+                    if (isAllowedTopLevel(Uri.parse(hitUrl))) webView.loadUrl(hitUrl);
+                    return false; // no window created
+                }
+
+                // Otherwise (window.open from script, etc.) a throwaway WebView receives the
+                // navigation; we capture its first URL and load it in the main view instead.
                 final WebView popup = new WebView(MainActivity.this);
                 popup.setWebViewClient(new WebViewClient() {
-                    @Override
-                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
-                        Uri target = request.getUrl();
-                        if (isAllowedTopLevel(target)) {
+                    private boolean handled;
+
+                    private void redirect(Uri target) {
+                        if (handled) return;
+                        handled = true;
+                        if (target != null && isAllowedTopLevel(target)) {
                             webView.loadUrl(target.toString());
                         }
                         handler.post(popup::destroy);
+                    }
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                        redirect(request.getUrl());
                         return true;
+                    }
+
+                    @Override
+                    public void onPageStarted(WebView v, String url, android.graphics.Bitmap favicon) {
+                        // Some WebView versions skip shouldOverrideUrlLoading for a popup's
+                        // initial navigation; this catches it.
+                        if (url != null && !url.equals("about:blank")) redirect(Uri.parse(url));
                     }
                 });
                 WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
@@ -471,9 +496,21 @@ public class MainActivity extends Activity {
         long now = SystemClock.uptimeMillis();
         if (action == MotionEvent.ACTION_DOWN) touchDownTime = now;
 
-        MotionEvent ev = MotionEvent.obtain(touchDownTime, now, action,
-                cursor.getCursorX(), cursor.getCursorY(), 0);
-        ev.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        // Build a fully-specified single-finger event. The short obtain() overload leaves the
+        // tool type UNKNOWN, which Chromium may not treat as a genuine touch.
+        MotionEvent.PointerProperties props = new MotionEvent.PointerProperties();
+        props.id = 0;
+        props.toolType = MotionEvent.TOOL_TYPE_FINGER;
+        MotionEvent.PointerCoords coords = new MotionEvent.PointerCoords();
+        coords.x = cursor.getCursorX();
+        coords.y = cursor.getCursorY();
+        coords.pressure = 1f;
+        coords.size = 1f;
+
+        MotionEvent ev = MotionEvent.obtain(touchDownTime, now, action, 1,
+                new MotionEvent.PointerProperties[]{props},
+                new MotionEvent.PointerCoords[]{coords},
+                0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
         target.dispatchTouchEvent(ev);
         ev.recycle();
     }
