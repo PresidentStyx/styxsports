@@ -14,6 +14,8 @@ final class Event {
     /** Unix seconds of scheduled start; 0 if unknown. */
     long startTs;
     boolean live;
+    /** The game is over (final score); never live and shown last. */
+    boolean ended;
     boolean hot;
     /** 1 = most viewed; 0 when not ranked. */
     int hotRank;
@@ -36,7 +38,7 @@ final class Event {
     JSONObject toJson() throws JSONException {
         return new JSONObject()
                 .put("id", id).put("cat", categoryId).put("home", home).put("away", away)
-                .put("url", url).put("ts", startTs).put("live", live).put("hot", hot)
+                .put("url", url).put("ts", startTs).put("live", live).put("end", ended).put("hot", hot)
                 .put("rank", hotRank).put("pro", premium).put("league", league)
                 .put("ch", crestHome).put("ca", crestAway).put("lt", liveText).put("sc", score);
     }
@@ -50,6 +52,7 @@ final class Event {
         e.url = o.optString("url", "");
         e.startTs = o.optLong("ts", 0);
         e.live = o.optBoolean("live", false);
+        e.ended = o.optBoolean("end", false);
         e.hot = o.optBoolean("hot", false);
         e.hotRank = o.optInt("rank", 0);
         e.premium = o.optBoolean("pro", false);

@@ -34,7 +34,9 @@
     </plurals>
     <string name="row_sub_live_upcoming">%1$d live · %2$d upcoming</string>
     <string name="row_sub_upcoming">%1$d upcoming</string>
+    <string name="row_sub_final">%1$d final</string>
     <string name="pill_live">LIVE</string>
+    <string name="pill_final">FINAL</string>
     <string name="pill_upcoming">Upcoming</string>
     <string name="versus">vs</string>
     <string name="badge_hot">🔥 Trending</string>

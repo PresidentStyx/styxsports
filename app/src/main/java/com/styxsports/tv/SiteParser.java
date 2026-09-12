@@ -117,6 +117,10 @@ final class SiteParser {
         e.crestAway = absolute(unescape(a.get(r.attrMarkAway)), baseUrl);
 
         e.liveText = unescape(firstGroup(r.liveText, body, "")).trim();
+        if (r.endedText.matcher(e.liveText).matches()) {
+            e.ended = true;
+            e.live = false;
+        }
         String hs = firstGroup(r.homeScore, body, "").trim();
         String as = firstGroup(r.awayScore, body, "").trim();
         if (!hs.isEmpty() && !as.isEmpty()) e.score = hs + " - " + as;
@@ -148,7 +152,7 @@ final class SiteParser {
      * Merges /data/espn_status_batch.json (live clock and score keyed by match id) into events.
      * Best effort: any malformed input is ignored.
      */
-    static void mergeStatus(String json, List<Event> events) {
+    static void mergeStatus(ParserRules r, String json, List<Event> events) {
         try {
             JSONObject root = new JSONObject(json);
             JSONObject m = root.optJSONObject("m");
@@ -163,11 +167,16 @@ final class SiteParser {
                 JSONObject st = m.optJSONObject(id);
                 if (st == null) continue;
                 String cls = st.optString("vCls", "");
-                boolean live = st.optBoolean("lw", false) || cls.contains("live");
-                if (live) {
-                    e.live = true;
-                    String txt = unescape(st.optString("vTxt", "")).trim();
-                    if (!txt.isEmpty()) e.liveText = txt;
+                String txt = unescape(st.optString("vTxt", "")).trim();
+                // The feed keeps lw=true after the final whistle; the end is flagged separately.
+                boolean ended = st.optInt("esEnd", 0) == 1 || cls.contains("final")
+                        || r.endedText.matcher(txt).matches();
+                boolean live = !ended && (st.optBoolean("lw", false) || cls.contains("live"));
+                if (live || ended) {
+                    e.live = live;
+                    e.ended = ended;
+                    String label = ended ? st.optString("endLab", txt).trim() : txt;
+                    if (!label.isEmpty()) e.liveText = label;
                     String sc = st.optString("vSc", "").trim();
                     if (!sc.isEmpty()) e.score = sc;
                 }

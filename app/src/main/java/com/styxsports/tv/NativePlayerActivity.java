@@ -318,7 +318,11 @@ public class NativePlayerActivity extends Activity {
 
     private void bindHud() {
         hudTitle.setText(event.title());
-        if (event.live) {
+        if (event.ended) {
+            hudPill.setText(R.string.pill_final);
+            hudPill.setBackground(pill(color(R.color.pill_time)));
+            hudPill.setVisibility(View.VISIBLE);
+        } else if (event.live) {
             String txt = getString(R.string.pill_live);
             if (!event.liveText.isEmpty()) txt += "  " + event.liveText;
             hudPill.setText(txt);
@@ -704,7 +708,7 @@ public class NativePlayerActivity extends Activity {
                 String json = Http.getText(base + config.parser.statusPath);
                 handler.post(() -> {
                     if (isFinishing()) return;
-                    SiteParser.mergeStatus(json, Collections.singletonList(event));
+                    SiteParser.mergeStatus(config.parser, json, Collections.singletonList(event));
                     bindHud();
                 });
             } catch (Exception ignored) {

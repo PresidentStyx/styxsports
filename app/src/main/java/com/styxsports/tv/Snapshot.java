@@ -39,7 +39,7 @@ final class Snapshot {
 
     List<Event> liveEvents() {
         List<Event> out = new ArrayList<>();
-        for (Event e : events) if (e.live) out.add(e);
+        for (Event e : events) if (e.live && !e.ended) out.add(e);
         Collections.sort(out, LIVE_ORDER);
         return out;
     }
@@ -78,9 +78,11 @@ final class Snapshot {
         return Long.compare(a.startTs, b.startTs);
     };
 
-    /** Live first (in LIVE_ORDER), then upcoming by start time. */
-    private static final Comparator<Event> ROW_ORDER = (a, b) -> {
-        if (a.live != b.live) return a.live ? -1 : 1;
+    /** Live first (in LIVE_ORDER), then upcoming by start time, finished games last. */
+    static final Comparator<Event> ROW_ORDER = (a, b) -> {
+        int ga = a.ended ? 2 : a.live ? 0 : 1;
+        int gb = b.ended ? 2 : b.live ? 0 : 1;
+        if (ga != gb) return Integer.compare(ga, gb);
         if (a.live) return LIVE_ORDER.compare(a, b);
         return Long.compare(a.startTs, b.startTs);
     };

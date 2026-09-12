@@ -531,7 +531,7 @@ public class HomeActivity extends Activity {
                 if (favorites.matches(e) && (filter == null || e.categoryId == filter.id)) mine.add(e);
             }
             if (!mine.isEmpty()) {
-                Collections.sort(mine, ROW_ORDER);
+                Collections.sort(mine, Snapshot.ROW_ORDER);
                 addRow(getString(R.string.row_favorites), getString(R.string.row_favorites_sub), mine);
             }
         }
@@ -545,11 +545,16 @@ public class HomeActivity extends Activity {
         for (Map.Entry<Snapshot.Category, List<Event>> en : byCat.entrySet()) {
             Snapshot.Category c = en.getKey();
             if (filter != null && c != filter) continue;
-            int liveN = 0;
-            for (Event e : en.getValue()) if (e.live) liveN++;
+            int liveN = 0, endedN = 0;
+            for (Event e : en.getValue()) {
+                if (e.ended) endedN++;
+                else if (e.live) liveN++;
+            }
+            int upcoming = en.getValue().size() - liveN - endedN;
             String sub = liveN > 0
-                    ? getString(R.string.row_sub_live_upcoming, liveN, en.getValue().size() - liveN)
-                    : getString(R.string.row_sub_upcoming, en.getValue().size());
+                    ? getString(R.string.row_sub_live_upcoming, liveN, upcoming)
+                    : getString(R.string.row_sub_upcoming, upcoming);
+            if (endedN > 0) sub += " · " + getString(R.string.row_sub_final, endedN);
             addRow(c.name, sub, favoritesFirst(en.getValue()));
         }
 
@@ -600,16 +605,6 @@ public class HomeActivity extends Activity {
         return out;
     }
 
-    /** Live first (ranked), then by start time — same as the site's rows. */
-    private static final java.util.Comparator<Event> ROW_ORDER = (a, b) -> {
-        if (a.live != b.live) return a.live ? -1 : 1;
-        if (a.live) {
-            int ra = a.hotRank > 0 ? a.hotRank : Integer.MAX_VALUE;
-            int rb = b.hotRank > 0 ? b.hotRank : Integer.MAX_VALUE;
-            if (ra != rb) return Integer.compare(ra, rb);
-        }
-        return Long.compare(a.startTs, b.startTs);
-    };
 
     /** Runs once the freshly added rows have been measured and laid out (so focus can land). */
     private void afterLayout(final Runnable r) {
@@ -828,7 +823,10 @@ public class HomeActivity extends Activity {
     /** Parts of a card that change while the screen is open (live clock, score). */
     private void bindDynamic(CardHolder h) {
         Event e = h.event;
-        if (e.live) {
+        if (e.ended) {
+            h.pill.setText(R.string.pill_final);
+            h.pill.setBackground(pillBackground(color(R.color.pill_time)));
+        } else if (e.live) {
             String txt = getString(R.string.pill_live);
             if (!e.liveText.isEmpty()) txt += "  " + e.liveText;
             h.pill.setText(txt);

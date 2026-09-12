@@ -80,7 +80,7 @@ final class SiteRepository {
     void refreshStatus(RemoteConfig cfg, Snapshot s) {
         if (s.sourceBaseUrl.isEmpty()) return;
         try {
-            SiteParser.mergeStatus(Http.getText(s.sourceBaseUrl + cfg.parser.statusPath), s.events);
+            SiteParser.mergeStatus(cfg.parser, Http.getText(s.sourceBaseUrl + cfg.parser.statusPath), s.events);
         } catch (IOException ignored) {
             // optional
         }
@@ -130,7 +130,7 @@ final class SiteRepository {
         }
 
         try {
-            SiteParser.mergeStatus(Http.getText(base + r.statusPath), s.events);
+            SiteParser.mergeStatus(r, Http.getText(base + r.statusPath), s.events);
         } catch (IOException ignored) {
             // optional
         }

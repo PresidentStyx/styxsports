@@ -19,6 +19,8 @@ final class ParserRules {
     final Pattern cardTitle;
     final Pattern cardLink;
     final Pattern liveText;
+    /** Live text meaning the game is over ("Final", "FT", ...). */
+    final Pattern endedText;
     final Pattern homeScore;
     final Pattern awayScore;
     final Pattern catButton;
@@ -55,7 +57,8 @@ final class ParserRules {
         cardStart = re(o, "cardStart", "<(?:div|a)\\s+class=\"m-card\\b([^\"]*)\"([^>]*)>");
         cardTitle = re(o, "cardTitle", "m-card__title\"[^>]*>([^<]*)<");
         cardLink = re(o, "cardLink", "class=\"m-card__link\"[^>]*?href=\"([^\"]+)\"");
-        liveText = re(o, "liveText", "status-live\"[^>]*>([^<]*)<");
+        liveText = re(o, "liveText", "status-(?:live|final)\"[^>]*>([^<]*)<");
+        endedText = re(o, "endedText", "(?i)\\s*(final.*|ft|full[ -]?time|ended|finished|game over)\\s*");
         homeScore = re(o, "homeScore", "data-split-home-score=\"[^\"]*\"[^>]*>([^<]*)<");
         awayScore = re(o, "awayScore", "data-split-away-score=\"[^\"]*\"[^>]*>([^<]*)<");
         catButton = re(o, "catButton", "<button\\b[^>]*class=\"m-cat-band__item[^\"]*\"[^>]*>");
