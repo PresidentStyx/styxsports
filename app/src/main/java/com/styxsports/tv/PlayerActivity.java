@@ -13,6 +13,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -39,7 +40,11 @@ import android.widget.Toast;
 import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * The WebView screen. Opened by {@link HomeActivity} either for one stream page ("player mode",
@@ -48,7 +53,10 @@ import java.util.Locale;
  */
 public class PlayerActivity extends Activity {
 
+    private static final String TAG = "StyxPlayer";
     static final String EXTRA_URL = "url";
+    private static final String STATE_DIRECT = "direct";
+    private static final String STATE_DIRECT_HOST = "directHost";
     static final String EXTRA_PLAYER_MODE = "player";
 
     private static final long CURSOR_HIDE_DELAY_MS = 4000L;
@@ -77,8 +85,69 @@ public class PlayerActivity extends Activity {
                 .putExtra(EXTRA_PLAYER_MODE, playerMode);
     }
 
+    /** Full-screen styling for a resolved player page (Clappr/hls.js on a black body). */
+    private static final String DIRECT_CSS =
+            "html,body{background:#000!important;margin:0!important;padding:0!important;"
+                    + "width:100%!important;height:100%!important;overflow:hidden!important}"
+                    + "#player,#player>div,[data-player],.player-container,video,iframe"
+                    + "{position:fixed!important;top:0!important;left:0!important;width:100vw!important;"
+                    + "height:100vh!important;max-width:none!important;max-height:none!important;"
+                    + "margin:0!important;border:0!important}"
+                    + ".media-control,.unmute,#UnMutePlayer{display:none!important}"
+                    + "::-webkit-scrollbar{display:none!important}";
+
+    /**
+     * Walks the page and every same-origin frame inside it (the embed page is a wrapper around
+     * the real player frame), styles each one full screen and starts the first video found.
+     * Returns what it did so the caller can stop retrying once the video is actually running.
+     */
+    private static final String AUTOPLAY_JS =
+            "(function(){"
+                    + "var css=" + jsString(DIRECT_CSS) + ";"
+                    + "function style(d){if(!d.getElementById('styx-direct')){var s=d.createElement('style');"
+                    + "s.id='styx-direct';s.textContent=css;(d.head||d.documentElement).appendChild(s);}}"
+                    + "function go(w){var r='none';try{var d=w.document;if(!d)return r;style(d);"
+                    + "var v=d.querySelector('video');"
+                    + "if(v&&!v.paused&&!v.ended&&v.readyState>=3)return 'playing';"
+                    + "if(v){v.muted=false;var p=v.play();if(p&&p.catch)p.catch(function(){});r='started';}"
+                    + "try{w.eval(\"if(typeof player!=='undefined'&&player&&player.play)player.play();\");}catch(e){}"
+                    + "if(!v){var b=d.querySelector('.player-poster,.play-wrapper,[data-poster],"
+                    + ".vjs-big-play-button,.jw-display-icon-display,.plyr__control--overlaid');"
+                    + "if(b){b.click();r='clicked';}}"
+                    + "}catch(e){return 'x';}"
+                    + "for(var i=0;i<w.frames.length;i++){var s=go(w.frames[i]);"
+                    + "if(s==='playing')return s;if(s!=='none'&&s!=='x')r=s;}"
+                    + "return r;}"
+                    + "return go(window);})()";
+
+    /** Play/pause the first video in the page or any same-origin frame. */
+    private static final String TOGGLE_JS =
+            "(function(){function go(w){try{var v=w.document.querySelector('video');"
+                    + "if(v){if(v.paused){v.play();return 'play';}v.pause();return 'pause';}}catch(e){}"
+                    + "for(var i=0;i<w.frames.length;i++){var s=go(w.frames[i]);if(s)return s;}return null;}"
+                    + "return go(window)||'none';})()";
+
+    /**
+     * Pulls the player embed out of a stream page the WebView has already loaded (used when the
+     * background fetch could not, e.g. rate limiting). Returns "" when there is none.
+     */
+    private static final String FIND_EMBED_JS =
+            "(function(){var f=document.querySelector('#se-player-root iframe,iframe#iframe,.se-player iframe');"
+                    + "return f&&f.src?f.src:'';})()";
+
+    private static final int AUTOPLAY_ATTEMPTS = 20;
+    private static final long AUTOPLAY_INTERVAL_MS = 700L;
+
     private RemoteConfig config;
     private boolean playerMode;
+    /** True when the WebView shows a resolved player page rather than the site's stream page. */
+    private boolean directMode;
+    private String directHost;
+    private String streamPageUrl;
+    /** Set when the stream page is being shown only because resolving failed; retry from its DOM. */
+    private boolean embedLookupPending;
+    private int autoplayAttempts;
+    private final ExecutorService resolver = Executors.newSingleThreadExecutor();
 
     private FrameLayout root;
     private WebView webView;
@@ -89,7 +158,11 @@ public class PlayerActivity extends Activity {
     private WebChromeClient.CustomViewCallback fullscreenCallback;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable hideCursorRunnable = () -> cursor.animate().alpha(0f).setDuration(250).start();
+    private boolean cursorVisible = true;
+    private final Runnable hideCursorRunnable = () -> {
+        cursorVisible = false;
+        cursor.animate().alpha(0f).setDuration(250).start();
+    };
     private final Runnable hideOverlayRunnable = this::hideLoadingOverlay;
 
     private float density;
@@ -140,8 +213,17 @@ public class PlayerActivity extends Activity {
         // without a Java exception (WebView native crash / system kill); HomeActivity reports it.
         CrashLog.markPlayerOpen(this, url);
 
+        streamPageUrl = url;
         if (savedInstanceState != null) {
+            directMode = savedInstanceState.getBoolean(STATE_DIRECT, false);
+            directHost = savedInstanceState.getString(STATE_DIRECT_HOST);
+            if (directMode) {
+                cursor.setAlpha(0f);
+                cursorVisible = false;
+            }
             webView.restoreState(savedInstanceState);
+        } else if (playerMode && config.directPlayer) {
+            openDirect(url);
         } else {
             webView.loadUrl(url);
             if (!playerMode) {
@@ -196,6 +278,10 @@ public class PlayerActivity extends Activity {
     }
 
     /** Idempotent: adds a <style id=...> once per document. */
+    private static String jsString(String s) {
+        return JSONObject.quote(s);
+    }
+
     private void injectCss(WebView view, String id, String css) {
         if (css.isEmpty()) return;
         String js = "(function(){if(document.getElementById(" + JSONObject.quote(id) + "))return;"
@@ -207,11 +293,118 @@ public class PlayerActivity extends Activity {
 
     private void injectStyles(WebView view) {
         injectCss(view, "styx-base", BASE_CSS);
-        if (playerMode) {
+        if (directMode) {
+            injectCss(view, "styx-direct", DIRECT_CSS);
+        } else if (playerMode) {
             applyViewport(view);
             injectCss(view, "styx-player", config.playerCss);
         }
     }
+
+    /**
+     * Resolves the stream page to its innermost player page off the main thread and loads that
+     * full screen. Falls back to the stream page itself (premium gate, countdown, unknown markup).
+     */
+    private void openDirect(String pageUrl) {
+        showLoadingOverlay();
+        handler.removeCallbacks(hideOverlayRunnable); // keep the splash up while resolving
+        resolver.execute(() -> {
+            StreamResolver.Target target = StreamResolver.resolve(pageUrl);
+            handler.post(() -> {
+                if (isFinishing() || webView == null) return;
+                if (target == null) {
+                    // Show the stream page; onPageFinished() gets a second chance to find the
+                    // embed in the rendered page (see tryEmbedFromPage).
+                    Log.i(TAG, "no player embed resolved; loading stream page");
+                    directMode = false;
+                    embedLookupPending = true;
+                    webView.loadUrl(pageUrl);
+                    return;
+                }
+                loadDirect(target);
+            });
+        });
+    }
+
+    private void loadDirect(StreamResolver.Target target) {
+        Log.i(TAG, "direct player " + target.url + " referer " + target.referer);
+        directMode = true;
+        directHost = StreamResolver.hostOf(target.url);
+        embedLookupPending = false;
+        // No pointer on a full-screen player; OK toggles play/pause. Arrows bring it back.
+        handler.removeCallbacks(hideCursorRunnable);
+        cursor.setAlpha(0f);
+        cursorVisible = false;
+        showLoadingOverlay();
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Referer", target.referer);
+        webView.loadUrl(target.url, headers);
+    }
+
+    /** Fallback after the stream page rendered in the WebView: lift its player embed from the DOM. */
+    private void tryEmbedFromPage(WebView view, String pageUrl) {
+        if (!embedLookupPending) return;
+        embedLookupPending = false;
+        view.evaluateJavascript(FIND_EMBED_JS, result -> {
+            if (webView == null || directMode) return;
+            String src = result == null ? "" : result.replace("\"", "").trim();
+            if (src.isEmpty() || "null".equals(src)) {
+                Log.i(TAG, "stream page has no embed (gate or not started); staying on it");
+                return;
+            }
+            if (!StreamResolver.isEmbedUrl(src, pageUrl)) return;
+            loadDirect(new StreamResolver.Target(src, pageUrl));
+        });
+    }
+
+    /**
+     * Embed hosts bounce a player loaded outside an iframe to their own homepage. If that happens
+     * (or the embed navigates anywhere else on its host), give up on direct mode and show the
+     * site's stream page instead so the user still gets the normal player.
+     */
+    private boolean handleDirectRedirect(Uri uri) {
+        if (!directMode || webView == null) return false;
+        String host = uri.getHost();
+        if (host == null || !host.equalsIgnoreCase(directHost)) return false;
+        String path = uri.getPath() == null ? "" : uri.getPath();
+        if (path.isEmpty() || path.equals("/")) {
+            Log.i(TAG, "embed bounced to its homepage; falling back to stream page");
+            directMode = false;
+            directHost = null;
+            webView.stopLoading();
+            webView.loadUrl(streamPageUrl);
+            return true;
+        }
+        return false;
+    }
+
+    private void startAutoplay() {
+        autoplayAttempts = 0;
+        handler.removeCallbacks(autoplayRunnable);
+        handler.post(autoplayRunnable);
+    }
+
+    private final Runnable autoplayRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (webView == null || !directMode) return;
+            if (autoplayAttempts++ >= AUTOPLAY_ATTEMPTS) {
+                Log.i(TAG, "autoplay gave up");
+                hideLoadingOverlay();
+                return;
+            }
+            webView.evaluateJavascript(AUTOPLAY_JS, result -> {
+                if (webView == null) return;
+                if (result != null && result.contains("playing")) {
+                    Log.i(TAG, "video playing after " + autoplayAttempts + " attempt(s)");
+                    hideLoadingOverlay();
+                    return;
+                }
+                if (autoplayAttempts == 1 || autoplayAttempts % 5 == 0) Log.i(TAG, "autoplay " + result);
+                handler.postDelayed(this, AUTOPLAY_INTERVAL_MS);
+            });
+        }
+    };
 
     /**
      * A 1080p TV at the WebView's usual density is only ~960 CSS px wide, so the site serves its
@@ -255,6 +448,8 @@ public class PlayerActivity extends Activity {
                 if (!request.isForMainFrame()) {
                     return false; // iframes (players) are left alone
                 }
+                Log.i(TAG, "navigate " + request.getUrl());
+                if (handleDirectRedirect(request.getUrl())) return true;
                 // Server-side redirects of a navigation we already approved are the site's own
                 // doing (e.g. its SSO hand-off through a differently spelled domain). Let them
                 // through; only http(s) is ever allowed.
@@ -276,6 +471,8 @@ public class PlayerActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                Log.i(TAG, "page started " + url);
+                if (url != null && handleDirectRedirect(Uri.parse(url))) return;
                 showLoadingOverlay();
             }
 
@@ -315,6 +512,11 @@ public class PlayerActivity extends Activity {
                 if (playerMode && !config.playerScript.isEmpty()) {
                     view.evaluateJavascript(config.playerScript, null);
                 }
+                if (directMode) {
+                    startAutoplay();
+                    return; // overlay comes down once the video is running (or on timeout)
+                }
+                if (playerMode) tryEmbedFromPage(view, url);
                 hideLoadingOverlay();
             }
         });
@@ -402,6 +604,7 @@ public class PlayerActivity extends Activity {
         if (host == null) return false;
         host = host.toLowerCase(Locale.ROOT);
 
+        if (directHost != null && host.equals(directHost)) return true;
         RemoteConfig c = config;
         String homeHost = Uri.parse(c.homeUrl).getHost();
         if (homeHost != null && host.equals(homeHost.toLowerCase(Locale.ROOT))) return true;
@@ -482,6 +685,11 @@ public class PlayerActivity extends Activity {
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
             case KeyEvent.KEYCODE_BUTTON_A:
+                if (directMode && !cursorVisible && fullscreenView == null) {
+                    // Full-screen player without a pointer: OK is play/pause.
+                    if (down && event.getRepeatCount() == 0) webView.evaluateJavascript(TOGGLE_JS, null);
+                    return true;
+                }
                 if (down) {
                     if (event.getRepeatCount() == 0 && !centerHeld) {
                         centerHeld = true;
@@ -501,6 +709,8 @@ public class PlayerActivity extends Activity {
                 if (down) return true;
                 if (fullscreenView != null) {
                     exitFullscreen();
+                } else if (playerMode) {
+                    finish(); // a game is one screen: Back always returns to the home rows
                 } else {
                     int steps = stepsToPreviousRealPage();
                     if (steps < 0) {
@@ -610,6 +820,7 @@ public class PlayerActivity extends Activity {
         handler.removeCallbacks(hideCursorRunnable);
         cursor.animate().cancel();
         cursor.setAlpha(1f);
+        cursorVisible = true;
         scheduleCursorHide();
     }
 
@@ -618,11 +829,8 @@ public class PlayerActivity extends Activity {
     }
 
     private void togglePlayback() {
-        // Only reaches same-origin <video> elements; cross-origin player iframes are opaque.
-        webView.evaluateJavascript(
-                "(function(){var v=document.querySelector('video');"
-                        + "if(!v)return 'none';if(v.paused){v.play();return 'play';}v.pause();return 'pause';})()",
-                null);
+        // Only reaches same-origin players; cross-origin player iframes are opaque.
+        webView.evaluateJavascript(TOGGLE_JS, null);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -649,6 +857,8 @@ public class PlayerActivity extends Activity {
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         if (webView != null) webView.saveState(outState);
+        outState.putBoolean(STATE_DIRECT, directMode);
+        outState.putString(STATE_DIRECT_HOST, directHost);
     }
 
     @Override
@@ -677,6 +887,7 @@ public class PlayerActivity extends Activity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        resolver.shutdownNow();
         exitFullscreen();
         if (webView != null) {
             root.removeView(webView);

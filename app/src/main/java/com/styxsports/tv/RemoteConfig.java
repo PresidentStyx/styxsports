@@ -72,12 +72,14 @@ final class RemoteConfig {
     final String playerScript;
     /** CSS px width the stream page is laid out at (0 = leave the site's own viewport). */
     final int playerViewportWidth;
+    /** Load the innermost player page full screen instead of the site's stream page. */
+    final boolean directPlayer;
     final String rawJson;
 
     private RemoteConfig(String homeUrl, String dataBaseUrl, boolean nativeHome,
                          List<String> allowed, List<String> blocked, String userAgent,
                          String pageScript, String playerCss, String playerScript,
-                         int playerViewportWidth, String rawJson) {
+                         int playerViewportWidth, boolean directPlayer, String rawJson) {
         this.homeUrl = homeUrl;
         this.dataBaseUrl = stripTrailingSlash(dataBaseUrl);
         this.nativeHome = nativeHome;
@@ -88,12 +90,13 @@ final class RemoteConfig {
         this.playerCss = playerCss;
         this.playerScript = playerScript;
         this.playerViewportWidth = playerViewportWidth;
+        this.directPlayer = directPlayer;
         this.rawJson = rawJson;
     }
 
     static RemoteConfig defaults() {
         return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_DATA_BASE_URL, true, DEFAULT_ALLOWED,
-                DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "", DEFAULT_PLAYER_VIEWPORT_WIDTH, "");
+                DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "", DEFAULT_PLAYER_VIEWPORT_WIDTH, true, "");
     }
 
     static RemoteConfig parse(String json) throws JSONException {
@@ -115,6 +118,7 @@ final class RemoteConfig {
                 playerCss,
                 o.optString("playerScript", "").trim(),
                 o.optInt("playerViewportWidth", DEFAULT_PLAYER_VIEWPORT_WIDTH),
+                o.optBoolean("directPlayer", true),
                 json);
     }
 

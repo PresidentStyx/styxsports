@@ -54,6 +54,7 @@ public class HomeActivity extends Activity {
 
     private static final int CARD_W_DP = 292;
     private static final int CARD_H_DP = 150;
+    private static final int CREST_DP = 38;
 
     private RemoteConfig config;
     private SiteRepository repo;
@@ -119,7 +120,7 @@ public class HomeActivity extends Activity {
         Http.ensureCookies();
         density = getResources().getDisplayMetrics().density;
         repo = new SiteRepository(this);
-        images = new ImageLoader();
+        images = new ImageLoader(dp(CREST_DP));
         updates = new UpdateFlow(this, io);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -377,6 +378,7 @@ public class HomeActivity extends Activity {
                 handler.post(() -> {
                     loading = false;
                     if (isFinishing() || isDestroyed()) return;
+                    images.forgetFailures();
                     render(fresh);
                 });
             } catch (IOException e) {
@@ -646,7 +648,7 @@ public class HomeActivity extends Activity {
 
         ImageView crest = new ImageView(this);
         crest.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        col.addView(crest, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        col.addView(crest, new LinearLayout.LayoutParams(dp(CREST_DP), dp(CREST_DP)));
         images.load(crestUrl, crest, R.drawable.crest_placeholder);
 
         TextView n = new TextView(this);

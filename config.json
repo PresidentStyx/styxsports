@@ -46,5 +46,7 @@
 
   "_playerViewportWidth": "CSS px width stream pages are laid out at in the player (desktop layout, scaled to fit). 0 = leave the site's own viewport.",
   "playerViewportWidth": 1280,
+  "_directPlayer": "true = resolve the stream page to its inner video player and show that full screen with autoplay; false = show the site's stream page with server tabs.",
+  "directPlayer": true,
   "playerScript": ""
 }

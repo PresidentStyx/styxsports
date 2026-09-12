@@ -67,6 +67,7 @@ the next launch (raw.githubusercontent.com caches for up to ~5 minutes).
 | `playerCss`            | CSS injected into stream pages opened from the home screen (hides site chrome, makes the player fill the width). Empty = built-in default. |
 | `playerScript`         | JavaScript run on stream pages opened from the home screen; empty = none.   |
 | `playerViewportWidth`  | CSS px width stream pages are laid out at in the player (default 1280, desktop layout scaled to fit the TV). 0 = leave the site's own viewport. |
+| `directPlayer`         | `true` (default): picking a game resolves the stream page's player embed and shows just the video full screen with autoplay; OK = play/pause, Back = home. `false`: show the site's stream page (server tabs etc.) as before. Falls back to the stream page automatically when there is no free embed (premium gate, not started). |
 
 What the parser relies on (all on the `dataBaseUrl` front page): the category
 band buttons (`.m-cat-band__item[data-m-cat]`), the match cards

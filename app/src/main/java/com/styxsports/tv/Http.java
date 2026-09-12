@@ -37,8 +37,14 @@ final class Http {
     }
 
     static String getText(String url) throws IOException {
+        return getText(url, null);
+    }
+
+    /** @param referer sent as the Referer header when non-null (embed hosts insist on one). */
+    static String getText(String url, String referer) throws IOException {
         HttpURLConnection c = open(url);
         try {
+            if (referer != null) c.setRequestProperty("Referer", referer);
             check(c);
             return readText(c);
         } finally {

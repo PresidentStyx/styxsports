@@ -24,8 +24,8 @@ android {
         minSdk 21
         targetSdk 35
         // Keep versionName == git tag without the "v"; the in-app updater compares them.
-        versionCode 9
-        versionName '2.3'
+        versionCode 10
+        versionName '2.4'
     }
 
     signingConfigs {
@@ -65,4 +65,6 @@ android {
 dependencies {
     // Only for FileProvider (needed to hand the update APK to the installer on API 24+).
     implementation 'androidx.core:core:1.13.1'
+    // Team crests are served as SVG; Android has no built-in SVG decoder.
+    implementation 'com.caverock:androidsvg-aar:1.4'
 }
