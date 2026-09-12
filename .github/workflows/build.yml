@@ -83,8 +83,20 @@ jobs:
           name: StyxSports-apk
           path: out/StyxSports.apk
 
+      # The tagged commit's message becomes the release notes, which the in-app
+      # update dialog shows under "Update available".
+      - name: Collect release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          {
+            echo 'NOTES<<EOF'
+            git log -1 --format=%B "$GITHUB_SHA"
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
+
       - name: Attach APK to GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: out/*.apk
+          body: ${{ env.NOTES }}

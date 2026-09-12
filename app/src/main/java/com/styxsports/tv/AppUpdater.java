@@ -52,7 +52,9 @@ final class AppUpdater {
             if (ASSET_NAME.equals(a.optString("name"))) {
                 String url = a.optString("browser_download_url", "");
                 if (url.isEmpty()) return null;
-                return new Release(normalize(tag), url, o.optString("body", "").trim());
+                // A release without notes has "body": null, which optString turns into "null".
+                String notes = o.isNull("body") ? "" : o.optString("body", "").trim();
+                return new Release(normalize(tag), url, notes);
             }
         }
         return null;
