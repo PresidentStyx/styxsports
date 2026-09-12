@@ -41,8 +41,8 @@
 
   "pageScript": "",
 
-  "_playerCss": "Injected into stream pages opened from the native home. Empty = use the app's built-in default.",
-  "playerCss": "header.se-chrome,#mobileMenu,.se-sidebar,.se-announce,#pp-toast-container,footer,.se-footer,#live-chat-iframe,.se-chat,[id^=nl-],.nl-newsletter-sidebar,.se-progate,.se-board__promo,.discount-feed-banner,.se-ended__card,#se-nprog,.se-mob-topbar{display:none!important}html,body{background:#000!important;margin:0!important;padding:0!important;overflow-x:hidden!important}main.main-content,.streameast-main,.se-video,.se-layout,.se-main{max-width:none!important;width:100%!important;margin:0!important;padding:0!important}.se-layout{display:block!important}.se-board{padding:6px 16px!important;margin:0!important}#se-player-root,.se-player{width:100%!important;aspect-ratio:16/9;max-height:calc(100vh - 48px)!important;margin:0 auto!important}#se-player-root iframe{width:100%!important;height:100%!important}::-webkit-scrollbar{display:none!important}*{-webkit-user-select:none!important;user-select:none!important;-webkit-tap-highlight-color:transparent!important}",
+  "_playerCss": "Injected into stream pages opened from the native home. Empty = use the app's built-in default (RemoteConfig.DEFAULT_PLAYER_CSS). Only set this to hot-fix the player layout without shipping an APK; a value here overrides every app version.",
+  "playerCss": "",
 
   "playerScript": ""
 }

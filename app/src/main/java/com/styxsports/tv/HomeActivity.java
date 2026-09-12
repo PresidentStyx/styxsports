@@ -84,6 +84,8 @@ public class HomeActivity extends Activity {
 
     private final Map<String, List<CardHolder>> holders = new HashMap<>();
     private String focusedEventId;
+    private boolean initialFocusDone;
+    private boolean restoreCardFocus;
 
     private final Runnable statusTick = new Runnable() {
         @Override
@@ -383,6 +385,11 @@ public class HomeActivity extends Activity {
 
     private void render(Snapshot s) {
         snapshot = s;
+        // Removing the focused card makes Android hand focus to the first focusable view (a
+        // top-bar button) at once; remember that a card had it so restoreFocus() can take it back.
+        View focused = getCurrentFocus();
+        boolean cardHadFocus = focused != null && focused.getTag() instanceof Event;
+        restoreCardFocus = !initialFocusDone || cardHadFocus;
         holders.clear();
         rows.removeAllViews();
 
@@ -423,9 +430,11 @@ public class HomeActivity extends Activity {
     }
 
     private void restoreFocus() {
-        // Re-rendering detaches the focused card (focus becomes null); a focused top-bar button
-        // survives and keeps focus.
-        if (getCurrentFocus() != null) return;
+        // First render: Android has already handed focus to a top-bar button; move it to the
+        // first card. Later renders: only take focus if a card had it before the rebuild.
+        if (!restoreCardFocus) return;
+        restoreCardFocus = false;
+        initialFocusDone = true;
         if (focusedEventId != null) {
             List<CardHolder> list = holders.get(focusedEventId);
             if (list != null && !list.isEmpty()) {

@@ -21,7 +21,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.WebBackForwardList;
 import android.webkit.WebChromeClient;
+import android.webkit.WebHistoryItem;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -367,6 +369,39 @@ public class PlayerActivity extends Activity {
         return c.isAllowedHost(host);
     }
 
+    /**
+     * The site reaches every page through an SSO hop (auth domain, connect.php) that leaves
+     * entries in the WebView history; plain goBack() lands on one and is bounced straight back
+     * to the same page. Returns the negative offset of the nearest earlier entry that is a real,
+     * different page, or 0 when there is none (then Back should leave this screen).
+     */
+    private int stepsToPreviousRealPage() {
+        WebBackForwardList list = webView.copyBackForwardList();
+        WebHistoryItem current = list.getCurrentItem();
+        if (current == null) return 0;
+        String currentPath = pathOf(current.getUrl());
+        for (int i = list.getCurrentIndex() - 1; i >= 0; i--) {
+            String url = list.getItemAtIndex(i).getUrl();
+            if (url == null) continue;
+            Uri u = Uri.parse(url);
+            String host = u.getHost();
+            String path = pathOf(url);
+            if (host == null || !isAllowedTopLevel(u)) continue;
+            host = host.toLowerCase(Locale.ROOT);
+            if (host.contains("streamea.st") || path.contains("connect") || path.contains("sso")
+                    || path.contains("auth") || path.equals(currentPath)) {
+                continue; // redirect artifact, or the same page on a mirror domain
+            }
+            return i - list.getCurrentIndex();
+        }
+        return 0;
+    }
+
+    private static String pathOf(String url) {
+        String p = Uri.parse(url).getPath();
+        return p == null ? "" : p.toLowerCase(Locale.ROOT);
+    }
+
     private void exitFullscreen() {
         if (fullscreenView == null) return;
         root.removeView(fullscreenView);
@@ -424,10 +459,13 @@ public class PlayerActivity extends Activity {
                 if (down) return true;
                 if (fullscreenView != null) {
                     exitFullscreen();
-                } else if (webView.canGoBack()) {
-                    webView.goBack();
                 } else {
-                    finish();
+                    int steps = stepsToPreviousRealPage();
+                    if (steps < 0) {
+                        webView.goBackOrForward(steps);
+                    } else {
+                        finish();
+                    }
                 }
                 return true;
 

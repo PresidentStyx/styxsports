@@ -34,8 +34,9 @@ final class RemoteConfig {
     /** Player-first styling for stream pages; overridable via config so it can track site changes. */
     static final String DEFAULT_PLAYER_CSS =
             "header.se-chrome,#mobileMenu,.se-sidebar,.se-announce,#pp-toast-container,footer,"
-                    + ".se-footer,#live-chat-iframe,.se-chat,[id^=nl-],.nl-newsletter-sidebar,.se-progate,"
-                    + ".se-board__promo,.discount-feed-banner,.se-ended__card,#se-nprog,.se-mob-topbar"
+                    + ".se-footer,#live-chat-iframe,.se-chat,[id^=nl-],.nl-newsletter-sidebar,"
+                    + ".se-board__promo,.discount-feed-banner,.se-ended__card,#se-nprog,.se-mob-topbar,"
+                    + "#se-player-share,.se-player-share,.se-share-modal"
                     + "{display:none!important}"
                     + "html,body{background:#000!important;margin:0!important;padding:0!important;"
                     + "overflow-x:hidden!important}"
@@ -43,9 +44,11 @@ final class RemoteConfig {
                     + "{max-width:none!important;width:100%!important;margin:0!important;padding:0!important}"
                     + ".se-layout{display:block!important}"
                     + ".se-board{padding:6px 16px!important;margin:0!important}"
-                    + "#se-player-root,.se-player{width:100%!important;aspect-ratio:16/9;"
-                    + "max-height:calc(100vh - 48px)!important;margin:0 auto!important}"
-                    + "#se-player-root iframe{width:100%!important;height:100%!important}"
+                    + "#se-player-root,.se-player{width:100%!important;margin:0 auto!important}"
+                    // The site pins the player iframe to 600px tall; size it to the screen instead
+                    // (16:9 of the width, capped so the server tabs and scoreboard stay visible).
+                    + "#se-player-root iframe{display:block;width:100%!important;"
+                    + "height:calc(100vw*9/16)!important;max-height:calc(100vh - 160px)!important}"
                     + "::-webkit-scrollbar{display:none!important}"
                     + "*{-webkit-user-select:none!important;user-select:none!important;"
                     + "-webkit-tap-highlight-color:transparent!important}";
