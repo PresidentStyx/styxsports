@@ -66,13 +66,16 @@ export async function handleHls(request, env, token) {
   const t = await decodeToken(env, token);
   if (!t) return new Response('bad token', { status: 403 });
 
+  // Live playlists change every few seconds and must never be served stale; segments are
+  // immutable and can be shared between viewers for a short while.
+  const looksLikePlaylist = /\.m3u8(\?|$)/i.test(new URL(t.u).pathname);
   let upstream;
   try {
     upstream = await fetch(t.u, {
       headers: upstreamHeaders(t.o, request),
       redirect: 'follow',
       signal: AbortSignal.timeout(15_000),
-      cf: { cacheEverything: true, cacheTtl: SEGMENT_TTL_S },
+      cf: looksLikePlaylist ? { cacheTtl: 0 } : { cacheEverything: true, cacheTtl: SEGMENT_TTL_S },
     });
   } catch (e) {
     return new Response('upstream error: ' + e.message, { status: 502 });

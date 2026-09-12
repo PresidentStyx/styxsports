@@ -595,7 +595,7 @@
       const stream = await this.resolve(s);
       if (gen !== this.generation) return;
       this.clearTimer('impatience');
-      if (!stream || !stream.hls || stream.playable === false) {
+      if (!playable(stream)) {
         const why = !stream ? 'no stream' : stream.state === 'gate' ? 'premium only'
           : !stream.hls ? 'no playable stream' : `CDN ${stream.cdn} refused (${stream.cdnStatus})`;
         return this.onFailure(why, stream);
@@ -603,18 +603,32 @@
       this.play(stream);
     },
 
+    /**
+     * The current server is slow to answer: try the others, one after another, and take the
+     * first that is playable. Servers that turn out unplayable are marked failed so the normal
+     * fallback does not visit them again.
+     */
     async raceNext(gen) {
-      const next = this.nextIndex(this.current);
-      if (next < 0 || next === this.current) return;
-      const s = this.servers[next];
-      const stream = await this.resolve(s);
-      if (gen !== this.generation) return; // the current server answered (or the user moved on)
-      if (stream && stream.hls && stream.playable !== false) {
-        this.generation++;
-        this.current = next;
-        this.retried = false;
+      const tried = new Set([this.current]);
+      let idx = this.current;
+      for (;;) {
+        idx = this.nextIndex(idx);
+        if (idx < 0 || tried.has(idx)) return;
+        tried.add(idx);
+        const s = this.servers[idx];
+        const stream = await this.resolve(s);
+        if (gen !== this.generation) return; // the current server answered (or the user moved on)
+        if (playable(stream)) {
+          this.generation++;
+          this.current = idx;
+          this.retried = false;
+          this.renderServers();
+          this.play(stream);
+          return;
+        }
+        console.warn(`[styx] race: ${s.name} unplayable`, stream && stream.log);
+        this.failed.add(idx);
         this.renderServers();
-        this.play(stream);
       }
     },
 
@@ -622,8 +636,10 @@
       if (this.resolved.has(s.pageUrl)) return this.resolved.get(s.pageUrl);
       try {
         const data = await api('/api/stream?server=' + encodeURIComponent(s.pageUrl) + '&name=' + encodeURIComponent(s.name));
-        const stream = data.stream;
-        if (stream && stream.hls && stream.playable !== false) this.resolved.set(s.pageUrl, stream);
+        const stream = data.stream || { server: s.name, hls: null };
+        // Remember both outcomes; a CDN that refuses us will not change its mind in a minute.
+        // Playable results are dropped again when a playing stream dies (see onFailure).
+        this.resolved.set(s.pageUrl, stream);
         return stream;
       } catch (e) {
         return { server: s.name, hls: null, error: e.message };
@@ -728,7 +744,7 @@
         this.stopPlayback();
         this.resolve(s).then((fresh) => {
           if (gen !== this.generation) return;
-          if (fresh && fresh.hls) this.play(fresh); else this.onFailure('reconnect failed');
+          if (playable(fresh)) this.play(fresh); else this.onFailure('reconnect failed');
         });
         return;
       }
@@ -851,6 +867,10 @@
     clearTimer(name) { if (this[name]) { clearTimeout(this[name]); this[name] = null; } },
     clearTimers() { for (const t of ['hudTimer', 'stallTimer', 'startTimer', 'impatience']) this.clearTimer(t); },
   };
+
+  function playable(stream) {
+    return !!(stream && stream.hls && stream.playable !== false);
+  }
 
   // Player UI wiring.
   $('p-close').onclick = () => player.close();
