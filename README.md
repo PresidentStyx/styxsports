@@ -87,8 +87,15 @@ Cloudflare Worker from [`web/`](web/):
   chips), automatic fallback and a 6 s "race" to the next server when the first
   one is slow.
 - Some CDNs refuse requests from Cloudflare's network (they answer 403 even with
-  a valid token). The Worker checks each playlist once when resolving a server
-  and flags it `playable: false`, so the player skips straight to the next one.
+  a valid token, and their tokens are bound to the IP that fetched the player
+  page, so the Worker cannot mint one for the viewer either). The Worker checks
+  each playlist once when resolving a server and flags it `playable: false`.
+  Those servers are marked `▣` in the player and play through the site's own
+  embed in a sandboxed `<iframe>` instead — that runs from the viewer's IP, so
+  it works, but it carries the site's ads and can't be controlled by our HUD
+  (pop-ups and top-level navigation are blocked by the sandbox). The clean
+  native player is always tried first; the embed is used when a server is
+  picked manually or when no server plays natively.
   Servers on the site's primary CDN family work.
 
 Deploy (after `npx wrangler login` once):

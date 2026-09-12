@@ -494,7 +494,7 @@
   const player = {
     root: $('player'), video: $('video'),
     hls: null, event: null, servers: [], current: -1, failed: new Set(), resolved: new Map(),
-    generation: 0, everPlayed: false, retried: false, manual: false, open: false,
+    generation: 0, everPlayed: false, retried: false, manual: false, open: false, embedMode: false,
     hudTimer: null, stallTimer: null, startTimer: null, impatience: null,
 
     openFor(e) {
@@ -507,9 +507,12 @@
       this.retried = false;
       this.manual = false;
       this.open = true;
+      this.embedMode = false;
+      this.embeddable = {};
       this.generation++;
       this.root.classList.remove('hidden');
       this.root.classList.remove('idle');
+      this.hideEmbed();
       document.body.style.overflow = 'hidden';
       $('p-servers').replaceChildren();
       $('p-unmute').classList.add('hidden');
@@ -526,6 +529,7 @@
       this.generation++;
       this.clearTimers();
       this.stopPlayback();
+      this.hideEmbed();
       this.root.classList.add('hidden');
       document.body.style.overflow = '';
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -565,12 +569,16 @@
       const box = $('p-servers');
       box.replaceChildren();
       this.servers.forEach((s, i) => {
-        const b = el('button', 'server' + (i === this.current ? ' current' : '') + (this.failed.has(i) ? ' failed' : ''), s.name);
+        const emb = this.embeddable && this.embeddable[i];
+        const cls = 'server' + (i === this.current ? ' current' : '') + (this.failed.has(i) && !emb ? ' failed' : '') + (emb ? ' embed' : '');
+        const b = el('button', cls, s.name + (emb ? ' ▣' : ''));
+        b.title = emb ? 'Plays in the embedded player (may show ads)' : '';
         b.onclick = () => this.switchTo(i, true);
         box.appendChild(b);
       });
       if (this.servers.length) {
-        $('p-servers').appendChild(el('span', 'hint', `Server ${this.current + 1} of ${this.servers.length}`));
+        const mode = this.embedMode ? ' · embedded' : '';
+        $('p-servers').appendChild(el('span', 'hint', `Server ${this.current + 1} of ${this.servers.length}${mode}`));
       }
     },
 
@@ -583,6 +591,7 @@
       const gen = ++this.generation;
       this.clearTimers();
       this.stopPlayback();
+      this.hideEmbed();
       this.renderServers();
       const s = this.servers[index];
       this.status(`Connecting to ${s.name}…\n\n→ tries the next server`, true);
@@ -595,12 +604,18 @@
       const stream = await this.resolve(s);
       if (gen !== this.generation) return;
       this.clearTimer('impatience');
-      if (!playable(stream)) {
-        const why = !stream ? 'no stream' : stream.state === 'gate' ? 'premium only'
-          : !stream.hls ? 'no playable stream' : `CDN ${stream.cdn} refused (${stream.cdnStatus})`;
-        return this.onFailure(why, stream);
+      if (playable(stream)) return this.play(stream);
+      // Not playable through our proxy (usually a CDN that refuses Cloudflare). If the site has an
+      // embeddable player for it, that plays from the viewer's own IP — but with the site's ads.
+      // On a manual pick, go straight there; on auto fallback, exhaust the clean servers first.
+      if (stream && stream.embed) {
+        if (manual) return this.enterEmbed(s, stream);
+        this.embeddable = this.embeddable || {};
+        this.embeddable[this.current] = stream;
       }
-      this.play(stream);
+      const why = !stream ? 'no stream' : stream.state === 'gate' ? 'premium only'
+        : !stream.hls ? 'no playable stream' : `CDN ${stream.cdn} refused (${stream.cdnStatus})`;
+      this.onFailure(why, stream);
     },
 
     /**
@@ -627,6 +642,7 @@
           return;
         }
         console.warn(`[styx] race: ${s.name} unplayable`, stream && stream.log);
+        if (stream && stream.embed) { this.embeddable = this.embeddable || {}; this.embeddable[idx] = stream; }
         this.failed.add(idx);
         this.renderServers();
       }
@@ -705,6 +721,49 @@
       }
     },
 
+    /**
+     * Fallback for servers our proxy can't reach (CDNs that block Cloudflare): load the site's own
+     * player in a sandboxed iframe, which runs from the viewer's own IP. Pop-ups and top-level
+     * navigation are blocked by the sandbox; we keep our top bar (title/score/close) and server
+     * switcher overlaid, but can't control the cross-origin video, so no pause/HUD-on-video.
+     */
+    enterEmbed(server, stream) {
+      const gen = ++this.generation;
+      this.clearTimers();
+      this.stopPlayback();
+      this.current = this.servers.indexOf(server);
+      if (this.current < 0) this.current = 0;
+      this.embedMode = true;
+      this.everPlayed = true; // treat as "watching": switching away can fail over normally
+      this.failed.delete(this.current);
+      this.hideStatus();
+      this.renderServers();
+      this.updateHud();
+      const frame = $('p-embed');
+      // Reload even if the src is unchanged, so switching back re-mints a fresh token.
+      frame.src = 'about:blank';
+      requestAnimationFrame(() => { if (gen === this.generation) frame.src = stream.embed; });
+      frame.classList.remove('hidden');
+      $('p-embed-note').classList.remove('hidden');
+      this.showHud();
+      if (this.manual) store.set('server_' + this.event.id, server.name);
+    },
+
+    hideEmbed() {
+      this.embedMode = false;
+      const frame = $('p-embed');
+      frame.classList.add('hidden');
+      if (frame.src && frame.src !== 'about:blank') frame.src = 'about:blank';
+      $('p-embed-note').classList.add('hidden');
+    },
+
+    firstEmbeddable() {
+      if (!this.embeddable) return -1;
+      if (this.embeddable[this.current]) return this.current;
+      for (let i = 0; i < this.servers.length; i++) if (this.embeddable[i]) return i;
+      return -1;
+    },
+
     tryPlay() {
       const v = this.video;
       v.muted = false;
@@ -752,6 +811,9 @@
       this.everPlayed = false;
       const next = this.nextIndex(this.current);
       if (next < 0) {
+        // Nothing plays cleanly. If any server has an embeddable player, use it (viewer's IP).
+        const embIdx = this.firstEmbeddable();
+        if (embIdx >= 0) return this.enterEmbed(this.servers[embIdx], this.embeddable[embIdx]);
         const gated = this.servers.length && [...this.failed].every((i) => {
           const r = this.resolved.get(this.servers[i].pageUrl);
           return r && r.state === 'gate';
@@ -818,12 +880,16 @@
     showHud() {
       this.root.classList.remove('idle');
       this.clearTimer('hudTimer');
+      // Pointer events over the embedded (cross-origin) player never reach us, so an auto-hidden
+      // HUD could not be brought back with the mouse. Keep it visible in embed mode.
+      if (this.embedMode) return;
       this.hudTimer = setTimeout(() => {
         if ($('p-panel').classList.contains('hidden')) this.root.classList.add('idle');
       }, HUD_HIDE_MS);
     },
 
     togglePause() {
+      if (this.embedMode) { this.showHud(); return; } // can't reach into the cross-origin player
       const v = this.video;
       if (v.paused) { v.play().catch(() => {}); this.hideStatus(); }
       else { v.pause(); this.status('Paused', false); }
@@ -848,8 +914,8 @@
         case 'Enter':
           if (panelButtons || document.activeElement.tagName === 'BUTTON' || document.activeElement.tagName === 'A') return;
           ev.preventDefault(); this.togglePause(); return;
-        case 'MediaPlay': this.video.play().catch(() => {}); return;
-        case 'MediaPause': this.video.pause(); return;
+        case 'MediaPlay': if (!this.embedMode) this.video.play().catch(() => {}); return;
+        case 'MediaPause': if (!this.embedMode) this.video.pause(); return;
         case 'ArrowUp': case 'ArrowDown': case 'i': ev.preventDefault(); this.root.classList.contains('idle') ? this.showHud() : this.root.classList.add('idle'); return;
         case 'f': ev.preventDefault(); this.toggleFullscreen(); return;
         case 'm': this.video.muted = !this.video.muted; $('p-unmute').classList.toggle('hidden', !this.video.muted); return;
