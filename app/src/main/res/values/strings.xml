@@ -3,6 +3,10 @@
     <string name="app_name">Styx Sports</string>
     <string name="hint_controls">Styx Sports v%1$s\nD-pad moves the pointer · OK clicks · Back goes back · Menu reloads</string>
     <string name="reloading">Reloading…</string>
+    <string name="player_crashed">The stream player crashed. Try another server or stream.</string>
+    <string name="crash_report_title">Styx Sports crashed last time</string>
+    <string name="crash_report_hint">Please photograph this screen and send it so the crash can be fixed.</string>
+    <string name="action_dismiss">Dismiss</string>
 
     <!-- Native home -->
     <string name="brand_suffix">SPORTS</string>

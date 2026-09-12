@@ -21,6 +21,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebBackForwardList;
 import android.webkit.WebChromeClient;
 import android.webkit.WebHistoryItem;
@@ -134,6 +135,10 @@ public class PlayerActivity extends Activity {
 
         setContentView(root);
         configureWebView();
+
+        // Cleared in onStop(). If it is still set on the next launch, this screen was killed
+        // without a Java exception (WebView native crash / system kill); HomeActivity reports it.
+        CrashLog.markPlayerOpen(this, url);
 
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
@@ -272,6 +277,24 @@ public class PlayerActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 showLoadingOverlay();
+            }
+
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                // Without this the whole app is killed when the page's renderer dies. Record it,
+                // drop the dead WebView and go back to the home screen instead.
+                boolean crashed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && detail.didCrash();
+                CrashLog.recordNote(PlayerActivity.this,
+                        "WebView renderer " + (crashed ? "crashed" : "was killed (out of memory)")
+                                + " while showing " + view.getUrl());
+                Toast.makeText(PlayerActivity.this, R.string.player_crashed, Toast.LENGTH_LONG).show();
+                if (webView != null) {
+                    root.removeView(webView);
+                    webView.destroy();
+                    webView = null;
+                }
+                finish();
+                return true;
             }
 
             @Override
@@ -437,6 +460,7 @@ public class PlayerActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (webView == null) return true; // renderer died; the screen is on its way out
         int code = event.getKeyCode();
         boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
 
@@ -624,28 +648,41 @@ public class PlayerActivity extends Activity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        webView.saveState(outState);
+        if (webView != null) webView.saveState(outState);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        webView.onPause();
+        if (webView != null) webView.onPause();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        if (webView == null) return;
         webView.onResume();
         applyImmersiveMode();
+        CrashLog.markPlayerOpen(this, webView.getUrl() != null ? webView.getUrl() : "");
+    }
+
+    @Override
+    protected void onStop() {
+        // Reached on every orderly exit (Back, Home button, another app on top). A process that
+        // dies while a stream is open never gets here, which is what the marker detects.
+        CrashLog.clearPlayerOpen(this);
+        super.onStop();
     }
 
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         exitFullscreen();
-        root.removeView(webView);
-        webView.destroy();
+        if (webView != null) {
+            root.removeView(webView);
+            webView.destroy();
+            webView = null;
+        }
         super.onDestroy();
     }
 }

@@ -1,6 +1,7 @@
 package com.styxsports.tv;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 
@@ -13,6 +14,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -132,8 +134,42 @@ public class HomeActivity extends Activity {
         }
 
         refreshConfig();
-        updates.checkInBackground();
         fullRefresh(true);
+        if (!showCrashReport()) updates.checkInBackground();
+    }
+
+    /** Shows what was recorded about the previous crash, if any. Returns whether it did. */
+    private boolean showCrashReport() {
+        String report = CrashLog.pendingReport(this);
+        if (report == null) return false;
+
+        TextView text = new TextView(this);
+        text.setText(report);
+        text.setTypeface(Typeface.MONOSPACE);
+        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        text.setTextColor(color(R.color.text));
+        text.setTextIsSelectable(false);
+        ScrollView scroller = new ScrollView(this);
+        scroller.addView(text);
+        int pad = dp(16);
+        scroller.setPadding(pad, dp(8), pad, 0);
+        // Fixed height so the Dismiss button stays on screen; long traces scroll with D-pad.
+        int maxHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.55f);
+        FrameLayout box = new FrameLayout(this);
+        box.addView(scroller, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, maxHeight));
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.crash_report_title)
+                .setMessage(R.string.crash_report_hint)
+                .setView(box)
+                .setPositiveButton(R.string.action_dismiss, (d, w) -> CrashLog.clear(this))
+                .setOnDismissListener(d -> {
+                    CrashLog.clear(this);
+                    updates.checkInBackground();
+                })
+                .show();
+        return true;
     }
 
     // ---------------------------------------------------------------------------------------------
