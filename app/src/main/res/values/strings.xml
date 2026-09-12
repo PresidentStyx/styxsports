@@ -9,7 +9,6 @@
     <string name="action_dismiss">Dismiss</string>
 
     <!-- Native home -->
-    <string name="brand_suffix">SPORTS</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_open_site">Open website</string>
     <string name="action_retry">Retry</string>

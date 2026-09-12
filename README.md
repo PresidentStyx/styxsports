@@ -111,5 +111,6 @@ Requirements: JDK 17 and an Android SDK with `platforms;android-35` and
 
 ## Logo
 
-`art/styx-wordmark.png` is the source wordmark. `art/make-logo.ps1` regenerates
-the launcher icons, the TV banner and `art/logo-banner.png` from it.
+`art/styx-wordmark.png` is the source "STYX" mark. `art/make-logo.ps1` sets "SPORTS" beside it in
+Bodoni Moda Black (`art/fonts`, SIL Open Font License) and regenerates the in-app wordmark, the
+launcher icons, the TV banner and `art/logo-banner.png`.

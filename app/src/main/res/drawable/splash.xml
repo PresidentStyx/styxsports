@@ -2,12 +2,13 @@
 <!-- Window background while the home activity starts: same colour as the UI, so no flash. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/bg" />
+    <!-- Wordmark is 6.54:1; the item keeps that ratio so "fill" scales it without distortion. -->
     <item
-        android:width="240dp"
-        android:height="72dp"
+        android:width="300dp"
+        android:height="46dp"
         android:gravity="center">
         <bitmap
-            android:gravity="center"
+            android:gravity="fill"
             android:src="@drawable/wordmark" />
     </item>
 </layer-list>

@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Neutral dark palette: near-black background, charcoal cards, white focus. -->
 <resources>
-    <color name="bg">#0B1120</color>
-    <color name="surface">#161E2E</color>
-    <color name="surface_focused">#1E2A44</color>
-    <color name="accent">#38BDF8</color>
-    <color name="text">#F1F5F9</color>
-    <color name="muted">#8B9BB4</color>
+    <color name="bg">#0A0A0A</color>
+    <color name="surface">#171717</color>
+    <color name="surface_focused">#242424</color>
+    <color name="outline">#262626</color>
+    <color name="outline_strong">#343434</color>
+    <color name="accent">#FFFFFF</color>
+    <color name="text">#F5F5F5</color>
+    <color name="muted">#9E9E9E</color>
     <color name="live">#DC2626</color>
-    <color name="pill_time">#334155</color>
+    <color name="pill_time">#2E2E2E</color>
     <color name="hot">#FB923C</color>
     <color name="gold">#F5B942</color>
 </resources>

@@ -55,6 +55,9 @@ public class HomeActivity extends Activity {
     private static final int CARD_W_DP = 292;
     private static final int CARD_H_DP = 150;
     private static final int CREST_DP = 38;
+    /** Top-bar wordmark size in dp; keeps the image's 6.54:1 ratio. */
+    private static final int WORDMARK_H = 30;
+    private static final int WORDMARK_W = 196;
 
     private RemoteConfig config;
     private SiteRepository repo;
@@ -230,21 +233,12 @@ public class HomeActivity extends Activity {
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(48), dp(22), dp(48), dp(10));
 
+        // "STYX SPORTS" wordmark (6.54:1), one image so both words share the same face.
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.wordmark);
-        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        bar.addView(logo, new LinearLayout.LayoutParams(dp(108), dp(30)));
-
-        TextView sports = new TextView(this);
-        sports.setText(R.string.brand_suffix);
-        sports.setTextColor(color(R.color.accent));
-        sports.setTextSize(20);
-        sports.setTypeface(Typeface.DEFAULT_BOLD);
-        sports.setLetterSpacing(0.22f);
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        sp.leftMargin = dp(12);
-        bar.addView(sports, sp);
+        logo.setScaleType(ImageView.ScaleType.FIT_START);
+        logo.setContentDescription(getString(R.string.app_name));
+        bar.addView(logo, new LinearLayout.LayoutParams(dp(WORDMARK_W), dp(WORDMARK_H)));
 
         statusText = new TextView(this);
         statusText.setTextColor(color(R.color.muted));
@@ -300,7 +294,8 @@ public class HomeActivity extends Activity {
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.wordmark);
-        box.addView(logo, new LinearLayout.LayoutParams(dp(240), dp(66)));
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        box.addView(logo, new LinearLayout.LayoutParams(dp(300), dp(46)));
 
         overlaySpinner = new ProgressBar(this);
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(36), dp(36));

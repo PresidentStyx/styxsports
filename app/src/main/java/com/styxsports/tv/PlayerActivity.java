@@ -243,8 +243,8 @@ public class PlayerActivity extends Activity {
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.wordmark);
-        int w = (int) (220 * density);
-        int h = (int) (61 * density);
+        int w = (int) (300 * density);
+        int h = (int) (46 * density);
         box.addView(logo, new LinearLayout.LayoutParams(w, h));
 
         ProgressBar spinner = new ProgressBar(this);
