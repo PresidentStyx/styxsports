@@ -4,10 +4,13 @@
   "homeUrl": "https://v5.gostreameast.link/",
 
   "allowedHostFragments": [
-    "streameast"
+    "streameast",
+    "streamea.st"
   ],
 
   "blockedHostFragments": [
+    "adexchangeclear.com",
+    "adcash",
     "revenuenetwork.com",
     "popads.net",
     "popcash.net",
