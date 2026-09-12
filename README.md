@@ -57,13 +57,50 @@ built from the site's schedule and a native full-screen player.
 1. On the TV, enable installs from unknown sources for **Downloader**
    (Fire TV: Settings → My Fire TV → Developer Options → Install unknown apps;
    Google TV: Settings → Apps → Security & restrictions → Unknown sources).
-2. In Downloader, enter the Downloader code for this app, or the URL
-   `https://github.com/PresidentStyx/styxsports/releases/latest/download/StyxSports.apk`.
+2. In Downloader, enter `sports.styxam.com/apk` (short for
+   `https://github.com/PresidentStyx/styxsports/releases/latest/download/StyxSports.apk`).
 3. Choose **Install**.
 
 After that, updates are offered inside the app. The first time you accept one,
 Android asks you to allow Styx Sports to install apps (same toggle as for
 Downloader); every later update is a single **Install** click.
+
+## Web version — sports.styxam.com
+
+The same app in a browser (laptop, phone, or a TV browser), served by a
+Cloudflare Worker from [`web/`](web/):
+
+- `web/src/` is the Worker: a JavaScript twin of the app's `SiteParser` /
+  `SiteRepository` / `StreamResolver` (same regex rules, same `parser`
+  overrides from `config.json`), plus an HLS proxy. The proxy exists because the
+  stream CDNs want the player page's origin as `Referer`/`Origin`, which a
+  browser cannot send itself. Playlist URIs are rewritten to signed `/hls/…`
+  paths so the Worker cannot be used as a general proxy. The site's pages sit
+  behind an SSO cookie handshake, so redirects are followed by hand with a
+  cookie jar. Team crests are proxied too (`/img`). `/apk` redirects to the
+  latest release.
+- `web/public/` is the front end (no build step): the home screen with sport
+  chips, Continue watching, Your teams (right-click / long-press a card to
+  star), Live now and per-sport rows; live clocks and scores refresh every
+  30 s. Arrow keys move between cards like a D-pad, Enter plays, Esc closes.
+  The player uses hls.js with the same server switching (← →, or the server
+  chips), automatic fallback and a 6 s "race" to the next server when the first
+  one is slow.
+- Some CDNs refuse requests from Cloudflare's network (they answer 403 even with
+  a valid token). The Worker checks each playlist once when resolving a server
+  and flags it `playable: false`, so the player skips straight to the next one.
+  Servers on the site's primary CDN family work.
+
+Deploy (after `npx wrangler login` once):
+
+```
+cd web
+npx wrangler deploy
+npx wrangler secret put HLS_SECRET   # any long random string; signs the /hls paths
+```
+
+`wrangler.jsonc` declares `sports.styxam.com` as a custom domain, so the first
+deploy creates the DNS record and certificate on the `styxam.com` zone.
 
 ## Making changes
 

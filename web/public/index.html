@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="description" content="Styx Sports: live sports schedule and streams. Pick a game, it plays.">
+  <meta name="referrer" content="no-referrer">
+  <title>Styx Sports</title>
+  <link rel="icon" href="/icon.png">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="top">
+    <img class="wordmark" src="/wordmark.png" alt="Styx Sports">
+    <nav class="chips" id="chips" aria-label="Sports"></nav>
+    <div class="top-right">
+      <span class="status" id="status"></span>
+      <button class="icon-btn" id="refresh" title="Refresh">⟳</button>
+      <a class="apk" href="/apk" title="Download the Android TV app">Get the TV app</a>
+    </div>
+  </header>
+
+  <main id="rows" class="rows"></main>
+
+  <div id="overlay" class="overlay">
+    <div class="spinner"></div>
+    <div class="overlay-msg" id="overlay-msg">Loading events…</div>
+    <button class="btn hidden" id="overlay-retry">Retry</button>
+  </div>
+
+  <footer class="foot">
+    <span>Right-click or long-press a game to star a team or league.</span>
+    <span>Arrow keys move · Enter plays · Esc closes.</span>
+  </footer>
+
+  <!-- Player -->
+  <div id="player" class="player hidden" tabindex="-1">
+    <video id="video" playsinline autoplay></video>
+    <div class="hud hud-top">
+      <span class="pill" id="p-pill">LIVE</span>
+      <span class="p-title" id="p-title"></span>
+      <span class="p-score" id="p-score"></span>
+      <span class="hud-spacer"></span>
+      <button class="icon-btn" id="p-fs" title="Full screen">⛶</button>
+      <button class="icon-btn" id="p-close" title="Close (Esc)">✕</button>
+    </div>
+    <div class="hud hud-bottom">
+      <div class="servers" id="p-servers"></div>
+      <div class="hint">← → switch server · Space pause · Esc back</div>
+    </div>
+    <div class="panel hidden" id="p-panel">
+      <div class="spinner" id="p-spinner"></div>
+      <div class="panel-msg" id="p-msg"></div>
+      <div class="panel-actions" id="p-actions"></div>
+    </div>
+    <button class="unmute hidden" id="p-unmute">🔇 Tap to unmute</button>
+  </div>
+
+  <!-- Favorites menu -->
+  <div id="menu" class="menu hidden" role="menu"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

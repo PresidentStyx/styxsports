@@ -10,6 +10,11 @@ keystore.properties
 *.jks
 *.keystore
 
+# Web (Cloudflare Worker)
+web/.wrangler/
+web/node_modules/
+web/.dev.vars
+
 # IDE
 .idea/
 *.iml
