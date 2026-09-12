@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Styx Sports</string>
+    <string name="hint_controls">D-pad moves the pointer · OK clicks · Back goes back · Menu reloads</string>
+    <string name="reloading">Reloading…</string>
+</resources>

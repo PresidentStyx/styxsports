@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.StyxSports" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorPrimary">#0F172A</item>
+        <item name="android:colorPrimaryDark">#000000</item>
+        <item name="android:colorAccent">#38BDF8</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+</resources>

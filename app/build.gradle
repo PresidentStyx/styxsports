@@ -1,0 +1,63 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Optional release signing: create keystore.properties (git-ignored) with
+//   storeFile=keystore/styxsports.jks
+//   storePassword=...
+//   keyAlias=...
+//   keyPassword=...
+// If it is missing, the release build falls back to the debug keystore so it
+// still produces an installable APK.
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
+android {
+    namespace 'com.styxsports.tv'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.styxsports.tv'
+        minSdk 21
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+
+    signingConfigs {
+        if (keystoreProps['storeFile']) {
+            release {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystoreProps['storeFile'] ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            outputFileName = "StyxSports-${variant.baseName}-v${variant.versionName}.apk"
+        }
+    }
+}
+
+// Intentionally no library dependencies: the app is a single Activity using the
+// framework WebView, which keeps the APK tiny and the build fast.
+dependencies {
+}
