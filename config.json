@@ -6,6 +6,9 @@
   "_dataBaseUrl": "Origin whose listing HTML the native home parses. If it stops working the app auto-discovers the current origin via the mirror links on homeUrl.",
   "dataBaseUrl": "https://v2.streameast.ga",
 
+  "_authBaseUrl": "The site's account service: TV sign-in codes (/device/code, /device/poll, /device/login), account status (/my-account/) and sign-out (/logout/). Used by the Premium account screen.",
+  "authBaseUrl": "https://auth.streamea.st",
+
   "_nativeHome": "Kill switch. false = launch straight into the WebView on homeUrl (v1.x behaviour).",
   "nativeHome": true,
 

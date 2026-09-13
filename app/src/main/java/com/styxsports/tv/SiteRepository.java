@@ -33,6 +33,12 @@ final class SiteRepository {
         this.ctx = ctx.getApplicationContext();
     }
 
+    /** The site origin the listing was last fetched from (falls back to the configured one). */
+    String currentBase(RemoteConfig cfg) {
+        String discovered = prefs().getString(KEY_DISCOVERED_BASE, null);
+        return discovered != null ? discovered : cfg.dataBaseUrl;
+    }
+
     /** Last successful result, for instant paint at launch; null if none. */
     Snapshot cached() {
         String json = prefs().getString(KEY_SNAPSHOT, null);

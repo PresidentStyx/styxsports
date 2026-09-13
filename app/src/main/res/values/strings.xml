@@ -28,6 +28,9 @@
     <string name="row_favorites">Your Teams</string>
     <string name="row_favorites_sub">Starred teams and leagues</string>
     <string name="chip_all">All</string>
+    <string name="chip_premium_only">★ Premium Only</string>
+    <string name="no_premium_events">No premium-only games are listed right now.</string>
+    <string name="only_premium_events">Every game listed right now is premium-only. See the Premium Only tab, or sign in to a premium account.</string>
     <plurals name="count_live">
         <item quantity="one">%d game</item>
         <item quantity="other">%d games</item>
@@ -80,5 +83,39 @@
     <string name="update_downloading">Downloading update…</string>
     <string name="update_failed">Update failed: %1$s</string>
     <string name="update_allow_source">Allow Styx Sports to install apps, then press Back to continue.</string>
+    <!-- Premium account (site sign-in) -->
+    <string name="action_sign_in">Sign in</string>
+    <string name="action_account_premium">Premium</string>
+    <string name="action_account">Account</string>
+    <string name="acct_title">Premium account</string>
+    <string name="acct_lead">Sign in to your StreamEast account and Styx Sports will use its premium servers automatically. Without an account it keeps using the free ones.</string>
+    <string name="acct_steps">1.  On your phone, go to %1$s (or scan the code)\n2.  Sign in to your StreamEast account\n3.  Under QR Sign In, enter the code shown here</string>
+    <string name="acct_your_code">Your code</string>
+    <string name="acct_code_placeholder">--- ---</string>
+    <string name="acct_code_approved">Approved</string>
+    <string name="acct_scan_hint">Scan with your phone camera</string>
+    <string name="acct_expires_in">Code expires in %1$d:%2$02d</string>
+    <string name="acct_getting_code">Getting your code…</string>
+    <string name="acct_waiting">Waiting for you to enter the code on your phone…</string>
+    <string name="acct_finishing">Signing in…</string>
+    <string name="acct_code_expired">That code expired. Get a new one to try again.</string>
+    <string name="acct_code_used">That code was already used. Get a new one to try again.</string>
+    <string name="acct_error">Something went wrong: %1$s</string>
+    <string name="acct_new_code">Get new code</string>
+    <string name="acct_cancel">Cancel</string>
+    <string name="acct_back">Back</string>
+    <string name="acct_sign_out">Sign out</string>
+    <string name="acct_signing_out">Signing out…</string>
+    <string name="acct_signed_in_toast">Signed in. Premium servers will be used when available.</string>
+    <string name="acct_signed_out_toast">Signed out.</string>
+    <string name="acct_session_lapsed">Your sign-in expired. Sign in again to keep using premium servers.</string>
+    <string name="acct_signed_in_lead">You are signed in to StreamEast. Games open on this account\'s premium servers first and fall back to the free ones.</string>
+    <string name="acct_premium_unknown">Premium status is checked the first time you open a game.</string>
+    <string name="acct_premium_yes">✓  Premium servers are unlocked on this account.</string>
+    <string name="acct_premium_no">This account does not seem to have premium: its premium servers were locked. Free servers are used instead.</string>
+    <string name="np_premium_marker">Premium</string>
+    <string name="np_sign_in">Sign in for premium</string>
+    <string name="np_premium_only_signed_out">This stream is for the site’s premium members only.\nSign in to your premium account to watch it, or pick another game.</string>
+
     <string name="update_allow_source_manual">Enable “Install unknown apps” for Styx Sports in Settings, then relaunch.</string>
 </resources>

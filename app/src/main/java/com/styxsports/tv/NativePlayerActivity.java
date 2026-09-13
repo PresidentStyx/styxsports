@@ -93,7 +93,7 @@ public class NativePlayerActivity extends Activity {
     private TextView statusText;
     private LinearLayout statusButtons;
 
-    /** Free servers only; premium tabs are never playable for us. */
+    /** Servers in try order: the account's premium tabs first (when signed in), then the free ones. */
     private final List<StreamResolver.Server> servers = new ArrayList<>();
     private final Map<String, StreamResolver.Stream> resolved = new HashMap<>();
     /** The stream page as fetched; its HTML already embeds the active server. */
@@ -348,6 +348,7 @@ public class NativePlayerActivity extends Activity {
         }
         StreamResolver.Server s = servers.get(current);
         String label = getString(R.string.np_server_of, current + 1, servers.size(), s.name);
+        if (s.premium) label += "   ·   ★ " + getString(R.string.np_premium_marker);
         if (player != null && !player.getPlayWhenReady() && everPlayed) {
             label += "   ·   " + getString(R.string.np_paused);
         }
@@ -480,28 +481,63 @@ public class NativePlayerActivity extends Activity {
     private void onPageResolved(StreamResolver.Page p) {
         page = p;
         servers.clear();
-        int activeIdx = 0;
-        for (int i = 0; i < p.servers.size(); i++) {
-            StreamResolver.Server s = p.servers.get(i);
-            if (s.premium) continue;
-            if (i == p.activeIndex) activeIdx = servers.size();
-            servers.add(s);
+        // Signed in: the account's premium servers go first and are tried first; a premium tab
+        // that turns out to be locked (account without premium) simply fails over to the free
+        // ones like any other dead server. Signed out: premium tabs are skipped entirely.
+        boolean signedIn = Account.isSignedIn(this);
+        boolean premiumLocked = Boolean.FALSE.equals(Account.premiumKnown(this));
+        List<StreamResolver.Server> premium = new ArrayList<>();
+        List<StreamResolver.Server> free = new ArrayList<>();
+        for (StreamResolver.Server s : p.servers) {
+            if (!s.premium) free.add(s);
+            else if (signedIn) premium.add(s);
+        }
+        if (premiumLocked) {
+            // Known not to be premium: keep the tabs reachable with Left/Right but start on free.
+            servers.addAll(free);
+            servers.addAll(premium);
+        } else {
+            servers.addAll(premium);
+            servers.addAll(free);
         }
         if (servers.isEmpty()) {
-            // Every server is premium: nothing we can play.
-            showStatusWithActions(getString(R.string.np_premium_only), false);
+            showPremiumOnly();
             return;
         }
 
-        // Prefer the server that worked last time for this game.
+        int start = 0;
+        StreamResolver.Server active = p.servers.get(p.activeIndex);
+        if (servers.contains(active) && (premium.isEmpty() || premiumLocked)) start = servers.indexOf(active);
+
+        // Prefer the server that worked last time for this game, unless a premium server has
+        // become available since (a fresh sign-in) and the remembered one is a free server.
         String preferred = prefs().getString(event.id, null);
-        int start = activeIdx;
         if (preferred != null) {
             for (int i = 0; i < servers.size(); i++) {
-                if (servers.get(i).pageUrl.equals(preferred)) start = i;
+                StreamResolver.Server s = servers.get(i);
+                if (!s.pageUrl.equals(preferred)) continue;
+                if (s.premium || premium.isEmpty() || premiumLocked) start = i;
             }
         }
+        Log.i(TAG, "servers: " + servers.size() + " (" + premium.size() + " premium, signedIn=" + signedIn
+                + ", locked=" + premiumLocked + "), starting at " + start);
         switchTo(start, false);
+    }
+
+    /** Every server is premium and none is available to us. */
+    private void showPremiumOnly() {
+        if (Account.isSignedIn(this)) {
+            showStatusWithActions(getString(R.string.np_premium_only), false);
+            return;
+        }
+        showStatus(getString(R.string.np_premium_only_signed_out), false);
+        statusButtons.setVisibility(View.VISIBLE);
+        statusButtons.addView(pillButton(getString(R.string.np_sign_in), v -> {
+            startActivity(AccountActivity.intent(this));
+            finish();
+        }));
+        statusButtons.addView(pillButton(getString(R.string.np_back_home), v -> finish()));
+        statusButtons.getChildAt(0).requestFocus();
     }
 
     /** Loads server {@code index}; {@code manual} resets the automatic fallback sweep. */
@@ -593,6 +629,11 @@ public class NativePlayerActivity extends Activity {
 
     @OptIn(markerClass = UnstableApi.class) // HlsMediaSource / DefaultHttpDataSource (Media3 version is pinned)
     private void play(StreamResolver.Stream st) {
+        if (st.server.premium) {
+            // What the site gave a premium tab tells us whether the account really has premium.
+            if (st.playableNatively() || st.embed != null) Account.notePremium(this, true);
+            else if ("gate".equals(st.state)) Account.notePremium(this, false);
+        }
         if (!st.playableNatively()) {
             Log.i(TAG, st.server.name + " has no HLS (state=" + st.state + ")");
             onFailure("gate".equals(st.state) ? "premium" : "no player");
@@ -658,7 +699,7 @@ public class NativePlayerActivity extends Activity {
         }
         player.stop();
         if (allPremium && !resolved.isEmpty()) {
-            showStatusWithActions(getString(R.string.np_premium_only), false);
+            showPremiumOnly();
         } else {
             showStatusWithActions(getString(R.string.np_all_failed), anyEmbed);
         }

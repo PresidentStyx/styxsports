@@ -13,6 +13,15 @@ built from the site's schedule and a native full-screen player.
 - **Sport chips** under the logo (All · MLB · Soccer · UFC · CFB …) filter the
   rows; the pick is remembered.
 - **Continue Watching** row: the games you opened in the last few hours.
+- **Premium account** (**Sign in** button, top right): signs in to a StreamEast
+  account with the site's own TV flow — the screen shows a 6-character code and a
+  QR code; on your phone open `auth.streamea.st/activate`, sign in and type the
+  code. The session is kept in the app's cookie store, so from then on every
+  stream page the app reads is signed in and the account's **premium servers
+  are used first**, with the free ones as fallback. Without an account (or with
+  one that has no premium) premium-only games are kept out of the regular rows
+  and collected under a **★ Premium Only** chip; the player offers **Sign in for
+  premium** when a game has no free server. **Sign out** is on the same screen.
 - **Favorites**: long-press **OK** on a card to star either team or the league/sport.
   Starred games get a ★, sort first in every row and fill a **Your Teams** row.
 - **Native player**: picking a game resolves the stream page to its HLS playlist
@@ -120,6 +129,7 @@ the next launch (raw.githubusercontent.com caches for up to ~5 minutes).
 |------------------------|-----------------------------------------------------------------------------|
 | `homeUrl`              | Gateway page: used by "Open website", the WebView-only mode, and domain discovery. |
 | `dataBaseUrl`          | Site origin whose listing HTML the native home parses (e.g. `https://v2.streameast.ga`). Auto-discovered via `homeUrl` when it fails. |
+| `authBaseUrl`          | The site's account service (default `https://auth.streamea.st`): TV sign-in codes (`/device/code`, `/device/poll`, `/device/login`), account status (`/my-account/`) and sign-out (`/logout/`). |
 | `nativeHome`           | `false` = kill switch: launch straight into the WebView on `homeUrl`.       |
 | `allowedHostFragments` | Top-level navigation is allowed only to hosts containing one of these.      |
 | `blockedHostFragments` | Any request to a host containing one of these is dropped (ad blocking).     |

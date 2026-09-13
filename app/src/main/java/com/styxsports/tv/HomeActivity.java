@@ -69,8 +69,12 @@ public class HomeActivity extends Activity {
     private ImageLoader images;
     private UpdateFlow updates;
     private Favorites favorites;
-    /** Selected sport chip (category name), or null for All. */
+    /** Selected sport chip (category name), {@link #PREMIUM_FILTER}, or null for All. */
     private String filterCategory;
+    /** Chip value for the "Premium Only" tab (not a real category name). */
+    private static final String PREMIUM_FILTER = "__premium_only__";
+    /** Whether the last render kept premium-only games out of the regular rows. */
+    private boolean renderedPremiumHidden;
     private LinearLayout chips;
     private HorizontalScrollView chipsScroller;
     /** Identity of the Continue Watching row at the last render, to re-render when it changes. */
@@ -86,6 +90,7 @@ public class HomeActivity extends Activity {
     private ScrollView scroller;
     private LinearLayout rows;
     private TextView statusText;
+    private TextView accountButton;
     private View overlay;
     private ProgressBar overlaySpinner;
     private TextView overlayMessage;
@@ -274,6 +279,11 @@ public class HomeActivity extends Activity {
         ((LinearLayout.LayoutParams) site.getLayoutParams()).leftMargin = dp(10);
         bar.addView(site);
 
+        accountButton = pillButton("", v -> startActivity(AccountActivity.intent(this)));
+        ((LinearLayout.LayoutParams) accountButton.getLayoutParams()).leftMargin = dp(10);
+        bar.addView(accountButton);
+        bindAccountButton();
+
         TextView version = new TextView(this);
         version.setText("v" + AppUpdater.installedVersion(this));
         version.setTextColor(color(R.color.muted));
@@ -283,6 +293,37 @@ public class HomeActivity extends Activity {
         vp.leftMargin = dp(14);
         bar.addView(version, vp);
         return bar;
+    }
+
+    /** "Sign in" when signed out; "Premium" (gold) once signed in. */
+    private void bindAccountButton() {
+        if (accountButton == null) return;
+        boolean signedIn = Account.isSignedIn(this);
+        Boolean premium = Account.premiumKnown(this);
+        if (!signedIn) {
+            accountButton.setText(R.string.action_sign_in);
+        } else if (premium != null && !premium) {
+            accountButton.setText(R.string.action_account);
+        } else {
+            accountButton.setText("★ " + getString(R.string.action_account_premium));
+        }
+        if (signedIn && Account.isStale(this)) recheckAccount();
+    }
+
+    /** Sessions lapse; make sure the button (and the player's server choice) reflect reality. */
+    private void recheckAccount() {
+        final Account account = new Account(this, config);
+        io.execute(() -> {
+            try {
+                account.refreshStatus();
+            } catch (Exception ignored) {
+                return; // offline; keep the cached answer
+            }
+            handler.post(() -> {
+                bindAccountButton();
+                if (snapshot != null && !loading && premiumHidden() != renderedPremiumHidden) render(snapshot);
+            });
+        });
     }
 
     /** Sport filter chips: All + one per category, remembered across launches. */
@@ -307,10 +348,13 @@ public class HomeActivity extends Activity {
         List<String> names = new ArrayList<>();
         names.add(null); // All
         for (Snapshot.Category c : s.byCategory().keySet()) names.add(c.name);
+        // Without a premium account the premium-only games live in their own tab.
+        if (premiumHidden()) names.add(PREMIUM_FILTER);
         if (filterCategory != null && !names.contains(filterCategory)) filterCategory = null;
         for (final String name : names) {
             final TextView chip = new TextView(this);
-            chip.setText(name == null ? getString(R.string.chip_all) : name);
+            chip.setText(name == null ? getString(R.string.chip_all)
+                    : PREMIUM_FILTER.equals(name) ? getString(R.string.chip_premium_only) : name);
             chip.setTag(name);
             chip.setTextColor(ContextCompat.getColorStateList(this, R.color.button_text));
             chip.setTextSize(13);
@@ -511,16 +555,21 @@ public class HomeActivity extends Activity {
         renderChips(s);
 
         Map<Snapshot.Category, List<Event>> byCat = s.byCategory();
+        // Without a premium account, premium-only games are kept out of the regular rows and
+        // shown together under the "Premium Only" chip instead.
+        final boolean premiumHidden = premiumHidden();
+        final boolean premiumOnly = premiumHidden && PREMIUM_FILTER.equals(filterCategory);
+        renderedPremiumHidden = premiumHidden;
         Snapshot.Category filter = null;
-        if (filterCategory != null) {
+        if (filterCategory != null && !premiumOnly) {
             for (Snapshot.Category c : byCat.keySet()) if (c.name.equals(filterCategory)) filter = c;
         }
 
         // Continue watching: games opened recently that are still listed (fresh data) or recent
         // enough to matter. Only on the unfiltered view.
-        List<Event> recent = continueWatching(s);
+        List<Event> recent = premiumPass(continueWatching(s), premiumHidden, false);
         recentsKey = keyOf(recent);
-        if (filter == null && !recent.isEmpty()) {
+        if (filter == null && !premiumOnly && !recent.isEmpty()) {
             addRow(getString(R.string.row_continue), getString(R.string.row_continue_sub), recent);
         }
 
@@ -530,6 +579,7 @@ public class HomeActivity extends Activity {
             for (Event e : s.events) {
                 if (favorites.matches(e) && (filter == null || e.categoryId == filter.id)) mine.add(e);
             }
+            mine = premiumPass(mine, premiumHidden, premiumOnly);
             if (!mine.isEmpty()) {
                 Collections.sort(mine, Snapshot.ROW_ORDER);
                 addRow(getString(R.string.row_favorites), getString(R.string.row_favorites_sub), mine);
@@ -538,6 +588,7 @@ public class HomeActivity extends Activity {
 
         List<Event> live = new ArrayList<>();
         for (Event e : s.liveEvents()) if (filter == null || e.categoryId == filter.id) live.add(e);
+        live = premiumPass(live, premiumHidden, premiumOnly);
         if (!live.isEmpty()) {
             addRow(getString(R.string.row_live_now), getResources().getQuantityString(
                     R.plurals.count_live, live.size(), live.size()), favoritesFirst(live));
@@ -545,27 +596,28 @@ public class HomeActivity extends Activity {
         for (Map.Entry<Snapshot.Category, List<Event>> en : byCat.entrySet()) {
             Snapshot.Category c = en.getKey();
             if (filter != null && c != filter) continue;
+            List<Event> events = premiumPass(en.getValue(), premiumHidden, premiumOnly);
+            if (events.isEmpty()) continue;
             int liveN = 0, endedN = 0;
-            for (Event e : en.getValue()) {
+            for (Event e : events) {
                 if (e.ended) endedN++;
                 else if (e.live) liveN++;
             }
-            int upcoming = en.getValue().size() - liveN - endedN;
+            int upcoming = events.size() - liveN - endedN;
             String sub = liveN > 0
                     ? getString(R.string.row_sub_live_upcoming, liveN, upcoming)
                     : getString(R.string.row_sub_upcoming, upcoming);
             if (endedN > 0) sub += " · " + getString(R.string.row_sub_final, endedN);
-            addRow(c.name, sub, favoritesFirst(en.getValue()));
+            addRow(c.name, sub, favoritesFirst(events));
         }
 
         if (rows.getChildCount() == 0) {
-            if (filter != null) {
-                TextView empty = new TextView(this);
-                empty.setText(getString(R.string.no_events_filtered, filter.name));
-                empty.setTextColor(color(R.color.muted));
-                empty.setTextSize(16);
-                empty.setPadding(dp(48), dp(40), dp(48), 0);
-                rows.addView(empty);
+            if (premiumOnly) {
+                rows.addView(emptyNote(getString(R.string.no_premium_events)));
+            } else if (filter != null) {
+                rows.addView(emptyNote(getString(R.string.no_events_filtered, filter.name)));
+            } else if (premiumHidden && !s.events.isEmpty()) {
+                rows.addView(emptyNote(getString(R.string.only_premium_events)));
             } else {
                 showProblem(getString(R.string.no_events));
                 return;
@@ -587,6 +639,31 @@ public class HomeActivity extends Activity {
             if (out.size() >= MAX_CONTINUE) break;
         }
         return out;
+    }
+
+    /** No premium account (signed out, or signed in but the account turned out not to have it). */
+    private boolean premiumHidden() {
+        return !Account.isSignedIn(this) || Boolean.FALSE.equals(Account.premiumKnown(this));
+    }
+
+    /**
+     * With premium hidden: only the premium games ({@code premiumOnly}) or only the free ones.
+     * With a premium account every game passes.
+     */
+    private static List<Event> premiumPass(List<Event> in, boolean premiumHidden, boolean premiumOnly) {
+        if (!premiumHidden) return in;
+        List<Event> out = new ArrayList<>(in.size());
+        for (Event e : in) if (e.premium == premiumOnly) out.add(e);
+        return out;
+    }
+
+    private TextView emptyNote(String text) {
+        TextView empty = new TextView(this);
+        empty.setText(text);
+        empty.setTextColor(color(R.color.muted));
+        empty.setTextSize(16);
+        empty.setPadding(dp(48), dp(40), dp(48), 0);
+        return empty;
     }
 
     private static String keyOf(List<Event> events) {
@@ -1031,8 +1108,13 @@ public class HomeActivity extends Activity {
         handler.removeCallbacks(fullTick);
         handler.postDelayed(statusTick, STATUS_INTERVAL_MS);
         handler.postDelayed(fullTick, FULL_REFRESH_INTERVAL_MS);
+        bindAccountButton();
         if (snapshot != null && !loading) {
-            if (!keyOf(continueWatching(snapshot)).equals(recentsKey)) render(snapshot);
+            boolean premiumHidden = premiumHidden();
+            if (premiumHidden != renderedPremiumHidden
+                    || !keyOf(premiumPass(continueWatching(snapshot), premiumHidden, false)).equals(recentsKey)) {
+                render(snapshot);
+            }
             if (System.currentTimeMillis() - snapshot.fetchedAtMs > STALE_ON_RESUME_MS) {
                 fullRefresh(false);
             } else {

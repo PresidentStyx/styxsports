@@ -27,6 +27,8 @@ final class RemoteConfig {
 
     private static final String DEFAULT_HOME_URL = "https://v5.gostreameast.link/";
     private static final String DEFAULT_DATA_BASE_URL = "https://v2.streameast.ga";
+    /** The site's account/SSO service (sign-in codes, account status, sign-out). */
+    private static final String DEFAULT_AUTH_BASE_URL = "https://auth.streamea.st";
     // "streamea.st" is the site's SSO/help/status domain and is spelled differently.
     private static final List<String> DEFAULT_ALLOWED = Arrays.asList("streameast", "streamea.st");
     private static final List<String> DEFAULT_BLOCKED = Arrays.asList("adexchangeclear.com", "adcash");
@@ -58,6 +60,8 @@ final class RemoteConfig {
     final String homeUrl;
     /** Origin of the site whose listing pages are parsed for the native home. */
     final String dataBaseUrl;
+    /** Origin of the site's account service (TV sign-in codes, account status, sign-out). */
+    final String authBaseUrl;
     /** Kill switch: false shows the plain WebView experience instead of the native home. */
     final boolean nativeHome;
     final List<String> allowedHostFragments;
@@ -80,13 +84,14 @@ final class RemoteConfig {
     final ParserRules parser;
     final String rawJson;
 
-    private RemoteConfig(String homeUrl, String dataBaseUrl, boolean nativeHome,
+    private RemoteConfig(String homeUrl, String dataBaseUrl, String authBaseUrl, boolean nativeHome,
                          List<String> allowed, List<String> blocked, String userAgent,
                          String pageScript, String playerCss, String playerScript,
                          int playerViewportWidth, boolean directPlayer, boolean nativePlayer,
                          ParserRules parser, String rawJson) {
         this.homeUrl = homeUrl;
         this.dataBaseUrl = stripTrailingSlash(dataBaseUrl);
+        this.authBaseUrl = stripTrailingSlash(authBaseUrl);
         this.nativeHome = nativeHome;
         this.allowedHostFragments = lower(allowed);
         this.blockedHostFragments = lower(blocked);
@@ -102,15 +107,16 @@ final class RemoteConfig {
     }
 
     static RemoteConfig defaults() {
-        return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_DATA_BASE_URL, true, DEFAULT_ALLOWED,
-                DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "", DEFAULT_PLAYER_VIEWPORT_WIDTH, true, true,
-                ParserRules.defaults(), "");
+        return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_DATA_BASE_URL, DEFAULT_AUTH_BASE_URL, true,
+                DEFAULT_ALLOWED, DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "",
+                DEFAULT_PLAYER_VIEWPORT_WIDTH, true, true, ParserRules.defaults(), "");
     }
 
     static RemoteConfig parse(String json) throws JSONException {
         JSONObject o = new JSONObject(json);
         String home = httpOr(o.optString("homeUrl", ""), DEFAULT_HOME_URL);
         String dataBase = httpOr(o.optString("dataBaseUrl", ""), DEFAULT_DATA_BASE_URL);
+        String authBase = httpOr(o.optString("authBaseUrl", ""), DEFAULT_AUTH_BASE_URL);
         List<String> allowed = toList(o.optJSONArray("allowedHostFragments"));
         if (allowed.isEmpty()) allowed = DEFAULT_ALLOWED;
         String playerCss = o.optString("playerCss", "").trim();
@@ -118,6 +124,7 @@ final class RemoteConfig {
         return new RemoteConfig(
                 home,
                 dataBase,
+                authBase,
                 o.optBoolean("nativeHome", true),
                 allowed,
                 toList(o.optJSONArray("blockedHostFragments")),

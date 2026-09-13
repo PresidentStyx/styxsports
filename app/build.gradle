@@ -24,8 +24,8 @@ android {
         minSdk 21
         targetSdk 35
         // Keep versionName == git tag without the "v"; the in-app updater compares them.
-        versionCode 13
-        versionName '3.1'
+        versionCode 14
+        versionName '3.2'
     }
 
     signingConfigs {
@@ -71,4 +71,6 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer:1.4.1'
     implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
     implementation 'androidx.media3:media3-ui:1.4.1'
+    // QR code on the account sign-in screen (the site's TV sign-in flow).
+    implementation 'com.google.zxing:core:3.5.3'
 }

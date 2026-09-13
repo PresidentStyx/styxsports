@@ -48,6 +48,14 @@
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.StyxSports.Player" />
 
+        <!-- Premium account sign-in (site TV code + QR) and sign-out. -->
+        <activity
+            android:name=".AccountActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.StyxSports.Home" />
+
         <!-- WebView for the stream page (or the whole site as a fallback). -->
         <activity
             android:name=".PlayerActivity"

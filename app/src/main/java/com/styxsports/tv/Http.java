@@ -10,8 +10,12 @@ import java.net.CookieHandler;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 /** Minimal blocking HTTP helpers; always call from a background thread. */
 final class Http {
@@ -28,11 +32,52 @@ final class Http {
 
     /**
      * The site fronts its pages with a cookie-based SSO redirect chain, so the process needs a
-     * cookie jar for plain HttpURLConnection calls. Safe to call repeatedly.
+     * cookie jar for plain HttpURLConnection calls. The jar is the WebView's persistent cookie
+     * store, so the schedule fetcher, the stream resolver, the web player and the account sign-in
+     * all share one session that survives restarts. Safe to call repeatedly.
      */
     static synchronized void ensureCookies() {
-        if (CookieHandler.getDefault() == null) {
+        if (CookieHandler.getDefault() != null) return;
+        try {
+            CookieHandler.setDefault(new WebkitCookieHandler());
+        } catch (Throwable noWebView) {
             CookieHandler.setDefault(new CookieManager(null, CookiePolicy.ACCEPT_ALL));
+        }
+    }
+
+    /** Writes the cookie store to disk (after a sign-in / sign-out). */
+    static void flushCookies() {
+        try {
+            android.webkit.CookieManager.getInstance().flush();
+        } catch (Throwable ignored) {
+            // no WebView on this device; the in-memory jar has nothing to flush
+        }
+    }
+
+    /** java.net cookie handler backed by {@link android.webkit.CookieManager}. */
+    private static final class WebkitCookieHandler extends CookieHandler {
+        private final android.webkit.CookieManager store = android.webkit.CookieManager.getInstance();
+
+        WebkitCookieHandler() {
+            store.setAcceptCookie(true);
+        }
+
+        @Override
+        public Map<String, List<String>> get(URI uri, Map<String, List<String>> requestHeaders) {
+            String cookie = store.getCookie(uri.toString());
+            if (cookie == null || cookie.isEmpty()) return Collections.emptyMap();
+            return Collections.singletonMap("Cookie", Collections.singletonList(cookie));
+        }
+
+        @Override
+        public void put(URI uri, Map<String, List<String>> responseHeaders) {
+            for (Map.Entry<String, List<String>> e : responseHeaders.entrySet()) {
+                String name = e.getKey();
+                if (name == null || !(name.equalsIgnoreCase("Set-Cookie") || name.equalsIgnoreCase("Set-Cookie2"))) {
+                    continue;
+                }
+                for (String value : e.getValue()) store.setCookie(uri.toString(), value);
+            }
         }
     }
 
@@ -59,8 +104,13 @@ final class Http {
     }
 
     static String postForm(String url, String formBody) throws IOException {
+        return postForm(url, formBody, null);
+    }
+
+    static String postForm(String url, String formBody, String referer) throws IOException {
         HttpURLConnection c = open(url);
         try {
+            if (referer != null) c.setRequestProperty("Referer", referer);
             c.setRequestMethod("POST");
             c.setDoOutput(true);
             c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
@@ -79,15 +129,26 @@ final class Http {
 
     /** Follows redirects and returns the URL that finally answered 2xx. */
     static String finalUrl(String url) throws IOException {
-        HttpURLConnection c = open(url);
-        try {
-            check(c);
-            // Drain so the connection can be reused.
-            copy(c.getInputStream(), new ByteArrayOutputStream(), MAX_TEXT_BYTES);
-            return c.getURL().toString();
-        } finally {
-            c.disconnect();
+        // HttpURLConnection follows same-scheme redirects itself but hands back the 3xx when the
+        // scheme changes (the site's SSO hops between http and https), so follow those by hand.
+        for (int hop = 0; hop < 8; hop++) {
+            HttpURLConnection c = open(url);
+            try {
+                int code = c.getResponseCode();
+                String location = c.getHeaderField("Location");
+                if (code >= 300 && code < 400 && location != null) {
+                    url = new URL(c.getURL(), location).toString();
+                    continue;
+                }
+                check(c);
+                // Drain so the connection can be reused.
+                copy(c.getInputStream(), new ByteArrayOutputStream(), MAX_TEXT_BYTES);
+                return c.getURL().toString();
+            } finally {
+                c.disconnect();
+            }
         }
+        throw new IOException("Too many redirects for " + url);
     }
 
     static byte[] getBytes(String url, long maxBytes) throws IOException {
