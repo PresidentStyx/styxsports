@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Live TV: channel groups down the left, the selected group's channels on the right. -->
+<!--
+  Live TV, laid out like LiveTvActivity on Android TV (1 dp = 2 px at 1080p):
+    top bar   padding 48/22/48/14 dp: wordmark 196x30 dp, then (22 dp on) "Live TV" 22 sp bold
+              over a 13 sp muted subtitle, the 13 sp key hint on the right; all centred on one line.
+    body      padding 40 dp sides / 16 dp bottom: a 300 dp group list (8x4 dp padding, 2 dp
+              dividers) and, 16 dp to its right, a 4-column channel grid (8x4 dp padding, 10 dp gaps).
+    status    a translucent panel over everything while loading / on error (spinner, 17 sp text,
+              Retry / Back buttons).
+  The list and grid draw their own focus ring (LiveTvActivity.focusFrame) inside their items.
+-->
 <component name="LiveTvScreen" extends="Group">
   <interface>
     <field id="navigate" type="assocarray" alwaysNotify="true" />
@@ -7,6 +16,8 @@
     <field id="resumed" type="boolean" alwaysNotify="true" onChange="onResumed" />
     <field id="start" type="boolean" alwaysNotify="true" onChange="onStart" />
     <field id="devKey" type="string" alwaysNotify="true" onChange="onDevKey" />
+    <!-- true once this screen took the shared premium pool slot; the scene releases it on pop -->
+    <field id="holdsLease" type="boolean" value="false" />
   </interface>
   <script type="text/brightscript" uri="LiveTvScreen.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
@@ -18,20 +29,38 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Pool.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
     <Rectangle width="1920" height="1080" color="0x0A0A0AFF" />
-    <Label translation="[72,40]" width="800" height="60" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" text="Live TV" />
-    <Label id="subtitle" translation="[72,104]" width="1200" height="34" font="font:SmallSystemFont" color="0x9A9A9AFF" />
-    <Label translation="[1000,50]" width="848" height="40" font="font:SmallestSystemFont" color="0x5A5A5AFF" horizAlign="right" text="OK  watch   ·   Left/Right in player  change channel   ·   *  refresh" />
 
-    <LabelList id="groups" translation="[72,170]" itemSize="[560,64]" numRows="13" itemSpacing="[0,4]"
-               font="font:SmallBoldSystemFont" color="0xC8C8C8FF" focusedColor="0x0A0A0AFF"
-               drawFocusFeedbackOnTop="false" textHorizAlign="left" />
+    <!-- top bar -->
+    <Poster id="wordmark" translation="[96,66]" width="392" height="60" uri="pkg:/images/wordmark.png" />
+    <Label id="title" translation="[532,44]" text="Live TV" />
+    <Label id="subtitle" translation="[532,107]" />
+    <Group id="hint">
+      <Label id="hintA" text="OK  watch   ·   " />
+      <Poster id="triL" uri="pkg:/images/ui/tri_l.png" />
+      <Poster id="triR" uri="pkg:/images/ui/tri_r.png" />
+      <Label id="hintB" text=" in player  change channel   ·   *  refresh" />
+    </Group>
 
-    <MarkupGrid id="grid" translation="[680,170]" itemComponentName="ChannelCell" numColumns="3" numRows="3"
-                itemSize="[380,220]" itemSpacing="[16,16]" drawFocusFeedback="false" vertFocusAnimationStyle="floatingFocus" />
+    <!-- body: groups | channels (each clipped to its Android view bounds) -->
+    <Group id="groupsClip" translation="[80,176]" clippingRect="[0,0,600,872]">
+      <MarkupList id="groups" translation="[16,8]" itemComponentName="GroupRow" itemSize="[568,91]"
+                  itemSpacing="[0,4]" numRows="9" drawFocusFeedback="false" vertFocusAnimationStyle="floatingFocus" />
+    </Group>
+    <Group id="gridClip" translation="[712,176]" clippingRect="[0,0,1128,872]">
+      <MarkupGrid id="grid" translation="[16,8]" itemComponentName="ChannelCell" numColumns="4" numRows="3"
+                  itemSize="[259,224]" itemSpacing="[20,20]" drawFocusFeedback="false" vertFocusAnimationStyle="floatingFocus" />
+    </Group>
 
-    <Label id="message" translation="[72,520]" width="1776" height="120" font="font:MediumSystemFont" color="0x9A9A9AFF" horizAlign="center" vertAlign="center" wrap="true" />
+    <!-- status panel (LiveTvActivity.buildStatusPanel) -->
+    <Group id="statusPanel" visible="false">
+      <Rectangle width="1920" height="1080" color="0x0A0A0ACC" />
+      <BusySpinner id="spinner" />
+      <Label id="statusText" translation="[240,0]" width="1440" horizAlign="center" wrap="true" />
+      <Group id="statusButtons" />
+    </Group>
   </children>
 </component>

@@ -8,7 +8,9 @@
 ' a (reversed) base64 literal.
 '
 ' Server: { name, pageUrl, active, premium }
-' Stream: { server, hlsUrl (or invalid), playerOrigin, state }
+' Stream: { server, hlsUrl (or invalid), playerOrigin, state, error? }
+'   hlsUrl is the playlist's final URL after redirects, checked once from this device
+'   (Resolver_checked); state "warming" means the CDN has no video for it yet.
 
 function Resolver_ignoreSrc() as string
     return "(?i)about:blank|sso-frame|streamea\.st|chat|recaptcha|google|facebook|twitter|histats|doubleclick|adsystem"
@@ -60,6 +62,59 @@ function Resolver_resolve(p as object, server as object, page as dynamic) as obj
     return Resolver_fromHtml(p, server, html)
 end function
 
+' Fetches a playlist once, from this device, the way the player will: { ok, url, warming, code,
+' error }. `url` is where the playlist really lives after redirects - the premium CDN answers
+' tv.steast.io/...m3u8 with a 302 to edge-N.iptv4.net/auth/<token> whose segment URIs are
+' relative and IP-bound, so the player must work from that final URL. A playlist whose only
+' segment is warming.ts is the CDN's "channel still spinning up" placeholder: not playable yet.
+function Resolver_checkPlaylist(url as string, referer as string) as object
+    out = { ok: false, url: url, warming: false, code: 0, error: "" }
+    r = Http_get(url, referer, 10000)
+    out.code = r.code
+    if not r.ok
+        out.error = r.error
+        return out
+    end if
+    body = r.body.Trim()
+    if not startsWith(body, "#EXTM3U")
+        out.error = "not a playlist"
+        return out
+    end if
+    out.ok = true
+    out.url = Http_finalUrl(r, url)
+    out.warming = re("(?i)warming\.ts", "").IsMatch(body)
+    return out
+end function
+
+' Applies the check to a resolved stream: final URL, or hlsUrl = invalid with state "warming" /
+' "cdn <code>". A check that could not reach the CDN at all leaves the stream as it was.
+function Resolver_checked(stream as object) as object
+    if stream.hlsUrl = invalid then return stream
+    referer = ""
+    if stream.playerOrigin <> "" then referer = stream.playerOrigin + "/"
+    c = Resolver_checkPlaylist(stream.hlsUrl, referer)
+    name = stream.server.name
+    if c.ok
+        if c.warming
+            logi("Resolver", name + ": playlist is warming up on " + hostOf(c.url))
+            stream.hlsUrl = invalid
+            stream.state = "warming"
+            stream.error = "The stream is still starting up on the server"
+        else
+            if c.url <> stream.hlsUrl then logi("Resolver", name + ": playlist redirected to " + hostOf(c.url))
+            stream.hlsUrl = c.url
+        end if
+    else if c.code >= 400
+        logi("Resolver", name + ": playlist refused: " + c.error)
+        stream.hlsUrl = invalid
+        stream.state = "cdn " + c.code.ToStr()
+        stream.error = c.error
+    else
+        logi("Resolver", name + ": playlist check inconclusive (" + c.error + "); playing anyway")
+    end if
+    return stream
+end function
+
 function Resolver_fromHtml(p as object, server as object, pageHtml as string) as object
     state = firstGroup(p.playerState, pageHtml, "")
     embedUrl = Resolver_mainEmbed(p, pageHtml, server.pageUrl)
@@ -67,7 +122,7 @@ function Resolver_fromHtml(p as object, server as object, pageHtml as string) as
         inline = Resolver_findHls(p, pageHtml)
         if inline <> invalid
             logi("Resolver", server.name + ": inline hls on " + hostOf(inline))
-            return { server: server, hlsUrl: inline, playerOrigin: originOf(server.pageUrl), state: state }
+            return Resolver_checked({ server: server, hlsUrl: inline, playerOrigin: originOf(server.pageUrl), state: state })
         end if
         logi("Resolver", server.name + ": no embed (state=" + state + ")")
         return { server: server, hlsUrl: invalid, playerOrigin: "", state: state }
@@ -88,7 +143,7 @@ function Resolver_fromHtml(p as object, server as object, pageHtml as string) as
         hls = Resolver_findHls(p, r.body)
         if hls <> invalid
             logi("Resolver", server.name + ": hls at depth " + depth.ToStr() + " on " + hostOf(hopUrl))
-            return { server: server, hlsUrl: hls, playerOrigin: originOf(hopUrl), state: state, embedUrl: embedUrl }
+            return Resolver_checked({ server: server, hlsUrl: hls, playerOrigin: originOf(hopUrl), state: state, embedUrl: embedUrl })
         end if
         nextUrl = Resolver_firstEmbed(p, r.body, hopUrl)
         if nextUrl = invalid

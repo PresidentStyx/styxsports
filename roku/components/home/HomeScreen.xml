@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home: top bar, sport chips, rows of game cards. -->
+<!--
+  Home, laid out exactly like HomeActivity on Android TV (1 dp = 2 px at 1080p):
+    top bar   y 0..126   wordmark 196x30 dp, status text, Refresh / Sign in buttons, version
+    chips     y 130..184 sport filter chips (54 px), scrolled to keep the focused one centred
+    rows      y 192..    a vertical scroller (16 px top pad) of rows: header (title + muted subtitle)
+                         and a horizontal strip of 584x300 cards, the focused card centred.
+  Rows and strips are plain Groups moved by animations, so focus, spacing and fonts can match the
+  Android views one for one (RowList imposes its own).
+-->
 <component name="HomeScreen" extends="Group">
   <interface>
     <field id="navigate" type="assocarray" alwaysNotify="true" />
@@ -18,31 +26,44 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Pool.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
-    <!-- top bar -->
-    <Poster id="wordmark" translation="[72,34]" width="0" height="52" uri="pkg:/images/wordmark.png" loadDisplayMode="scaleToFit" />
-    <Label id="status" translation="[72,96]" width="900" height="30" font="font:SmallestSystemFont" color="0x9A9A9AFF" />
-    <Group id="topButtons" translation="[1848,40]" />
+    <!-- rows scroller (drawn first so the chrome above covers anything scrolled under it) -->
+    <Group id="scroller" translation="[0,192]" clippingRect="[0,0,1920,888]">
+      <Group id="rowsGroup" translation="[0,16]" />
+    </Group>
+    <Rectangle id="chromeBg" width="1920" height="192" color="0x0A0A0AFF" />
+
+    <!-- top bar: padding 48/22/48/10 dp, children centred on y = 75 -->
+    <Poster id="wordmark" translation="[96,45]" width="392" height="60" uri="pkg:/images/wordmark.png" />
+    <Label id="status" translation="[488,60]" width="600" height="30" horizAlign="right" vertAlign="center" />
+    <Group id="topButtons" translation="[1824,44]" />
+    <Label id="version" translation="[1824,63]" height="26" vertAlign="center" />
 
     <!-- chips -->
-    <Group id="chipClip" translation="[72,150]">
-      <Group id="chips" />
+    <Group id="chipsRow" translation="[0,130]">
+      <Group id="chips" translation="[96,0]" />
     </Group>
 
-    <!-- rows -->
-    <!-- 3 rows must fit between the chips (~y200) and the hint (y1024): 214 + 3*258 + 2*12 = 1012 -->
-    <RowList id="rows" translation="[72,214]" itemComponentName="EventCard"
-             itemSize="[1776,258]" numRows="3" rowItemSize="[[572,210]]" rowItemSpacing="[[30,0]]"
-             rowHeights="[258]" rowSpacings="[12]" rowLabelOffset="[[0,6]]" showRowLabel="[true]"
-             rowLabelFont="font:MediumBoldSystemFont" rowLabelColor="0xF2F2F2FF"
-             focusXOffset="[0]" rowFocusAnimationStyle="fixedFocusWrap" vertFocusAnimationStyle="floatingFocus"
-             drawFocusFeedback="false" />
+    <!-- loading / problem overlay (HomeActivity.buildOverlay) -->
+    <Group id="overlay" visible="false">
+      <Rectangle width="1920" height="1080" color="0x0A0A0AFF" />
+      <Poster id="overlayLogo" width="600" height="92" uri="pkg:/images/wordmark.png" translation="[660,394]" />
+      <BusySpinner id="spinner" translation="[924,542]" />
+      <Label id="overlayMessage" translation="[96,650]" width="1728" horizAlign="center" wrap="true" />
+      <Group id="overlayButtons" translation="[0,720]" />
+    </Group>
 
-    <Label id="message" translation="[72,520]" width="1776" height="120" font="font:MediumSystemFont" color="0x9A9A9AFF" horizAlign="center" vertAlign="center" wrap="true" />
-    <Label id="hint" translation="[72,1026]" width="1776" height="30" font="font:SmallestSystemFont" color="0x5A5A5AFF" horizAlign="center" />
+    <Animation id="rowsAnim" duration="0.25" easeFunction="outQuad">
+      <Vector2DFieldInterpolator id="rowsInterp" fieldToInterp="rowsGroup.translation" key="[0,1]" keyValue="[[0,16],[0,16]]" />
+    </Animation>
+    <Animation id="chipsAnim" duration="0.25" easeFunction="outQuad">
+      <Vector2DFieldInterpolator id="chipsInterp" fieldToInterp="chips.translation" key="[0,1]" keyValue="[[96,0],[96,0]]" />
+    </Animation>
 
     <Timer id="statusTimer" repeat="true" duration="30" />
     <Timer id="fullTimer" repeat="true" duration="600" />
+    <Timer id="layoutTimer" repeat="false" duration="0.05" />
   </children>
 </component>

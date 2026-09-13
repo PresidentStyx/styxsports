@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- RowList item: one game. 440 x 250. -->
+<!--
+  One game card, laid out like HomeActivity.createCard() on Android TV (1 dp = 2 px):
+  292x150 dp card with 12 dp corners; status pill top-left, badges top-right; two team columns
+  (38 dp crest over the name) around a bold score / "vs"; the league along the bottom.
+  Focus swaps the background for the white-ringed one and scales the card to 1.06.
+-->
 <component name="EventCard" extends="Group">
   <interface>
-    <field id="itemContent" type="node" onChange="onContent" />
-    <field id="focusPercent" type="float" onChange="onFocus" />
-    <field id="rowHasFocus" type="boolean" onChange="onFocus" />
-    <field id="rowListHasFocus" type="boolean" onChange="onFocus" />
+    <field id="content" type="node" onChange="onContent" />
+    <field id="focused" type="boolean" onChange="onFocus" />
+    <field id="relayout" type="boolean" alwaysNotify="true" onChange="onRelayout" />
   </interface>
   <script type="text/brightscript" uri="EventCard.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
@@ -18,24 +22,36 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
-  <!-- 572 x 210; three per 1776px row. Scoreboard layout: one line per team, its score at the right. -->
   <children>
-    <Rectangle id="ring" translation="[-4,-4]" width="580" height="218" color="0x00000000" />
-    <Rectangle id="bg" width="572" height="210" color="0x161616FF" />
-    <Rectangle id="stripe" width="6" height="210" color="0x00000000" />
+    <Group id="card" scaleRotateCenter="[292,150]">
+      <Poster id="bg" uri="pkg:/images/ui/card.9.png" width="584" height="300" />
 
-    <Rectangle id="whenBg" translation="[22,14]" width="90" height="32" color="0x2A2A2AFF" />
-    <Label id="when" translation="[22,14]" width="90" height="32" font="font:SmallBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" />
-    <Label id="league" translation="[126,14]" width="300" height="32" font="font:SmallestSystemFont" color="0x9A9A9AFF" vertAlign="center" />
-    <Label id="tag" translation="[370,14]" width="180" height="32" font="font:SmallestBoldSystemFont" color="0xF5C518FF" horizAlign="right" vertAlign="center" />
+      <!-- top line -->
+      <Poster id="pillBg" uri="pkg:/images/ui/pill_time.9.png" translation="[28,24]" height="38" />
+      <Label id="pill" translation="[28,24]" height="38" horizAlign="center" vertAlign="center" color="0xFFFFFFFF" />
+      <Group id="badges" translation="[556,24]">
+        <Poster id="starIcon" uri="pkg:/images/ui/star.png" />
+        <Poster id="flameIcon" uri="pkg:/images/ui/flame.png" />
+        <Label id="hotText" height="38" vertAlign="center" />
+        <Poster id="premIcon" uri="pkg:/images/ui/star.png" />
+        <Label id="premText" height="38" vertAlign="center" />
+      </Group>
 
-    <Poster id="crestHome" translation="[22,60]" width="56" height="56" loadDisplayMode="scaleToFit" />
-    <Label id="home" translation="[92,56]" width="458" height="64" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" wrap="false" maxLines="1" />
-    <Label id="scoreHome" translation="[480,56]" width="70" height="64" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" horizAlign="right" vertAlign="center" />
-    <Poster id="crestAway" translation="[22,130]" width="56" height="56" loadDisplayMode="scaleToFit" />
-    <Label id="away" translation="[92,126]" width="458" height="64" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" wrap="false" maxLines="1" />
-    <Label id="scoreAway" translation="[480,126]" width="70" height="64" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" horizAlign="right" vertAlign="center" />
+      <!-- middle -->
+      <Poster id="crestHome" width="76" height="76" loadDisplayMode="scaleToFit"
+              loadingBitmapUri="pkg:/images/ui/crest_placeholder.png" failedBitmapUri="pkg:/images/ui/crest_placeholder.png" />
+      <Label id="home" width="196" horizAlign="center" wrap="true" maxLines="2" />
+      <Label id="middle" width="136" height="40" horizAlign="center" vertAlign="center" />
+      <Poster id="crestAway" width="76" height="76" loadDisplayMode="scaleToFit"
+              loadingBitmapUri="pkg:/images/ui/crest_placeholder.png" failedBitmapUri="pkg:/images/ui/crest_placeholder.png" />
+      <Label id="away" width="196" horizAlign="center" wrap="true" maxLines="2" />
+      <Label id="single" translation="[28,62]" width="528" horizAlign="center" wrap="true" maxLines="3" />
 
-    <Label id="star" translation="[510,176]" width="40" height="30" font="font:SmallBoldSystemFont" color="0xF5C518FF" horizAlign="right" vertAlign="center" />
+      <!-- bottom -->
+      <Label id="league" translation="[28,254]" width="528" height="26" vertAlign="center" />
+    </Group>
+    <Animation id="scaleAnim" duration="0.12" easeFunction="linear">
+      <Vector2DFieldInterpolator id="scaleInterp" fieldToInterp="card.scale" key="[0,1]" keyValue="[[1,1],[1.06,1.06]]" />
+    </Animation>
   </children>
 </component>

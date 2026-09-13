@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MarkupList item: one channel group, laid out like LiveTvActivity.GroupAdapter (1 dp = 2 px):
+  a 12 dp-rounded surface row padded 16x11 dp, the name (15 sp; bold + text colour when it is the
+  group being shown, else muted) and the channel count (12 sp, muted) on the right. The list's
+  white 3 dp focus ring is drawn on top while the list has focus.
+-->
+<component name="GroupRow" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="focusPercent" type="float" onChange="onFocus" />
+    <field id="itemHasFocus" type="boolean" onChange="onFocus" />
+    <field id="listHasFocus" type="boolean" onChange="onFocus" />
+  </interface>
+  <script type="text/brightscript" uri="GroupRow.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Http.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Config.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/SiteParser.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Site.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Resolver.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
+  <children>
+    <Poster id="bg" uri="pkg:/images/ui/row.9.png" width="568" height="91" />
+    <Label id="name" translation="[32,0]" height="91" vertAlign="center" />
+    <Label id="count" height="91" vertAlign="center" horizAlign="right" />
+    <Poster id="ring" uri="pkg:/images/ui/ring.9.png" width="568" height="91" visible="false" />
+  </children>
+</component>

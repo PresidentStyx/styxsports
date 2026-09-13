@@ -44,6 +44,8 @@ button { font: inherit; color: inherit; }
 }
 .chip:hover, .chip:focus-visible { background: var(--surface-focused); color: var(--text); outline: none; }
 .chip.selected { background: var(--surface-focused); border-color: #fff; color: var(--text); border-width: 2px; padding: 5px 13px; }
+.chip.premium { color: var(--gold); border-color: rgba(245,185,66,.45); }
+.chip.premium.selected { border-color: var(--gold); color: var(--gold); }
 .top-right { display: flex; align-items: center; gap: 12px; flex: none; }
 .status { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .icon-btn {
@@ -55,7 +57,12 @@ button { font: inherit; color: inherit; }
   color: var(--text); text-decoration: none; font-weight: 600; font-size: 13px;
   border: 1px solid var(--outline-strong); border-radius: 18px; padding: 7px 14px; background: var(--surface);
 }
-.apk:hover { background: var(--surface-focused); }
+.apk:hover, .apk:focus-visible { background: var(--surface-focused); outline: none; }
+button.apk { cursor: pointer; }
+.apk.premium { color: var(--gold); border-color: rgba(245,185,66,.55); }
+.chip.livetv { color: var(--text); border-color: var(--outline-strong); }
+.link-btn { background: none; border: 0; padding: 0; color: var(--text); text-decoration: underline; cursor: pointer; font: inherit; }
+.link-btn:hover { color: var(--gold); }
 
 /* ---------------------------------------------------------------- rows */
 .rows { padding: 6px 0 40px; min-height: 60vh; }
@@ -91,7 +98,10 @@ button { font: inherit; color: inherit; }
 .card-league { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .empty { color: var(--muted); padding: 40px; font-size: 16px; }
+.note { color: var(--muted); padding: 0 40px 20px; font-size: 13px; max-width: 720px; }
 .foot { display: flex; gap: 28px; flex-wrap: wrap; padding: 0 40px 30px; color: var(--muted); font-size: 12px; }
+.foot-link { color: var(--muted); text-decoration: none; border-bottom: 1px solid var(--outline-strong); }
+.foot-link:hover { color: var(--text); border-color: var(--text); }
 
 /* ---------------------------------------------------------------- overlay / spinner */
 .overlay {
@@ -142,6 +152,8 @@ button { font: inherit; color: inherit; }
 .server.current { background: #fff; color: #000; border-color: #fff; }
 .server.failed { opacity: .45; text-decoration: line-through; }
 .server.embed { border-style: dashed; }
+.server.premium { color: var(--gold); border-color: rgba(245,185,66,.45); }
+.server.premium.current { background: var(--gold); color: #000; border-color: var(--gold); }
 .hint { color: var(--muted); font-size: 12px; }
 .panel {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -164,6 +176,71 @@ button { font: inherit; color: inherit; }
 .menu button:hover, .menu button:focus-visible { background: var(--surface-focused); outline: none; }
 .menu .menu-title { color: var(--muted); font-size: 11px; padding: 6px 12px 2px; text-transform: uppercase; letter-spacing: .04em; }
 
+/* ---------------------------------------------------------------- premium account dialog */
+.acct {
+  position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.7);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.acct-card {
+  position: relative; width: 560px; max-width: 100%; max-height: 100%; overflow: auto;
+  background: var(--surface); border: 1px solid var(--outline-strong); border-radius: 14px;
+  padding: 26px 28px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.6);
+}
+.acct-x { position: absolute; top: 14px; right: 14px; }
+.acct-title { font-size: 21px; font-weight: 700; margin-bottom: 8px; padding-right: 40px; }
+.acct-lead { color: var(--muted); margin: 0 0 14px; line-height: 1.5; }
+.acct-line { margin: 0 0 10px; line-height: 1.5; color: var(--muted); }
+.acct-line.ok { color: var(--text); }
+.acct-steps { margin: 0 0 16px; padding-left: 22px; line-height: 1.6; }
+.acct-steps a { color: var(--text); }
+.acct-row { display: flex; gap: 22px; align-items: center; margin-bottom: 14px; }
+.acct-codebox { flex: 1; background: var(--bg); border: 1px solid var(--outline-strong); border-radius: 12px; padding: 16px 18px; }
+.acct-your { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.acct-code { font-size: 44px; font-weight: 800; letter-spacing: .12em; line-height: 1.2; margin: 4px 0; font-variant-numeric: tabular-nums; user-select: all; }
+.acct-expires { color: var(--muted); font-size: 12px; min-height: 1.2em; }
+.acct-qr { width: 132px; height: 132px; border-radius: 10px; background: var(--surface-focused); flex: none; object-fit: contain; }
+.acct-status { color: var(--muted); margin: 0 0 16px; min-height: 1.4em; }
+.acct-status.error { color: #f87171; }
+.acct-actions { justify-content: flex-end; }
+
+/* ---------------------------------------------------------------- Live TV */
+/* The screen is #livetv; the home-screen chip is .chip.livetv and must not match this rule. */
+#livetv { position: fixed; inset: 0; z-index: 15; background: var(--bg); display: flex; flex-direction: column; }
+.lt-head { display: flex; align-items: center; gap: 14px; padding: 14px 24px 10px; border-bottom: 1px solid var(--outline); flex: none; }
+.lt-title { font-size: 19px; font-weight: 700; white-space: nowrap; }
+.lt-sub { color: var(--muted); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lt-search {
+  width: 260px; max-width: 40vw; background: var(--surface); border: 1px solid var(--outline-strong); border-radius: 18px;
+  padding: 7px 14px; color: var(--text); font: inherit; outline: none;
+}
+.lt-search:focus { border-color: #fff; }
+.lt-body { display: flex; flex: 1; min-height: 0; }
+.lt-groups { width: 260px; flex: none; overflow-y: auto; padding: 10px 8px; border-right: 1px solid var(--outline); scrollbar-width: thin; }
+.lt-group {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 1px solid transparent;
+  border-radius: 8px; padding: 9px 12px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 13px;
+}
+.lt-group-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-group-n { font-size: 11px; color: var(--muted); font-weight: 500; }
+.lt-group:hover, .lt-group:focus-visible { background: var(--surface); color: var(--text); outline: none; }
+.lt-group.selected { background: var(--surface-focused); color: var(--text); border-color: var(--outline-strong); }
+.lt-group:focus { border-color: #fff; outline: none; }
+.lt-channels {
+  flex: 1; overflow-y: auto; padding: 16px 24px 40px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; align-content: start;
+}
+.lt-channel {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
+  background: var(--surface); border: 1px solid var(--outline); border-radius: 12px; padding: 14px 10px 12px;
+  cursor: pointer; outline: none; transition: transform .12s ease, border-color .12s ease, background .12s ease; min-height: 118px;
+}
+.lt-channel:hover, .lt-channel:focus { transform: scale(1.04); background: var(--surface-focused); border-color: #fff; }
+.lt-logo { width: 56px; height: 40px; object-fit: contain; border-radius: 6px; }
+.lt-logo.placeholder { background: var(--pill-time); }
+.lt-name { font-size: 12.5px; font-weight: 600; line-height: 1.3; max-height: 2.6em; overflow: hidden; }
+.lt-cgroup { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.lt-msg { position: absolute; inset: 60px 0 0 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: var(--bg); }
+
 /* ---------------------------------------------------------------- small screens */
 @media (max-width: 720px) {
   :root { --card-w: 210px; --card-h: 140px; }
@@ -175,4 +252,84 @@ button { font: inherit; color: inherit; }
   .row-head, .strip, .foot { padding-left: 16px; padding-right: 16px; }
   .hud { padding: 12px 14px; }
   .hint { display: none; }
+  .acct-card { padding: 20px 18px 16px; }
+  .acct-row { flex-direction: column; align-items: stretch; }
+  .acct-qr { display: none; }
+  .acct-code { font-size: 36px; }
+  .lt-groups { width: 150px; }
+  .lt-search { width: 140px; }
+  .lt-sub { display: none; }
+  .lt-channels { padding: 12px; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+}
+
+/* Touch screens: no hover zoom (it sticks after a tap). */
+@media (hover: none) {
+  .card:hover, .lt-channel:hover { transform: none; background: var(--surface); border-color: var(--outline); }
+  .card:focus, .lt-channel:focus { transform: none; }
+}
+
+/* ---------------------------------------------------------------- phones (portrait) */
+/* The TV layout (sideways strips of fixed-size cards) becomes a scrolling page: every row is a
+   two-column grid of smaller cards, the top bar is one compact line with the sport chips under it. */
+@media (max-width: 600px) {
+  :root { --card-h: 124px; }
+  .top { gap: 8px; padding: 10px 12px 6px; }
+  .wordmark { height: 16px; }
+  .top-right { gap: 6px; }
+  .top #refresh, .phone-hide { display: none; } /* reloading the page refreshes; "Get the TV app" -> "TV app" */
+  .icon-btn { width: 32px; height: 32px; font-size: 15px; }
+  .apk { font-size: 12px; padding: 6px 10px; white-space: nowrap; }
+  .chips { order: 3; flex-basis: 100%; padding: 2px 0 4px; }
+  .chip { font-size: 12px; padding: 5px 12px; }
+  .chip.selected { padding: 4px 11px; }
+
+  .rows { padding-top: 2px; }
+  .row { margin-bottom: 18px; }
+  .row-head { padding: 0 12px 8px; gap: 8px; flex-wrap: wrap; }
+  .row-title { font-size: 17px; }
+  .strip {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+    overflow: visible; padding: 0 12px 4px; scroll-snap-type: none;
+  }
+  .card { width: auto; min-width: 0; padding: 9px 10px 8px; scroll-snap-align: none; }
+  .card:focus, .card:focus-visible { transform: none; }
+  .card-top { font-size: 10px; }
+  .pill { padding: 2px 6px; }
+  .crest { width: 28px; height: 28px; }
+  .team-name { font-size: 11px; margin-top: 4px; }
+  .mid-text { width: 44px; font-size: 15px; }
+  .single-title { font-size: 14px; }
+  .card-league { font-size: 10px; }
+  .empty { padding: 24px 12px; font-size: 14px; }
+  .note { padding: 0 12px 14px; }
+  .foot { padding: 0 12px 28px; gap: 14px; }
+  .foot span { display: none; } /* keyboard / mouse hints */
+
+  /* player: the server chips must stay reachable by thumb */
+  .hud-top { padding: 10px 10px; gap: 8px; }
+  .hud-bottom { padding: 10px 0 14px; }
+  .p-title { font-size: 14px; }
+  .p-score { display: none; }
+  /* a game can list a dozen servers: one sideways-scrolling line instead of a stack over the video */
+  .servers { flex-wrap: nowrap; overflow-x: auto; width: 100%; padding: 4px 10px; scrollbar-width: none; }
+  .servers::-webkit-scrollbar { display: none; }
+  .server { flex: none; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+  .embed-note { bottom: 76px; font-size: 11px; white-space: normal; text-align: center; max-width: 90vw; }
+
+  /* Live TV: groups become a strip across the top, channels a three-column grid */
+  .lt-head { padding: 10px 12px 8px; gap: 8px; flex-wrap: wrap; }
+  .lt-title { font-size: 16px; }
+  .lt-search { flex: 1; width: auto; min-width: 0; max-width: none; }
+  .lt-body { flex-direction: column; }
+  .lt-groups {
+    width: auto; display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 8px 12px;
+    border-right: 0; border-bottom: 1px solid var(--outline); scrollbar-width: none;
+  }
+  .lt-groups::-webkit-scrollbar { display: none; }
+  .lt-group { width: auto; flex: none; padding: 6px 10px; border-radius: 16px; border-color: var(--outline-strong); }
+  .lt-group-name { overflow: visible; }
+  .lt-channels { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px 12px 40px; }
+  .lt-channel { padding: 10px 6px 8px; min-height: 96px; }
+  .lt-logo { width: 44px; height: 32px; }
+  .lt-name { font-size: 11.5px; }
 }

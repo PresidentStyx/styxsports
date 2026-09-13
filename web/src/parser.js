@@ -231,17 +231,69 @@ export function unescapeJs(s) {
   return s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\\//g, '/');
 }
 
-/** Playlist URL in a player page: plain (JSON-escaped) first, then base64 (atob). */
-export function findHls(r, html) {
-  const plain = firstGroup(r.hlsUrl, html, null);
-  if (plain) return unescapeJs(plain);
-  for (const m of html.matchAll(r.hlsUrlBase64G)) {
+function isPlaylistUrl(s) {
+  return s.startsWith('http') && (s.includes('.m3u8') || s.includes('/hls')) && !s.includes('\n');
+}
+
+/** First match of `re` whose base64 payload decodes (plain or reversed) to a playlist URL. */
+function decodedPlaylist(re, html) {
+  for (const m of html.matchAll(re)) {
+    let decoded;
     try {
-      const decoded = atob(m[1]).trim();
-      if (decoded.startsWith('http') && (decoded.includes('.m3u8') || decoded.includes('/hls'))) return decoded;
+      decoded = atob(m[1]).trim();
     } catch {
-      // not a URL
+      continue;
     }
+    if (isPlaylistUrl(decoded)) return decoded;
+    const reversed = [...decoded].reverse().join('').trim();
+    if (isPlaylistUrl(reversed)) return reversed;
   }
   return null;
+}
+
+/**
+ * Some embed hosts ship the player setup as an array of char codes that the page XORs, offsets
+ * and eval()s. Pure arithmetic, so it is undone here; returns the decoded script or null.
+ */
+export function decodeCharcodeLoader(r, html) {
+  const m = r.charcodeLoader.exec(html);
+  if (!m) return null;
+  const xor = Number(m[2]);
+  const offset = Number(m[3]);
+  let out = '';
+  for (const n of m[1].split(',')) out += String.fromCharCode(((Number(n) ^ xor) - offset + 256) & 255);
+  return out;
+}
+
+/**
+ * Playlist URL in a player page: plain (JSON-escaped) first, then base64 (atob), then any long
+ * base64 literal that decodes - plain or reversed - to a playlist URL, then the same search
+ * inside a decoded char-code loader.
+ */
+export function findHls(r, html, depth = 0) {
+  const plain = firstGroup(r.hlsUrl, html, null);
+  if (plain) return unescapeJs(plain);
+  const viaAtob = decodedPlaylist(r.hlsUrlBase64G, html);
+  if (viaAtob) return viaAtob;
+  const viaLiteral = decodedPlaylist(r.base64LiteralG, html);
+  if (viaLiteral) return viaLiteral;
+  if (depth === 0) {
+    const decoded = decodeCharcodeLoader(r, html);
+    if (decoded) return findHls(r, decoded, depth + 1);
+  }
+  return null;
+}
+
+/**
+ * Player pages that load their real player through a JSON call instead of a static <iframe>:
+ * returns { path, id, fallback } (URLs relative to the page) or null when the page is not one.
+ */
+export function playerApiHint(r, html) {
+  const path = firstGroup(r.playerApiPath, html, null);
+  if (!path) return null;
+  return {
+    path,
+    id: firstGroup(r.playerChannelId, html, null),
+    fallback: firstGroup(r.playerApiFallback, html, null),
+  };
 }

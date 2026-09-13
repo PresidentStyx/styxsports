@@ -60,7 +60,11 @@ final class StreamResolver {
     /** A fully resolved server: HLS playlist for the native player, embed for the WebView. */
     static final class Stream {
         final Server server;
-        /** Signed HLS playlist URL; null when the server has no HLS player we understand. */
+        /**
+         * Signed HLS playlist URL - its final location after redirects, checked once from this
+         * device ({@link #checkPlaylist}); null when the server has no HLS player we understand or
+         * the CDN has no video for it yet ({@code state} "warming").
+         */
         final String hlsUrl;
         /** Origin of the page that hosts the player, sent as Referer/Origin to the CDN. */
         final String playerOrigin;
@@ -176,7 +180,7 @@ final class StreamResolver {
             String inline = findHls(pageHtml);
             if (inline != null) {
                 Log.i(TAG, server.name + ": inline hls on " + hostOf(inline));
-                return new Stream(server, inline, originOf(server.pageUrl), null, state);
+                return checked(new Stream(server, inline, originOf(server.pageUrl), null, state));
             }
             Log.i(TAG, server.name + ": no embed (state=" + state + ") " + fingerprint(pageHtml));
             return new Stream(server, null, null, null, state);
@@ -196,7 +200,7 @@ final class StreamResolver {
             String hls = findHls(inner);
             if (hls != null) {
                 Log.i(TAG, server.name + ": hls at depth " + depth + " on " + hostOf(hop.url));
-                return new Stream(server, hls, originOf(hop.url), embed, state);
+                return checked(new Stream(server, hls, originOf(hop.url), embed, state));
             }
             String next = firstEmbed(inner, hop.url);
             if (next == null) {
@@ -208,6 +212,71 @@ final class StreamResolver {
         }
         Log.i(TAG, server.name + ": embed only (no hls found)");
         return new Stream(server, null, null, embed, state);
+    }
+
+    /** One look at a playlist from this device (see {@link #checkPlaylist}). */
+    static final class PlaylistCheck {
+        /** The CDN answered with a playlist (it may still be warming). */
+        final boolean ok;
+        /** Where the playlist really is after redirects; the player must work from this URL. */
+        final String url;
+        /** The only segment is warming.ts: the channel is still spinning up, no video yet. */
+        final boolean warming;
+        final int code;
+        final String error;
+
+        PlaylistCheck(boolean ok, String url, boolean warming, int code, String error) {
+            this.ok = ok;
+            this.url = url;
+            this.warming = warming;
+            this.code = code;
+            this.error = error;
+        }
+    }
+
+    private static final Pattern WARMING = Pattern.compile("warming\\.ts", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Fetches a playlist once, from this device, the way the player will. The premium CDN answers
+     * {@code tv.steast.io/...m3u8} with a 302 to {@code edge-N.iptv4.net/auth/<token>} whose
+     * segment URIs are relative and bound to the IP that hit /auth/, so the player has to resolve
+     * them against that final URL; and while a channel spins up it serves a one-segment
+     * {@code warming.ts} placeholder that is not worth waiting on. No proxy is ever involved:
+     * this request and the player's leave from the same address.
+     */
+    static PlaylistCheck checkPlaylist(String url, String referer) {
+        try {
+            Http.Fetched f = Http.fetch(url, referer, 10_000, 64 * 1024);
+            String body = f.body.trim();
+            if (f.code < 200 || f.code >= 300) return new PlaylistCheck(false, url, false, f.code, "HTTP " + f.code + " from " + hostOf(url));
+            if (!body.startsWith("#EXTM3U")) return new PlaylistCheck(false, url, false, f.code, "not a playlist");
+            return new PlaylistCheck(true, f.finalUrl, WARMING.matcher(body).find(), f.code, null);
+        } catch (IOException e) {
+            return new PlaylistCheck(false, url, false, 0, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        }
+    }
+
+    /**
+     * Applies {@link #checkPlaylist} to a resolved stream: the final URL, or no URL with state
+     * "warming" / "cdn <code>". A check that could not reach the CDN at all changes nothing.
+     */
+    private static Stream checked(Stream s) {
+        if (s.hlsUrl == null) return s;
+        PlaylistCheck c = checkPlaylist(s.hlsUrl, s.playerOrigin == null ? null : s.playerOrigin + "/");
+        if (c.ok) {
+            if (c.warming) {
+                Log.i(TAG, s.server.name + ": playlist is warming up on " + hostOf(c.url));
+                return new Stream(s.server, null, s.playerOrigin, s.embed, "warming");
+            }
+            if (!c.url.equals(s.hlsUrl)) Log.i(TAG, s.server.name + ": playlist redirected to " + hostOf(c.url));
+            return new Stream(s.server, c.url, s.playerOrigin, s.embed, s.state);
+        }
+        if (c.code >= 400) {
+            Log.i(TAG, s.server.name + ": playlist refused: " + c.error);
+            return new Stream(s.server, null, s.playerOrigin, s.embed, "cdn " + c.code);
+        }
+        Log.i(TAG, s.server.name + ": playlist check inconclusive (" + c.error + "); playing anyway");
+        return s;
     }
 
     /** Embed hosts are flaky: one dropped connection is not a verdict on the server. */

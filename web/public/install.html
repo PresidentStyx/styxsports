@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="description" content="How to put Styx Sports on a Fire Stick, Android TV, Google TV or Roku.">
+  <meta name="referrer" content="no-referrer">
+  <title>Get Styx Sports on your TV</title>
+  <link rel="icon" href="/icon.png">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .doc { max-width: 860px; margin: 0 auto; padding: 10px 24px 60px; }
+    .doc h1 { font-size: 30px; margin: 18px 0 6px; }
+    .doc h2 { font-size: 22px; margin: 44px 0 6px; padding-top: 24px; border-top: 1px solid var(--outline); scroll-margin-top: 72px; }
+    .doc h3 { font-size: 15px; margin: 22px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .doc p, .doc li { font-size: 16px; line-height: 1.55; }
+    .lead { color: var(--muted); font-size: 17px; margin: 0 0 18px; }
+    .picker { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 4px; }
+    .picker a { color: var(--text); text-decoration: none; font-weight: 600; font-size: 14px; border: 1px solid var(--outline-strong); border-radius: 18px; padding: 8px 16px; background: var(--surface); }
+    .picker a:hover, .picker a:focus-visible { background: var(--surface-focused); border-color: #fff; outline: none; }
+    .steps { list-style: none; counter-reset: step; padding: 0; margin: 0; }
+    .steps > li { counter-increment: step; position: relative; padding: 0 0 22px 52px; }
+    .steps > li::before {
+      content: counter(step); position: absolute; left: 0; top: 0;
+      width: 34px; height: 34px; border-radius: 50%; background: #fff; color: #000;
+      font-weight: 700; display: flex; align-items: center; justify-content: center;
+    }
+    .steps > li p { margin: 4px 0; }
+    .steps b { color: var(--text); }
+    .path { display: inline-block; background: var(--surface); border: 1px solid var(--outline); border-radius: 6px; padding: 1px 8px; font-size: 13.5px; color: var(--text); white-space: nowrap; }
+    code, pre { font: 13.5px/1.5 Consolas, "SFMono-Regular", Menlo, monospace; }
+    code { background: var(--surface); border: 1px solid var(--outline); border-radius: 6px; padding: 1px 7px; color: var(--text); }
+    pre { background: var(--surface); border: 1px solid var(--outline); border-radius: 10px; padding: 12px 16px; overflow-x: auto; margin: 8px 0; }
+    pre code { background: none; border: 0; padding: 0; }
+    .code-box {
+      display: block; text-align: center; margin: 10px 0 6px;
+      background: var(--surface-focused); border: 1px solid var(--outline-strong);
+      border-radius: 14px; padding: 18px 16px 16px; user-select: all;
+    }
+    .code-box span { display: block; color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+    .code-box strong { display: block; font-size: 42px; letter-spacing: .18em; font-weight: 800; line-height: 1.1; }
+    .big { display: inline-block; font-size: 22px; font-weight: 700; letter-spacing: .02em; background: var(--surface-focused); border: 1px solid var(--outline-strong); border-radius: 10px; padding: 10px 18px; color: var(--text); margin: 4px 0; user-select: all; }
+    .callout { background: var(--surface); border: 1px solid var(--outline); border-left: 3px solid var(--gold); border-radius: 10px; padding: 12px 16px; margin: 14px 0; color: var(--muted); font-size: 15px; }
+    .callout b { color: var(--text); }
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0 4px; }
+    .btn-row .btn { text-decoration: none; display: inline-block; }
+    .keys { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 14px; }
+    .keys th, .keys td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--outline); vertical-align: top; }
+    .keys th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .keys td:first-child { white-space: nowrap; font-weight: 600; }
+    .remote { display: inline-block; background: var(--pill-time); border-radius: 5px; padding: 1px 8px; font-weight: 700; font-size: 12px; }
+    .back { color: var(--muted); text-decoration: none; font-size: 14px; }
+    .back:hover { color: var(--text); }
+    .doc a:not(.btn):not(.picker a):not(.back) { color: var(--text); text-decoration: underline; text-decoration-color: var(--outline-strong); }
+    @media (max-width: 720px) {
+      .doc { padding: 6px 16px 40px; }
+      .doc h1 { font-size: 24px; }
+      .code-box strong { font-size: 32px; letter-spacing: .12em; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <a href="/" title="Back to the schedule"><img class="wordmark" src="/wordmark.png" alt="Styx Sports"></a>
+    <span style="flex:1"></span>
+    <a class="back" href="/">← Back to the schedule</a>
+  </header>
+
+  <main class="doc">
+    <h1>Get the TV app</h1>
+    <p class="lead">
+      Same games as this site, but made for a TV remote. Most people use a Fire Stick.
+      Pick what you have:
+    </p>
+    <nav class="picker" aria-label="Devices">
+      <a href="#android">Fire Stick / Android TV</a>
+      <a href="#roku">Roku</a>
+      <a href="#web">Phone or computer</a>
+      <a href="#remote">How to use it</a>
+    </nav>
+
+    <!-- ------------------------------------------------------------ Android -->
+    <h2 id="android">Fire Stick, Fire TV, Google TV, Android TV</h2>
+    <p>
+      This works on Fire Sticks, Fire TVs, Chromecast with Google TV, Onn boxes, Nvidia Shield,
+      and most Android TVs (Sony, TCL, Hisense). The app is not in the store. You add it with a
+      free helper app called <b>Downloader</b>.
+    </p>
+
+    <ol class="steps">
+      <li>
+        <p><b>Get Downloader.</b></p>
+        <p>On your TV, open the store. Search for <i>Downloader</i> (orange icon, made by AFTVnews). Install it. Open it.</p>
+      </li>
+      <li>
+        <p><b>Let Downloader install apps.</b> You only do this once.</p>
+        <p><b>Fire Stick / Fire TV:</b> go to
+          <span class="path">Settings → My Fire TV → Developer Options → Install unknown apps</span>
+          and turn <b>Downloader</b> on.</p>
+        <p>If you do not see Developer Options: go to
+          <span class="path">Settings → My Fire TV → About</span>
+          and click your Fire Stick name 7 times. Then go back and it will be there.</p>
+        <p><b>Google TV:</b>
+          <span class="path">Settings → Apps → Security &amp; restrictions → Unknown sources</span>
+          → turn Downloader on.</p>
+        <p><b>Android TV:</b>
+          <span class="path">Settings → Device Preferences → Security &amp; restrictions → Unknown sources</span>
+          → turn Downloader on.</p>
+      </li>
+      <li>
+        <p><b>Open Downloader and type this code.</b> Then press <i>Go</i>.</p>
+        <p class="code-box">
+          <span>Downloader code</span>
+          <strong>4602383</strong>
+        </p>
+        <p>If it asks to use files or storage, say yes.</p>
+        <p>Code not working? Type this instead: <span class="big">sports.styxam.com/apk</span></p>
+      </li>
+      <li>
+        <p><b>Press Install. Then press Open.</b></p>
+        <p>If it asks to delete the file after, say yes. You are done. Styx Sports is now in your apps list.</p>
+        <p>On a Fire Stick you can move it to the front row: hold the home button on the app, or use
+          <span class="path">Settings → Applications → Manage Installed Applications</span>.</p>
+      </li>
+    </ol>
+
+    <div class="callout">
+      <b>Later updates are easy.</b> When a new version is ready, the app will ask you to install it.
+      The first time, your TV may ask you to allow Styx Sports to install apps. After that, just
+      press Install. You do not need Downloader again.
+    </div>
+
+    <h3>Want the file yourself?</h3>
+    <p>You can also save the app on a phone or USB stick and copy it over.</p>
+    <div class="btn-row">
+      <a class="btn primary" href="/apk">Download StyxSports.apk</a>
+      <a class="btn" href="https://github.com/PresidentStyx/styxsports/releases/latest" target="_blank" rel="noopener noreferrer">All versions on GitHub ↗</a>
+    </div>
+
+    <!-- ------------------------------------------------------------ Roku -->
+    <h2 id="roku">Roku</h2>
+    <p>
+      Roku does not let you add this from the channel store, so you load it yourself. All you need
+      is <b>your phone</b> on the same Wi-Fi as the Roku. It takes about 5 minutes, and you only
+      do it once.
+    </p>
+
+    <ol class="steps">
+      <li>
+        <p><b>Turn on developer mode on the Roku.</b> Pick up the Roku remote and press these buttons,
+           one after another, fairly quickly:</p>
+        <p>
+          <span class="remote">Home</span> <span class="remote">Home</span> <span class="remote">Home</span>
+          <span class="remote">▲</span> <span class="remote">▲</span>
+          <span class="remote">▶</span> <span class="remote">◀</span> <span class="remote">▶</span> <span class="remote">◀</span> <span class="remote">▶</span>
+        </p>
+        <p>(Home three times, Up twice, then Right, Left, Right, Left, Right.) A grey <i>Developer
+           Settings</i> screen appears.</p>
+        <p><b>Write down the address at the top of that screen.</b> It looks like
+           <span class="big">http://192.168.1.50</span> — yours will have different numbers. You will
+           type it into your phone in step 3.</p>
+        <p>Then choose <b>Enable installer and restart</b>. Scroll down and pick <b>I Agree</b>. It asks
+           you to make up a <b>password</b>: type a short one and <b>write it down</b>. The Roku restarts.</p>
+        <p>Nothing happened when you pressed the buttons? Do it again a little faster, starting on the
+           Roku home screen.</p>
+      </li>
+      <li>
+        <p><b>On your phone, download the channel file.</b> Tap this button. It saves a small file
+           called <code>StyxSports.zip</code> to your phone's downloads. <b>Do not open or unzip it.</b></p>
+        <div class="btn-row">
+          <a class="btn primary" href="/roku">Download StyxSports.zip</a>
+        </div>
+        <p>Or type <span class="big">sports.styxam.com/roku</span> into your phone's browser.</p>
+      </li>
+      <li>
+        <p><b>On your phone, open the Roku's page.</b> Make sure the phone is on the same Wi-Fi as the
+           Roku. In the phone's browser, type the address you wrote down in step 1
+           (for example <code>http://192.168.1.50</code>) and go.</p>
+        <p>It asks for a username and password. Username is <span class="big">rokudev</span>.
+           Password is the one you made up in step 1.</p>
+        <p>If the page won't open: check the phone is on the same Wi-Fi (not mobile data), and that
+           you typed <code>http://</code>, not <code>https://</code>.</p>
+      </li>
+      <li>
+        <p><b>Upload the file.</b> On the page that opens, tap <b>Upload</b> (or <i>Choose File</i>).
+           Pick <code>StyxSports.zip</code> from your downloads
+           (iPhone: <i>Browse → Downloads</i>; Android: <i>Files → Downloads</i>). Then tap
+           <b>Install</b>.</p>
+        <p>After a few seconds it says <i>Install Success</i> and the Roku switches to Styx Sports
+           by itself.</p>
+      </li>
+      <li>
+        <p><b>Next time,</b> Styx Sports is at the end of your Roku home screen. Press
+           <span class="remote">OK</span> on it.</p>
+      </li>
+    </ol>
+
+    <div class="callout">
+      <b>Good to know.</b> A Roku can only hold one of these home-made channels at a time. To update
+      Styx Sports later, do steps 2 to 4 again with the new file — same address, same password. If a
+      Roku system update turns developer mode off, do step 1 again. Live TV shows the channels
+      Roku's player can play (HLS).
+    </div>
+
+    <!-- ------------------------------------------------------------ Web -->
+    <h2 id="web">Phone, tablet or computer</h2>
+    <p>
+      Nothing to install. Open <a href="/">sports.styxam.com</a> in a browser. To put a shortcut on
+      your home screen:
+    </p>
+    <ul>
+      <li><b>Android (Chrome):</b> menu <span class="path">⋮ → Add to Home screen</span> (or <i>Install app</i>).</li>
+      <li><b>iPhone / iPad (Safari):</b> <span class="path">Share → Add to Home Screen</span>.</li>
+      <li><b>Windows / Mac (Chrome or Edge):</b> the install icon in the address bar, or
+          <span class="path">⋮ → Cast, save and share → Install page as app</span>.</li>
+    </ul>
+    <p>
+      It then opens full screen. On a keyboard: arrows move, Enter plays, Esc closes, R refreshes.
+    </p>
+
+    <!-- ------------------------------------------------------------ Remote -->
+    <h2 id="remote">How to use the TV app</h2>
+    <table class="keys">
+      <thead><tr><th>Where</th><th>Button</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>Home</td><td><span class="remote">▲</span> from the first row</td><td>sport chips; ▲ again reaches Refresh and Sign in</td></tr>
+        <tr><td>Home</td><td><span class="remote">Menu</span> / <span class="remote">*</span> on a game</td><td>star a team or league so those games get their own row</td></tr>
+        <tr><td>Home</td><td><span class="remote">Menu</span> / <span class="remote">*</span> anywhere else</td><td>reload the schedule</td></tr>
+        <tr><td>Player</td><td><span class="remote">◀</span> <span class="remote">▶</span></td><td>previous / next server (or Live TV channel)</td></tr>
+        <tr><td>Player</td><td><span class="remote">OK</span> / <span class="remote">▲</span></td><td>show or hide the score and server bar; ▼ hides it</td></tr>
+        <tr><td>Player</td><td><span class="remote">Play/Pause</span></td><td>pause / resume</td></tr>
+        <tr><td>Player</td><td><span class="remote">Menu</span> / <span class="remote">*</span></td><td>try all servers again</td></tr>
+        <tr><td>Player</td><td><span class="remote">Back</span></td><td>back to the schedule</td></tr>
+      </tbody>
+    </table>
+    <p>
+      The app tries each server until one works, and remembers that one for the game. Games that
+      need a paid account sit under <b>★ Premium Only</b>. Sign in from the top of the home screen
+      with the code on the TV and those play too, plus Live TV.
+    </p>
+
+    <p style="margin-top:40px"><a class="back" href="/">← Back to the schedule</a></p>
+  </main>
+</body>
+</html>

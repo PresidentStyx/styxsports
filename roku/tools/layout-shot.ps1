@@ -18,35 +18,50 @@ param(
     [string]$Ip = $env:ROKU_IP,
     [string]$Out = "$env:TEMP\roku-layout.png",
     [int]$WaitMs = 3500,
-    [switch]$KeepJson
+    [switch]$KeepJson,
+    [switch]$Guide,
+    # Keys to inject (ECP /input?cmd=key) before the dump, e.g. -Keys down,right,OK
+    [string[]]$Keys = @(),
+    [int]$KeyDelayMs = 400,
+    # Re-render a previously saved .jsonl (from -KeepJson) without touching the device
+    [string]$FromJson = ''
 )
-if (-not $Ip) { throw "Pass -Ip or set ROKU_IP" }
 Add-Type -AssemblyName System.Drawing
 
-# --- 1. connect to the debug console first so nothing is missed ---------------------------------
-$client = [System.Net.Sockets.TcpClient]::new()
-$client.Connect($Ip, 8085)
-$stream = $client.GetStream()
-$buf = New-Object byte[] 65536
-$sb = New-Object System.Text.StringBuilder
-function Drain([int]$ms) {
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ($sw.ElapsedMilliseconds -lt $ms) {
-        if ($stream.DataAvailable) {
-            $n = $stream.Read($buf, 0, $buf.Length)
-            if ($n -gt 0) { [void]$sb.Append([Text.Encoding]::UTF8.GetString($buf, 0, $n)) }
-        } else { Start-Sleep -Milliseconds 50 }
+if ($FromJson) {
+    $lines = Get-Content $FromJson | Where-Object { $_ -like '@@L *' }
+} else {
+    if (-not $Ip) { throw "Pass -Ip or set ROKU_IP" }
+    # --- 1. connect to the debug console first so nothing is missed -----------------------------
+    $client = [System.Net.Sockets.TcpClient]::new()
+    $client.Connect($Ip, 8085)
+    $stream = $client.GetStream()
+    $buf = New-Object byte[] 65536
+    $sb = New-Object System.Text.StringBuilder
+    function Drain([int]$ms) {
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.ElapsedMilliseconds -lt $ms) {
+            if ($stream.DataAvailable) {
+                $n = $stream.Read($buf, 0, $buf.Length)
+                if ($n -gt 0) { [void]$sb.Append([Text.Encoding]::UTF8.GetString($buf, 0, $n)) }
+            } else { Start-Sleep -Milliseconds 50 }
+        }
     }
+    Drain 800
+    [void]$sb.Clear()   # throw away the console backlog
+
+    # --- 2. drive, then ask the channel to dump ------------------------------------------------
+    $Keys = @($Keys | ForEach-Object { $_ -split ',' } | Where-Object { $_ })   # -File passes "a,b" as one string
+    foreach ($k in $Keys) {
+        & curl.exe -s -o NUL -X POST "http://${Ip}:8060/input?cmd=key&key=$k"
+        Drain $KeyDelayMs
+    }
+    if ($Keys.Count -gt 0) { Drain 500; [void]$sb.Clear() }
+    & curl.exe -s -o NUL -X POST "http://${Ip}:8060/input?cmd=dump"
+    Drain $WaitMs
+    $client.Close()
+    $lines = $sb.ToString() -split "`r?`n" | Where-Object { $_ -like '@@L *' }
 }
-Drain 800
-[void]$sb.Clear()   # throw away the console backlog
-
-# --- 2. ask the channel to dump ------------------------------------------------------------------
-& curl.exe -s -o NUL -X POST "http://${Ip}:8060/input?cmd=dump"
-Drain $WaitMs
-$client.Close()
-
-$lines = $sb.ToString() -split "`r?`n" | Where-Object { $_ -like '@@L *' }
 if ($lines.Count -eq 0) { throw "No layout lines received. Is the channel running and built with the dump hook?" }
 $nodes = foreach ($l in $lines) { try { $l.Substring(4) | ConvertFrom-Json } catch { } }
 if ($KeepJson) { $lines | Set-Content ([IO.Path]::ChangeExtension($Out, '.jsonl')) }
@@ -68,6 +83,83 @@ function ToColor($c) {
 function Brush($color) { return [System.Drawing.SolidBrush]::new($color) }
 function Pen($color, [float]$width) { return [System.Drawing.Pen]::new($color, $width) }
 
+# The channel's own fonts (pkg:/fonts/Roboto-*.ttf) so text measures like it does on the device.
+$rokuRoot = Split-Path -Parent $PSScriptRoot
+$fontCollection = [System.Drawing.Text.PrivateFontCollection]::new()
+Get-ChildItem (Join-Path $rokuRoot 'fonts') -Filter *.ttf -ErrorAction SilentlyContinue | ForEach-Object { $fontCollection.AddFontFile($_.FullName) }
+function MakeFont([string]$uri, [float]$size) {
+    $family = $null
+    if ($uri -match 'Roboto') { $family = $fontCollection.Families | Where-Object { $_.Name -eq 'Roboto' } | Select-Object -First 1 }
+    $style = if ($uri -match 'Bold') { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
+    if ($family) { return [System.Drawing.Font]::new($family, $size, $style, [System.Drawing.GraphicsUnit]::Pixel) }
+    # system fonts: Roku's default face is close to a slightly condensed Segoe UI
+    if (-not $uri -and $size -ge 27) { $style = [System.Drawing.FontStyle]::Bold }
+    return [System.Drawing.Font]::new('Segoe UI', ($size * 0.78), $style, [System.Drawing.GraphicsUnit]::Pixel)
+}
+
+# Images: pkg:/ paths resolve into the roku/ folder; http crests are fetched once into a cache.
+$imageCache = @{}
+$crestDir = Join-Path $env:TEMP 'roku-crests'
+New-Item -ItemType Directory -Force -Path $crestDir | Out-Null
+function LoadImage([string]$uri) {
+    if (-not $uri) { return $null }
+    if ($imageCache.ContainsKey($uri)) { return $imageCache[$uri] }
+    $img = $null
+    try {
+        if ($uri -like 'pkg:/*') {
+            $path = Join-Path $rokuRoot ($uri.Substring(5) -replace '/', '\')
+            if (Test-Path $path) { $img = [System.Drawing.Image]::FromFile($path) }
+        } elseif ($uri -match '^https?://') {
+            $sha = [System.Security.Cryptography.SHA1]::Create()
+            $name = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($uri))) -replace '-', '').Substring(0, 24)
+            $path = Join-Path $crestDir "$name.img"
+            if (-not (Test-Path $path)) {
+                try { Invoke-WebRequest -Uri $uri -OutFile $path -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop } catch { }
+            }
+            if ((Test-Path $path) -and (Get-Item $path).Length -gt 0) { $img = [System.Drawing.Image]::FromFile($path) }
+        }
+    } catch { $img = $null }
+    $imageCache[$uri] = $img
+    return $img
+}
+# Stretch a 9-patch (1 px marker border; black on the top row / left column = stretch region).
+function DrawNinePatch($g, $img, [float]$x, [float]$y, [float]$w, [float]$h) {
+    $bm = [System.Drawing.Bitmap]$img
+    $iw = $bm.Width - 2; $ih = $bm.Height - 2
+    $sx1 = -1; $sx2 = -1; $sy1 = -1; $sy2 = -1
+    for ($i = 1; $i -le $iw; $i++) { $p = $bm.GetPixel($i, 0); if ($p.A -gt 128 -and $p.R -lt 64) { if ($sx1 -lt 0) { $sx1 = $i }; $sx2 = $i } }
+    for ($i = 1; $i -le $ih; $i++) { $p = $bm.GetPixel(0, $i); if ($p.A -gt 128 -and $p.R -lt 64) { if ($sy1 -lt 0) { $sy1 = $i }; $sy2 = $i } }
+    if ($sx1 -lt 0) { $sx1 = 1; $sx2 = $iw }
+    if ($sy1 -lt 0) { $sy1 = 1; $sy2 = $ih }
+    $srcX = @(1, $sx1, ($sx2 + 1), ($iw + 1))            # column boundaries in source
+    $srcY = @(1, $sy1, ($sy2 + 1), ($ih + 1))
+    $leftW = $sx1 - 1; $rightW = $iw + 1 - ($sx2 + 1); $topH = $sy1 - 1; $botH = $ih + 1 - ($sy2 + 1)
+    $dstX = @($x, ($x + $leftW), ($x + $w - $rightW), ($x + $w))
+    $dstY = @($y, ($y + $topH), ($y + $h - $botH), ($y + $h))
+    $g.InterpolationMode = 'NearestNeighbor'
+    $g.PixelOffsetMode = 'Half'
+    for ($r = 0; $r -lt 3; $r++) {
+        for ($c = 0; $c -lt 3; $c++) {
+            $sw = $srcX[$c + 1] - $srcX[$c]; $sh = $srcY[$r + 1] - $srcY[$r]
+            $dw = $dstX[$c + 1] - $dstX[$c]; $dh = $dstY[$r + 1] - $dstY[$r]
+            if ($sw -le 0 -or $sh -le 0 -or $dw -le 0 -or $dh -le 0) { continue }
+            $dst = [System.Drawing.RectangleF]::new($dstX[$c], $dstY[$r], $dw, $dh)
+            $src = [System.Drawing.RectangleF]::new($srcX[$c], $srcY[$r], $sw, $sh)
+            $g.DrawImage($img, $dst, $src, [System.Drawing.GraphicsUnit]::Pixel)
+        }
+    }
+    $g.InterpolationMode = 'HighQualityBicubic'
+    $g.PixelOffsetMode = 'Default'
+}
+# Poster.blendColor: multiply the image by the colour (white glyphs become gold / orange / dark).
+function TintAttributes($color) {
+    $m = [System.Drawing.Imaging.ColorMatrix]::new()
+    $m.Matrix00 = $color.R / 255.0; $m.Matrix11 = $color.G / 255.0; $m.Matrix22 = $color.B / 255.0; $m.Matrix33 = $color.A / 255.0
+    $a = [System.Drawing.Imaging.ImageAttributes]::new()
+    $a.SetColorMatrix($m)
+    return $a
+}
+
 $imgW = 1920; $imgH = 1080
 $bmp = [System.Drawing.Bitmap]::new($imgW, $imgH)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -86,7 +178,7 @@ foreach ($n in $nodes) {
     if ($null -eq $n) { continue }
     $counts[$n.t] = 1 + [int]$counts[$n.t]
 
-    if ($n.t -eq 'RowList' -or $n.t -eq 'MarkupGrid') {
+    if ($n.t -eq 'RowList' -or $n.t -eq 'MarkupGrid' -or $n.t -eq 'MarkupList') {
         if ($n.t -eq 'RowList') {
             # which row is at the top: fixedFocus keeps the focused row there; floatingFocus only
             # scrolls once the focus would leave the visible rows
@@ -107,10 +199,10 @@ foreach ($n in $nodes) {
     }
 
     if ($n.t -eq 'Item') {
-        # RowList/MarkupGrid items report rectangles in an internal coordinate space (local for the
-        # focused row, row-relative elsewhere, parked off-screen items all at one spot), so items
-        # are placed purely from the list geometry. Children are drawn by their offset from the
-        # item's own rectangle (which starts at the -4,-4 focus ring).
+        # RowList/MarkupGrid/MarkupList items report rectangles in an internal coordinate space
+        # (local for the focused row, row-relative elsewhere, parked off-screen items all at one
+        # spot), so items are placed purely from the list geometry. Children are drawn by their
+        # offset from the item's own rectangle, whose origin is the item's origin.
         $skipItem = $true; $dx = 0; $dy = 0
         $list = $lists[[string]$n.cid]
         if ($null -eq $list) { continue }                       # stale content in a recycled item
@@ -136,9 +228,8 @@ foreach ($n in $nodes) {
             $cardX = [float]$list.tx + $c * ([float]$list.iw + [float]$list.sx)
             $cardY = [float]$list.ty + ($r - $first) * ([float]$list.ih + [float]$list.sy)
         }
-        # item rect origin is the ring at (-4,-4) relative to the card origin
-        $dx = $cardX - ([float]$n.x + 4)
-        $dy = $cardY - ([float]$n.y + 4)
+        $dx = $cardX - [float]$n.x
+        $dy = $cardY - [float]$n.y
         $skipItem = $false
         continue
     }
@@ -153,19 +244,52 @@ foreach ($n in $nodes) {
             if ($c.A -gt 0) { $g.FillRectangle((Brush $c), $rect) }
         }
         'Poster' {
-            $pen = Pen ([System.Drawing.Color]::FromArgb(140, 120, 160, 200)) 1
-            $pen.DashStyle = 'Dash'
-            if ($n.ls -eq 'ready') { $g.FillRectangle((Brush ([System.Drawing.Color]::FromArgb(60, 120, 160, 200))), $rect) }
-            if ($w -gt 0 -and $h -gt 0) { $g.DrawRectangle($pen, $x, $y, $w, $h) }
+            if ($w -le 0 -or $h -le 0) { break }
+            $img = LoadImage ([string]$n.uri)
+            if ($null -eq $img) {
+                # unavailable image: dashed outline (an http crest that would not download, or a bad path)
+                $pen = Pen ([System.Drawing.Color]::FromArgb(140, 120, 160, 200)) 1
+                $pen.DashStyle = 'Dash'
+                $g.DrawRectangle($pen, $x, $y, $w, $h)
+                break
+            }
+            if ([string]$n.uri -like '*.9.png') {
+                DrawNinePatch $g $img $x $y $w $h
+            } else {
+                # scaleToFit: aspect-fit inside the rect, centred (Roku's default for these posters);
+                # scaleToFill stretches to the rect (gradient scrims)
+                if ($n.fill) { $dw = $w; $dh = $h } else {
+                    $s = [Math]::Min($w / $img.Width, $h / $img.Height)
+                    $dw = $img.Width * $s; $dh = $img.Height * $s
+                }
+                $dst = [System.Drawing.RectangleF]::new($x + ($w - $dw) / 2, $y + ($h - $dh) / 2, $dw, $dh)
+                $tint = if ($n.bc) { ToColor $n.bc } else { [System.Drawing.Color]::White }
+                if ($tint.ToArgb() -ne [System.Drawing.Color]::White.ToArgb()) {
+                    $dstI = [System.Drawing.Rectangle]::new([int][Math]::Round($dst.X), [int][Math]::Round($dst.Y), [int][Math]::Max(1, [Math]::Round($dw)), [int][Math]::Max(1, [Math]::Round($dh)))
+                    $g.DrawImage($img, $dstI, 0, 0, $img.Width, $img.Height, [System.Drawing.GraphicsUnit]::Pixel, (TintAttributes $tint))
+                } else {
+                    $g.DrawImage($img, $dst)
+                }
+            }
         }
         'Label' {
             $size = if ($n.fs) { [float]$n.fs } else { 24 }
-            # system font uris come back empty; the channel only uses bold faces for sizes >= 27
-            $style = if (($n.fu -match 'Bold') -or ($size -ge 27 -and $n.id -ne 'status')) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
-            $font = [System.Drawing.Font]::new('Segoe UI', ($size * 0.78), $style, [System.Drawing.GraphicsUnit]::Pixel)
-            $fmt = [System.Drawing.StringFormat]::new()
-            $fmt.Trimming = 'EllipsisCharacter'
-            if (-not $n.wrap) { $fmt.FormatFlags = 'NoWrap' }
+            $font = MakeFont ([string]$n.fu) $size
+            # GenericTypographic: no GDI+ side padding, so text takes the width the device measured
+            $fmt = [System.Drawing.StringFormat]::new([System.Drawing.StringFormat]::GenericTypographic)
+            # The device says whether the text was ellipsized; GDI's Roboto is a hair wider than
+            # Roku's, so only trim when the device did (else the render would cut text that fits).
+            if ($n.ell) {
+                $fmt.Trimming = 'EllipsisCharacter'
+                $fmt.FormatFlags = if ($n.wrap) { 0 } else { 'NoWrap' }
+            } else {
+                $fmt.Trimming = 'None'
+                $fmt.FormatFlags = if ($n.wrap) { 'NoClip' } else { 'NoWrap, NoClip' }
+                if (-not $n.wrap) {
+                    $slackX = switch ($n.ha) { 'center' { $x - 20 } 'right' { $x - 40 } default { $x } }
+                    $rect = [System.Drawing.RectangleF]::new($slackX, $y, ($w + 40), $h)
+                }
+            }
             $fmt.Alignment = switch ($n.ha) { 'center' { 'Center' } 'right' { 'Far' } default { 'Near' } }
             $fmt.LineAlignment = switch ($n.va) { 'center' { 'Center' } 'bottom' { 'Far' } default { 'Near' } }
             $g.DrawString([string]$n.text, $font, (Brush (ToColor $n.color)), $rect, $fmt)
@@ -182,10 +306,12 @@ foreach ($n in $nodes) {
         }
     }
 }
-# safe-area guide (Roku: 5% inset)
-$guide = Pen ([System.Drawing.Color]::FromArgb(70, 255, 255, 0)) 1
-$guide.DashStyle = 'Dash'
-$g.DrawRectangle($guide, 96, 54, 1728, 972)
+if ($Guide) {
+    # safe-area guide (Roku: 5% inset)
+    $guide = Pen ([System.Drawing.Color]::FromArgb(70, 255, 255, 0)) 1
+    $guide.DashStyle = 'Dash'
+    $g.DrawRectangle($guide, 96, 54, 1728, 972)
+}
 $g.Dispose()
 $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()

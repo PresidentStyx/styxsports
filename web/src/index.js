@@ -4,7 +4,14 @@
 //   /api/stream?page=    server tabs of a stream page + the active server resolved
 //   /api/stream?server=  one server resolved
 //   /hls/<token>         signed HLS proxy (see hls.js)
+//   /api/account         the viewer's site account: status, /code, /poll, /logout (see account.js)
+//   /api/iptv            the account's Live TV channel list; /api/iptv/token signs one channel for /hls/
 //   /apk                 latest Android TV build (GitHub Releases)
+//   /install             how to install the Android TV / Fire TV and Roku apps (public/install.html)
+//   /api/ping            public heartbeat from web / APK / Roku (see presence.js)
+//   /api/pool            shared premium account: 5 connection slots (see pool.js);
+//                        /acquire /heartbeat /release are public so the APK and Roku can join
+//   /stats, /api/stats   who is watching right now + pool usage (site password)
 //   /login, /logout      site password (secret SITE_PASSWORD; see auth.js) — everything below needs it
 //   everything else      static front end (public/)
 import { loadConfig, fetchSchedule, fetchStatus, streamPage, resolveServer, currentBase, request } from './site.js';
@@ -12,6 +19,16 @@ import { handleHls, proxyPath } from './hls.js';
 import { hostOf } from './parser.js';
 import { DESKTOP_UA } from './site.js';
 import { gate, handleLogin, handleLogout } from './auth.js';
+import { handlePing, handleStats } from './presence.js';
+import { handlePool, poolStub } from './pool.js';
+import {
+  loadSession, sessionCookie, clearCookie, publicAccount, requestCode, pollCode, completeSignIn,
+  refreshStatus, discoverIptv, signOut, fetchIptv, iptvCacheKey, IPTV_CACHE_TTL_S, iptvUrlAllowed, RECHECK_MS,
+  serializeSession, deserializeSession,
+} from './account.js';
+
+export { Presence } from './presence.js';
+export { Pool } from './pool.js';
 
 const APK_URL = 'https://github.com/PresidentStyx/styxsports/releases/latest/download/StyxSports.apk';
 const SCHEDULE_TTL_S = 60;
@@ -32,14 +49,66 @@ export default {
       if (path === '/apk' || path === '/download' || path.toLowerCase() === '/styxsports.apk') {
         return Response.redirect(APK_URL, 302);
       }
+      // The Roku channel package (roku/deploy.ps1 copies each build to public/StyxSports.zip):
+      // a phone downloads it here and uploads it to the Roku's own installer page.
+      if (path === '/roku' || path.toLowerCase() === '/styxsports.zip') {
+        const zip = await env.ASSETS.fetch(new URL('/StyxSports.zip', request.url));
+        if (!zip.ok) return zip;
+        const out = new Response(zip.body, zip);
+        out.headers.set('Content-Type', 'application/zip');
+        out.headers.set('Content-Disposition', 'attachment; filename="StyxSports.zip"');
+        return out;
+      }
+      if (path === '/api/ping') return await handlePing(request, env);
+      // Lease bookkeeping is open like /api/ping so the APK and Roku can count toward the 5 slots
+      // (no cookies pass through it). State, /share and /clear stay behind the site password.
+      if (path === '/api/pool/acquire' || path === '/api/pool/heartbeat' || path === '/api/pool/release' || path === '/api/pool/info') {
+        return await handlePool(request, env, path, null, serializeSession);
+      }
       if (path === '/login') return await handleLogin(request, env);
       if (path === '/logout') return handleLogout(request);
-      const denied = await gate(request, env, path);
+      // A device holding a live pool lease (Roku, APK without its own account) may resolve
+      // premium servers and read Live TV through the shared account without the site password:
+      // the lease id is a random per-install UUID and the slot cap bounds what it can spend.
+      // /hls/ paths are HMAC-signed by this Worker, so they need no password either.
+      const leased = LEASED_PATHS.has(path) && await hasLiveLease(env, url.searchParams.get('slot'));
+      const denied = leased || path.startsWith('/hls/') ? null : await gate(request, env, path);
       if (denied) return denied;
+      if (path === '/api/stats') {
+        const res = await handleStats(env);
+        const data = await res.json();
+        // Lease ids are the same per-install ids that ping /api/ping, so each lease can carry
+        // its device's name. The ids themselves never leave the Worker (see Pool.state).
+        const names = new Map((data.devices || []).map((d) => [d.id, d.name]));
+        try {
+          const pool = await poolStub(env)?.state(true);
+          if (pool) {
+            const byId = new Map(pool.leases.map((l) => [l.id, l]));
+            for (const d of data.devices || []) {
+              const l = byId.get(d.id);
+              if (l) d.watching = { kind: l.kind, label: l.label };
+            }
+            for (const l of pool.leases) { l.device = names.get(l.id) || ''; delete l.id; }
+            data.pool = pool;
+          }
+        } catch { /* optional */ }
+        for (const d of data.devices || []) delete d.id;
+        return json(data);
+      }
+      if (path === '/stats') {
+        return env.ASSETS.fetch(new URL('/stats.html', request.url));
+      }
       if (path.startsWith('/hls/')) return await handleHls(request, env, path.slice(5));
       if (path === '/api/schedule') return await cached(request, ctx, SCHEDULE_TTL_S, apiSchedule);
       if (path === '/api/status') return await cached(request, ctx, STATUS_TTL_S, apiStatus);
-      if (path === '/api/stream') return await apiStream(url, env);
+      if (path === '/api/stream') return await apiStream(request, env, url);
+      if (path === '/api/account' || path.startsWith('/api/account/')) return await apiAccount(request, env, url, path);
+      if (path === '/api/pool' || path.startsWith('/api/pool/')) {
+        const session = await loadSession(request, env);
+        return await handlePool(request, env, path, session, serializeSession);
+      }
+      if (path === '/api/iptv') return await apiIptv(request, env, ctx, url);
+      if (path === '/api/iptv/token') return await apiIptvToken(request, env, url);
       if (path === '/api/probe') return await apiProbe(url);
       if (path === '/img') return await apiImage(request, ctx, url);
       if (path.startsWith('/api/')) return json({ error: 'not found' }, 404);
@@ -50,6 +119,18 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
+
+const LEASED_PATHS = new Set(['/api/stream', '/api/iptv', '/api/iptv/token']);
+
+async function hasLiveLease(env, slot) {
+  if (!slot) return false;
+  try {
+    const stub = poolStub(env);
+    return !!(stub && await stub.hasLease(slot));
+  } catch {
+    return false;
+  }
+}
 
 /** Edge-caches a GET handler's response for `ttl` seconds (one site fetch per edge per minute). */
 async function cached(request, ctx, ttl, handler) {
@@ -89,7 +170,14 @@ async function apiStatus() {
   return new Response(text, { headers: { 'Content-Type': 'application/json; charset=utf-8' } });
 }
 
-async function apiStream(url, env) {
+/**
+ * Stream pages are read with the viewer's own site cookies when they are signed in, so the page
+ * carries their account's premium servers as real players instead of a gate. Viewers without
+ * their own account borrow the shared premium session, but only after they hold a pool lease
+ * (`slot=`) — listing the tabs can use the shared cookies (HTML only); resolving a premium
+ * playlist cannot.
+ */
+async function apiStream(request, env, url) {
   const cfg = await loadConfig();
   const pageUrl = url.searchParams.get('page');
   const serverUrl = url.searchParams.get('server');
@@ -99,24 +187,234 @@ async function apiStream(url, env) {
   if (!cfg.isAllowedHost(host) && host !== hostOf(currentBase(cfg))) {
     return json({ error: 'host not allowed' }, 403);
   }
+  const session = await loadSession(request, env);
+  const listing = url.searchParams.get('only') === 'servers';
+  const wantPremium = url.searchParams.get('premium') === '1';
+  const borrowed = await borrowShared(env, url.searchParams.get('slot') || '', { listing, wantPremium });
+  const jar = session.signedIn ? session.jar : borrowed.jar;
 
   if (pageUrl) {
-    const page = await streamPage(cfg, pageUrl);
-    if (url.searchParams.get('only') === 'servers') {
-      return json({ servers: page.servers, activeIndex: page.activeIndex });
+    const page = await streamPage(cfg, pageUrl, jar);
+    await saveBorrowed(borrowed);
+    if (listing) {
+      return withSession(json({ servers: page.servers, activeIndex: page.activeIndex }), session, env);
     }
     const active = page.servers[page.activeIndex];
-    const stream = await resolveServer(cfg, active, page);
-    return json({
+    const stream = await resolveServer(cfg, active, page, jar);
+    await saveBorrowed(borrowed);
+    notePremium(session, active, stream);
+    return withSession(json({
       servers: page.servers,
       activeIndex: page.activeIndex,
-      stream: await publicStream(env, stream),
-    });
+      stream: await publicStream(env, stream, { origin: url.origin }),
+    }), session, env);
   }
 
-  const server = { name: url.searchParams.get('name') || 'Server', pageUrl: serverUrl, active: false, premium: false };
-  const stream = await resolveServer(cfg, server, null);
-  return json({ stream: await publicStream(env, stream) });
+  const server = {
+    name: url.searchParams.get('name') || 'Server',
+    pageUrl: serverUrl,
+    active: false,
+    premium: wantPremium,
+  };
+  // A premium resolve without a lease (and without the viewer's own account) would spend a
+  // connection of the shared account; refuse it instead of fetching.
+  if (wantPremium && !session.signedIn && !borrowed.leased) {
+    return json({ stream: { server: server.name, pageUrl: server.pageUrl, state: 'gate', hls: null, playable: false, log: ['no pool slot'] } });
+  }
+  const stream = await resolveServer(cfg, server, null, jar);
+  if (!session.signedIn && borrowed.leased) notePremium(borrowed.session, server, stream);
+  await saveBorrowed(borrowed);
+  notePremium(session, server, stream);
+  return withSession(json({ stream: await publicStream(env, stream, { origin: url.origin }) }), session, env);
+}
+
+/**
+ * Shared-account cookies. Listing server tabs is HTML only and does not need a lease; resolving
+ * a premium playlist or Live TV does.
+ */
+async function borrowShared(env, slot, { listing = false, wantPremium = false } = {}) {
+  const out = { stub: poolStub(env), shared: null, session: null, jar: undefined, leased: false };
+  if (!out.stub) return out;
+  try {
+    out.shared = await out.stub.getShared();
+  } catch {
+    return out;
+  }
+  out.session = deserializeSession(out.shared);
+  if (!out.session) return out;
+  if (listing && !wantPremium) {
+    out.jar = out.session.jar;
+    return out;
+  }
+  if (slot && await out.stub.hasLease(slot)) {
+    out.leased = true;
+    out.jar = out.session.jar;
+  }
+  return out;
+}
+
+async function saveBorrowed(borrowed) {
+  if (!borrowed || !borrowed.stub || !borrowed.session) return;
+  if (!borrowed.session.dirty && !borrowed.session.jar.dirty) return;
+  try {
+    const next = serializeSession(borrowed.session);
+    if (borrowed.shared && borrowed.shared.at) next.at = borrowed.shared.at;
+    await borrowed.stub.setShared(next);
+  } catch { /* next request will reuse the last stored cookies */ }
+}
+
+/** What the site gave a premium tab tells us whether the account really has premium. */
+function notePremium(session, server, stream) {
+  if (!session.signedIn || !server.premium) return;
+  let seen = null;
+  if (stream.hlsUrl) seen = true;
+  else if (stream.state === 'gate') seen = false;
+  if (seen !== null && session.premium !== seen) {
+    session.premium = seen;
+    session.dirty = true;
+  }
+}
+
+/** Adds the (re-encrypted) account cookie to `res` when the session changed during the request. */
+async function withSession(res, session, env) {
+  let cookie = null;
+  try {
+    cookie = await sessionCookie(session, env);
+  } catch (e) {
+    console.warn('[account] ' + e.message);
+  }
+  if (!cookie) return res;
+  const out = new Response(res.body, res);
+  out.headers.append('Set-Cookie', cookie);
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Account (Account.java) — the viewer's own site account, carried in an encrypted cookie
+// ---------------------------------------------------------------------------------------------
+
+async function apiAccount(request, env, url, path) {
+  const cfg = await loadConfig();
+  const session = await loadSession(request, env);
+  const sub = path.slice('/api/account'.length);
+
+  if (sub === '' || sub === '/') {
+    if (session.signedIn && Date.now() - session.checkedAt > RECHECK_MS) {
+      try {
+        if (await refreshStatus(cfg, session) && !session.iptv) await discoverIptv(cfg, session);
+      } catch {
+        // keep the cached verdict; checked again next time
+      }
+    }
+    const acct = publicAccount(session);
+    try {
+      const p = await poolStub(env)?.state();
+      if (p) acct.pool = { shared: p.shared, used: p.used, max: p.max, sharedIptv: p.sharedIptv, sharedPremium: p.sharedPremium };
+    } catch { /* pool optional */ }
+    return withSession(json(acct), session, env);
+  }
+
+  if (sub === '/code') {
+    if (request.method !== 'POST') return json({ error: 'POST' }, 405);
+    let deviceId = '';
+    try {
+      const body = await request.json();
+      if (body && typeof body.deviceId === 'string') deviceId = body.deviceId.slice(0, 128);
+    } catch { /* no body */ }
+    const code = await requestCode(cfg, session, deviceId);
+    return withSession(json(code), session, env);
+  }
+
+  if (sub === '/poll') {
+    const code = url.searchParams.get('code') || '';
+    const deviceId = url.searchParams.get('device_id') || '';
+    if (!code || !deviceId) return json({ error: 'missing code/device_id' }, 400);
+    const poll = await pollCode(cfg, session, code, deviceId);
+    if (poll.status !== 'approved' || !poll.token) return json({ status: poll.status });
+    await completeSignIn(cfg, session, poll.token);
+    let cookie;
+    try {
+      cookie = await sessionCookie(session, env, { force: true });
+    } catch (e) {
+      return json({ error: e.message }, 500);
+    }
+    return json({ status: 'approved', account: publicAccount(session) }, 200, { 'Set-Cookie': cookie });
+  }
+
+  if (sub === '/logout') {
+    if (request.method !== 'POST') return json({ error: 'POST' }, 405);
+    await signOut(cfg, session);
+    return json({ signedIn: false }, 200, { 'Set-Cookie': clearCookie() });
+  }
+
+  return json({ error: 'not found' }, 404);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Live TV (Iptv.java) — the premium account's channel list
+// ---------------------------------------------------------------------------------------------
+
+const IPTV_HOSTS_HEADER = 'X-Iptv-Hosts';
+
+async function apiIptv(request, env, ctx, url) {
+  const session = await loadSession(request, env);
+  const borrowed = session.signedIn ? null : await borrowShared(env, url.searchParams.get('slot') || '', { wantPremium: true });
+  const who = session.signedIn ? session : (borrowed && borrowed.leased ? borrowed.session : null);
+  if (!who) return json({ error: session.signedIn ? 'sign in first' : 'no pool slot' }, 403);
+  const cfg = await loadConfig();
+  if (!who.iptv) {
+    try {
+      await discoverIptv(cfg, who);
+    } catch (e) {
+      if (borrowed) await saveBorrowed(borrowed);
+      return withSession(json({ error: 'Could not read the account page: ' + e.message }, 502), session, env);
+    }
+    if (!who.iptv) {
+      if (borrowed) await saveBorrowed(borrowed);
+      return withSession(json({ error: 'This account has no IPTV playlist' }, 404), session, env);
+    }
+  }
+
+  // The parsed list is a couple of MB and the panel is slow: keep it at the edge for a while,
+  // under a key only the holder of this playlist URL can produce.
+  const cache = caches.default;
+  const key = await iptvCacheKey(url.origin, who.iptv);
+  const noStore = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' };
+  if (url.searchParams.get('refresh') !== '1') {
+    const hit = await cache.match(key);
+    if (hit) {
+      const hosts = (hit.headers.get(IPTV_HOSTS_HEADER) || '').split(',').filter(Boolean);
+      if (hosts.length && hosts.join(',') !== who.iptvHosts.join(',')) { who.iptvHosts = hosts; who.dirty = true; }
+      if (borrowed) await saveBorrowed(borrowed);
+      return withSession(new Response(hit.body, { headers: noStore }), session, env);
+    }
+  }
+
+  const data = await fetchIptv(who);
+  if (data.hosts.join(',') !== who.iptvHosts.join(',')) { who.iptvHosts = data.hosts; who.dirty = true; }
+  if (borrowed) await saveBorrowed(borrowed);
+  const body = JSON.stringify(data);
+  ctx.waitUntil(cache.put(key, new Response(body, {
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': `public, max-age=${IPTV_CACHE_TTL_S}`,
+      [IPTV_HOSTS_HEADER]: data.hosts.join(','),
+    },
+  })));
+  return withSession(new Response(body, { headers: noStore }), session, env);
+}
+
+/**
+ * One channel of this viewer's (or the shared) playlist: the raw URL for the browser to play
+ * directly (the panel's CDN binds segments to the requesting IP) and a signed /hls/ path as fallback.
+ */
+async function apiIptvToken(request, env, url) {
+  const session = await loadSession(request, env);
+  const u = url.searchParams.get('u') || '';
+  if (iptvUrlAllowed(session, u)) return json({ hls: await proxyPath(env, u, null), direct: u });
+  const borrowed = await borrowShared(env, url.searchParams.get('slot') || '', { wantPremium: true });
+  if (borrowed.leased && iptvUrlAllowed(borrowed.session, u)) return json({ hls: await proxyPath(env, u, null), direct: u });
+  return json({ error: borrowed.session && !borrowed.leased ? 'no pool slot' : 'not a channel of your playlist' }, 403);
 }
 
 /**
@@ -151,22 +449,38 @@ async function checkPlaylist(s) {
       signal: AbortSignal.timeout(10_000),
       cf: { cacheTtl: 0 },
     });
-    const head = (await r.text()).slice(0, 64);
-    return { status: r.status, ok: r.ok && head.trimStart().startsWith('#EXTM3U') };
+    const text = (await r.text()).slice(0, 4096);
+    return {
+      status: r.status,
+      ok: r.ok && text.trimStart().startsWith('#EXTM3U'),
+      // The premium CDN answers with a one-segment "warming.ts" placeholder while it spins the
+      // channel up (sometimes for minutes); the player should not sit on it.
+      warming: /warming\.ts/i.test(text),
+      cors: r.headers.get('access-control-allow-origin'),
+    };
   } catch (e) {
     return { status: 0, ok: false, error: e.message };
   }
 }
 
-/** What the browser gets: a proxied playlist path instead of the raw signed CDN URL. */
-async function publicStream(env, s) {
+/**
+ * What the browser gets: a proxied playlist path, plus the raw URL (`direct`) when the CDN allows
+ * cross-origin playback. The premium CDN binds its segment tokens to the IP that authorised the
+ * playlist, and every Worker subrequest leaves Cloudflare from a different IP, so those streams
+ * only play when the browser fetches them itself; the proxy stays as the fallback.
+ */
+async function publicStream(env, s, { origin = '' } = {}) {
   const check = s.hlsUrl ? await checkPlaylist(s) : null;
+  const cors = check && check.cors;
+  const direct = !!(s.hlsUrl && (cors === '*' || (origin && cors === origin)));
   return {
     server: s.server,
     pageUrl: s.pageUrl,
     state: s.state,
     hls: s.hlsUrl ? await proxyPath(env, s.hlsUrl, s.playerOrigin) : null,
-    playable: !!(check && check.ok),
+    direct: direct ? s.hlsUrl : null,
+    playable: !!(check && check.ok && !check.warming),
+    warming: !!(check && check.warming),
     cdn: s.hlsUrl ? hostOf(s.hlsUrl) : null,
     cdnStatus: check ? check.status : null,
     embed: s.embed,

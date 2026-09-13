@@ -11,5 +11,15 @@
   "routes": [
     { "pattern": "sports.styxam.com", "custom_domain": true }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "PRESENCE", "class_name": "Presence" },
+      { "name": "POOL", "class_name": "Pool" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Presence"] },
+    { "tag": "v2", "new_sqlite_classes": ["Pool"] }
+  ]
 }

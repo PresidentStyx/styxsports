@@ -1,14 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A rounded-looking pill (chip / button) sized to its text. Focus and selection are driven by fields. -->
+<!--
+  Rounded chip / button, the Android chip_bg.xml and button_bg.xml states: charcoal with a thin
+  outline; selected = lighter with a white ring; focused = white fill with dark text. Sized to its
+  text (Roboto Bold 13 sp) plus the Android padding. An optional glyph icon sits before the text.
+-->
 <component name="Pill" extends="Group">
   <interface>
     <field id="text" type="string" onChange="relayout" />
+    <field id="kind" type="string" value="chip" onChange="relayout" />
+    <field id="icon" type="string" value="" onChange="relayout" />
     <field id="selected" type="boolean" onChange="restyle" />
     <field id="focused" type="boolean" onChange="restyle" />
     <field id="accent" type="string" onChange="restyle" />
     <field id="minWidth" type="integer" value="0" onChange="relayout" />
-    <field id="pillHeight" type="integer" value="56" onChange="relayout" />
     <field id="pillWidth" type="integer" value="0" />
+    <field id="pillHeight" type="integer" value="54" />
+    <field id="relayout" type="boolean" alwaysNotify="true" onChange="relayout" />
   </interface>
   <script type="text/brightscript" uri="Pill.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
@@ -22,8 +29,8 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
-    <Rectangle id="ring" color="0x00000000" />
-    <Rectangle id="bg" color="0x1F1F1FFF" />
-    <Label id="label" font="font:SmallBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" />
+    <Poster id="bg" uri="pkg:/images/ui/chip.9.png" />
+    <Poster id="iconNode" visible="false" />
+    <Label id="label" horizAlign="left" vertAlign="center" />
   </children>
 </component>

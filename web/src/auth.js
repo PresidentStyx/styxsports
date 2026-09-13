@@ -6,8 +6,11 @@ const SESSION_DAYS = 180;
 const LOGIN_PATH = '/login';
 const LOGOUT_PATH = '/logout';
 
-/** Paths that never need the password (TV install link, the login page itself, branding). */
-const OPEN = new Set([LOGIN_PATH, LOGOUT_PATH, '/apk', '/download', '/styxsports.apk', '/wordmark.png', '/icon.png', '/favicon.ico', '/robots.txt']);
+/** Paths that never need the password (TV install link and guide, the login page itself, branding). */
+const OPEN = new Set([
+  LOGIN_PATH, LOGOUT_PATH, '/apk', '/download', '/styxsports.apk', '/roku', '/styxsports.zip', '/install', '/install.html', '/app.css',
+  '/wordmark.png', '/icon.png', '/favicon.ico', '/robots.txt', '/manifest.webmanifest',
+]);
 
 export function gateEnabled(env) {
   return typeof env.SITE_PASSWORD === 'string' && env.SITE_PASSWORD.length > 0;

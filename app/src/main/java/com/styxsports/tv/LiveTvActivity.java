@@ -72,6 +72,14 @@ public class LiveTvActivity extends Activity {
     private final GroupAdapter groupAdapter = new GroupAdapter();
     private final ChannelAdapter channelAdapter = new ChannelAdapter();
     private boolean refreshing;
+    /**
+     * Live TV counts toward the shared premium account's 5 connections like games do: this screen
+     * holds the pool slot while it (or the channel player it opens) is on screen.
+     */
+    private Pool.Lease lease;
+    private boolean leaseDenied;
+    /** Set while handing over to the channel player, which renews the same lease. */
+    private boolean openingPlayer;
 
     // ---------------------------------------------------------------------------------------------
     // Lifecycle
@@ -85,7 +93,33 @@ public class LiveTvActivity extends Activity {
         Http.ensureCookies();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(buildUi());
-        load(false);
+        lease = new Pool.Lease(this, io, handler);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        openingPlayer = false;
+        // Take (or, back from the player, renew) the pool slot before the channel list shows
+        // (app.js: takeSlot('tv')). Denied -> say so and offer Retry.
+        if (Account.isSignedIn(this) && !lease.held()) {
+            leaseDenied = false;
+            if (playlist == null) showStatus(getString(R.string.np_connecting), true);
+            lease.acquire("tv", getString(R.string.ltv_title), r -> {
+                if (isFinishing()) return;
+                if (r.granted) {
+                    if (playlist == null) load(false);
+                    return;
+                }
+                leaseDenied = true;
+                String why = r.ok ? getString(R.string.ltv_pool_full, r.used, r.max)
+                        : getString(R.string.ltv_pool_unreachable, r.error);
+                if (playlist == null) showError(why);
+                else Toast.makeText(this, why, Toast.LENGTH_LONG).show();
+            });
+            return;
+        }
+        if (playlist == null) load(false);
     }
 
     @Override
@@ -93,6 +127,13 @@ public class LiveTvActivity extends Activity {
         super.onResume();
         // Coming back from the player: the recently-watched group may have changed.
         if (playlist != null) bindGroups(false);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Gone from the screen: give the slot back, unless the channel player is taking over.
+        lease.stop(openingPlayer);
     }
 
     @Override
@@ -291,13 +332,22 @@ public class LiveTvActivity extends Activity {
 
     private void showError(String message) {
         showStatus(message, false);
-        statusButtons.addView(pillButton(getString(R.string.action_retry), v -> load(true)));
+        statusButtons.addView(pillButton(getString(R.string.action_retry), v -> retry()));
         statusButtons.addView(pillButton(getString(R.string.acct_back), v -> finish()));
         statusButtons.getChildAt(0).requestFocus();
     }
 
     private void hideStatus() {
         statusPanel.setVisibility(View.GONE);
+    }
+
+    /** Retry / Menu: a refused pool slot is asked for again; otherwise the list is refreshed. */
+    private void retry() {
+        if (leaseDenied && !lease.held()) {
+            onStart();
+            return;
+        }
+        load(true);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -383,6 +433,7 @@ public class LiveTvActivity extends Activity {
 
     private void openChannel(int position) {
         if (shown == null || position < 0 || position >= shown.channels.size()) return;
+        openingPlayer = true;
         startActivity(NativePlayerActivity.channelIntent(this, shown.name, position));
     }
 
@@ -395,7 +446,7 @@ public class LiveTvActivity extends Activity {
         if (e.getAction() == KeyEvent.ACTION_DOWN) {
             switch (e.getKeyCode()) {
                 case KeyEvent.KEYCODE_MENU:
-                    load(true);
+                    retry();
                     return true;
                 case KeyEvent.KEYCODE_BACK:
                 case KeyEvent.KEYCODE_ESCAPE:

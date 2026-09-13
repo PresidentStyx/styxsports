@@ -34,6 +34,7 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
+import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.ui.AspectRatioFrameLayout;
@@ -67,9 +68,19 @@ public class NativePlayerActivity extends Activity {
     private static final long HUD_HIDE_MS = 3500L;
     private static final long STALL_MS = 15_000L;
     private static final long START_TIMEOUT_MS = 25_000L;
+    /**
+     * The premium CDN (re)starts a channel when its first viewer arrives and serves a static
+     * playlist for 30-40 s until the encoder catches up; then the sequence jumps. A premium
+     * tab gets a little longer to show its first frame; once playing, a stall is a stall.
+     */
+    private static final long PREMIUM_START_TIMEOUT_MS = 35_000L;
     private static final long SCORE_REFRESH_MS = 30_000L;
     /** After this long without an answer, the next server is tried in parallel. */
     private static final long IMPATIENCE_MS = 6_000L;
+    /** Behind-live-window recoveries (seek to the live edge) allowed per server before it is a failure. */
+    private static final int MAX_LIVE_EDGE_RESYNCS = 1;
+    /** The site's unnamed server tabs ("Server 7"). */
+    private static final java.util.regex.Pattern GENERIC_TAB = java.util.regex.Pattern.compile("(?i)^server\\s*\\d+$");
 
     static Intent intent(Context ctx, Event e) {
         Intent i = new Intent(ctx, NativePlayerActivity.class);
@@ -126,10 +137,17 @@ public class NativePlayerActivity extends Activity {
     private boolean everPlayed;
     /** The current server was picked by the user; remember it once it actually plays. */
     private boolean manualSelection;
+    /** Our slot in the shared premium account's 5-connection pool (needed for premium servers and Live TV). */
+    private Pool.Lease lease;
+    /** The pool turned us down (all slots taken); premium tabs are skipped until a manual retry. */
+    private boolean poolFull;
+    private int poolUsed, poolMax = 5;
 
     private final Runnable hideHud = this::hideHud;
     private final Runnable stallCheck = () -> onFailure("stalled");
-    private final Runnable startTimeout = () -> onFailure("no video after " + START_TIMEOUT_MS / 1000 + "s");
+    private final Runnable startTimeout = () -> onFailure("no video after " + startTimeoutMs() / 1000 + "s");
+    /** Behind-live-window recoveries on the current server (reset on every switch). */
+    private int liveEdgeResyncs;
     private final Runnable scoreTick = new Runnable() {
         @Override
         public void run() {
@@ -167,6 +185,7 @@ public class NativePlayerActivity extends Activity {
         setContentView(buildUi());
         CrashLog.markPlayerOpen(this, event.url);
 
+        lease = new Pool.Lease(this, io, handler);
         createPlayer();
         showStatus(getString(R.string.np_connecting), true);
         resolvePage();
@@ -185,7 +204,11 @@ public class NativePlayerActivity extends Activity {
         super.onStop();
         // A TV app is either on screen or gone: release everything and re-resolve next time.
         CrashLog.notePlayerClosedNormally(this);
-        if (!isFinishing()) finish();
+        boolean backgrounded = !isFinishing();
+        // Playback stopped: give the premium slot back. Zapping back to the Live TV screen keeps
+        // it (that screen renews the same lease at once); leaving the app from a channel drops it.
+        if (lease != null) lease.stop(channelGroup != null && !backgrounded);
+        if (backgrounded) finish();
     }
 
     @Override
@@ -482,6 +505,17 @@ public class NativePlayerActivity extends Activity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 Log.w(TAG, "player error: " + error.getErrorCodeName() + " " + describe(error.getCause()));
+                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                        && liveEdgeResyncs < MAX_LIVE_EDGE_RESYNCS) {
+                    // The live window moved past us (the premium CDN's sequence jumps once a
+                    // restarted channel catches up): rejoin at the live edge, same stream.
+                    liveEdgeResyncs++;
+                    Log.i(TAG, "rejoining the live edge (" + liveEdgeResyncs + ")");
+                    showStatus(getString(R.string.np_buffering), true);
+                    player.seekToDefaultPosition();
+                    player.prepare();
+                    return;
+                }
                 if (error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED) {
                     peekManifest(currentStream());
                 }
@@ -541,18 +575,59 @@ public class NativePlayerActivity extends Activity {
 
     private void onPageResolved(StreamResolver.Page p) {
         page = p;
-        servers.clear();
-        // Signed in: the account's premium servers go first and are tried first; a premium tab
-        // that turns out to be locked (account without premium) simply fails over to the free
-        // ones like any other dead server. Signed out: premium tabs are skipped entirely.
+        // Signed in with premium tabs on the page: this account is the shared premium account,
+        // so take a slot in its 5-connection pool before touching a premium server (like
+        // app.js resolvePage). Denied: the free servers are used and the viewer is told.
         boolean signedIn = Account.isSignedIn(this);
         boolean premiumLocked = Boolean.FALSE.equals(Account.premiumKnown(this));
+        boolean hasPremium = false;
+        for (StreamResolver.Server s : p.servers) if (s.premium) hasPremium = true;
+        if (signedIn && hasPremium && !premiumLocked && !lease.held()) {
+            final int gen = loadGeneration;
+            lease.acquire("game", event.title(), r -> {
+                if (gen != loadGeneration || isFinishing()) return;
+                notePool(r);
+                arrangeServers(p);
+            });
+            return;
+        }
+        arrangeServers(p);
+    }
+
+    /** Remembers a pool answer and, when it was a refusal, says so. */
+    private void notePool(Pool.Reply r) {
+        poolUsed = r.used;
+        poolMax = r.max;
+        poolFull = r.ok && !r.granted;
+        if (r.granted) return;
+        String note = r.ok ? getString(R.string.pool_full_note, r.used, r.max) : getString(R.string.pool_unreachable_note);
+        Toast.makeText(this, note, Toast.LENGTH_LONG).show();
+    }
+
+    private void arrangeServers(StreamResolver.Page p) {
+        servers.clear();
+        // Signed in with a pool slot: the account's premium servers go first and are tried first;
+        // a premium tab that turns out to be locked (account without premium) simply fails over
+        // to the free ones like any other dead server. Signed out: premium tabs are skipped
+        // entirely. Pool full: start on free; the premium tabs stay reachable with Left/Right,
+        // which asks the pool again.
+        boolean signedIn = Account.isSignedIn(this);
+        boolean premiumLocked = Boolean.FALSE.equals(Account.premiumKnown(this)) || (signedIn && !lease.held());
         List<StreamResolver.Server> premium = new ArrayList<>();
         List<StreamResolver.Server> free = new ArrayList<>();
         for (StreamResolver.Server s : p.servers) {
             if (!s.premium) free.add(s);
             else if (signedIn) premium.add(s);
         }
+        // Named premium tabs ("Redzone 1", "Raiders") are the site's own players and resolve;
+        // its generic "Server N" premium tabs are third-party embeds (embed.st) that no native
+        // player can read. Try the named ones first so the sweep does not burn time on the rest.
+        List<StreamResolver.Server> named = new ArrayList<>();
+        List<StreamResolver.Server> generic = new ArrayList<>();
+        for (StreamResolver.Server s : premium) (GENERIC_TAB.matcher(s.name).matches() ? generic : named).add(s);
+        premium.clear();
+        premium.addAll(named);
+        premium.addAll(generic);
         if (premiumLocked) {
             // Known not to be premium: keep the tabs reachable with Left/Right but start on free.
             servers.addAll(free);
@@ -565,6 +640,13 @@ public class NativePlayerActivity extends Activity {
             showPremiumOnly();
             return;
         }
+        if (free.isEmpty() && poolFull) {
+            // Every server is premium and the shared account's connections are all taken.
+            showStatusWithActions(getString(R.string.pool_full_only, poolUsed, poolMax), false);
+            return;
+        }
+        // No slot: the automatic sweep (and the impatience race) leave the premium tabs alone.
+        if (poolFull) for (StreamResolver.Server s : premium) if (!failed.contains(s.pageUrl)) failed.add(s.pageUrl);
 
         int start = 0;
         StreamResolver.Server active = p.servers.get(p.activeIndex);
@@ -577,6 +659,7 @@ public class NativePlayerActivity extends Activity {
             for (int i = 0; i < servers.size(); i++) {
                 StreamResolver.Server s = servers.get(i);
                 if (!s.pageUrl.equals(preferred)) continue;
+                if (s.premium && poolFull) continue;
                 if (s.premium || premium.isEmpty() || premiumLocked) start = i;
             }
         }
@@ -603,6 +686,24 @@ public class NativePlayerActivity extends Activity {
         }
         if (start < 0 || start >= servers.size()) start = 0;
         Log.i(TAG, "live tv: " + servers.size() + " channels in " + channelGroup + ", starting at " + start);
+        // Live TV counts toward the shared account's 5 connections: the Live TV screen took the
+        // slot; renew it under this channel's name (a fresh acquire when it lapsed).
+        if (Account.isSignedIn(this) && !lease.held()) {
+            final int gen = loadGeneration;
+            final int first = start;
+            lease.acquire("tv", servers.get(first).name, r -> {
+                if (gen != loadGeneration || isFinishing()) return;
+                if (!r.granted && r.ok) {
+                    poolUsed = r.used;
+                    poolMax = r.max;
+                    poolFull = true;
+                    showStatusWithActions(getString(R.string.ltv_pool_full, r.used, r.max), false);
+                    return;
+                }
+                switchTo(first, false);
+            });
+            return;
+        }
         switchTo(start, false);
     }
 
@@ -634,6 +735,7 @@ public class NativePlayerActivity extends Activity {
             retried.clear();
         }
         everPlayed = false;
+        liveEdgeResyncs = 0;
         handler.removeCallbacks(stallCheck);
         handler.removeCallbacks(startTimeout);
         player.stop();
@@ -642,28 +744,82 @@ public class NativePlayerActivity extends Activity {
         if (channelGroup != null) {
             event.home = s.name;
             hudTitle.setText(s.name);
+            lease.setLabel(s.name);
         }
         showStatus(getString(R.string.np_connecting_to, s.name), true);
         bindServerLabel();
         showHud();
 
+        // A premium tab picked by hand (or after the lease lapsed): (re)acquire a pool slot first.
+        if (channelGroup == null && s.premium && Account.isSignedIn(this) && !lease.held()) {
+            final int gen = ++loadGeneration;
+            handler.removeCallbacks(impatience);
+            lease.acquire("game", event.title(), r -> {
+                if (gen != loadGeneration || isFinishing()) return;
+                notePool(r);
+                if (r.granted) {
+                    loadServer(s, manual);
+                } else {
+                    // Every premium tab is out of reach until the pool has room again.
+                    for (StreamResolver.Server o : servers) if (o.premium && !failed.contains(o.pageUrl)) failed.add(o.pageUrl);
+                    onFailure("pool");
+                }
+            });
+            return;
+        }
+        loadServer(s, manual);
+    }
+
+    private void loadServer(StreamResolver.Server s, boolean manual) {
         StreamResolver.Stream cached = resolved.get(s.pageUrl);
-        // Live TV channels are direct URLs: nothing to re-resolve, just play (again).
-        if (cached != null && (channelGroup != null || !retried.contains(s.pageUrl))) {
+        if (channelGroup != null && cached != null) {
+            // Live TV channels are direct URLs, but the CDN redirects each to the edge that
+            // serves its (IP-bound) segments and answers warming.ts while a channel spins up:
+            // look once from here, then play from the final URL.
+            final int gen = ++loadGeneration;
+            final StreamResolver.Stream direct = cached;
+            io.execute(() -> {
+                StreamResolver.PlaylistCheck c = StreamResolver.checkPlaylist(direct.hlsUrl, direct.playerOrigin + "/");
+                Log.i(TAG, direct.server.name + " playlist check: " + (c.ok ? "ok" : "failed") + " HTTP " + c.code
+                        + " at " + StreamResolver.hostOf(c.url) + (c.warming ? " (warming)" : "")
+                        + (c.error == null ? "" : " " + c.error));
+                handler.post(() -> {
+                    if (gen != loadGeneration || isFinishing()) return;
+                    if (c.ok && c.warming) {
+                        onFailure("warming");
+                    } else if (!c.ok && c.code >= 400) {
+                        onFailure(c.error);
+                    } else {
+                        play(new StreamResolver.Stream(direct.server, c.ok ? c.url : direct.hlsUrl, direct.playerOrigin, null, direct.state));
+                    }
+                });
+            });
+            return;
+        }
+        if (cached != null && !retried.contains(s.pageUrl)) {
             play(cached);
             return;
         }
         final int gen = ++loadGeneration;
         handler.removeCallbacks(impatience);
         if (!manual && servers.size() > 1) handler.postDelayed(impatience, IMPATIENCE_MS);
+        final boolean viaPool = s.premium && lease.held();
         io.execute(() -> {
             try {
                 StreamResolver.Stream st = resolver.resolve(s, page);
+                // The site does not give every session the same premium player: when ours gets
+                // an embed it cannot read, the Worker resolves the tab with the shared account.
+                if (viaPool && !st.playableNatively() && !"gate".equals(st.state) && !"warming".equals(st.state)) {
+                    Log.i(TAG, s.name + ": no player for this session; asking the web player");
+                    StreamResolver.Stream shared = Pool.resolveShared(this, s);
+                    if (shared.playableNatively() || "warming".equals(shared.state)) st = shared;
+                }
+                final StreamResolver.Stream got = st;
                 handler.post(() -> {
                     if (isFinishing()) return;
-                    resolved.put(s.pageUrl, st); // keep it for manual switching even if superseded
+                    resolved.put(s.pageUrl, got); // keep it for manual switching even if superseded
                     if (gen != loadGeneration) return;
-                    play(st);
+                    play(got);
                 });
             } catch (Exception e) {
                 Log.w(TAG, s.name + " resolve failed: " + e);
@@ -683,10 +839,13 @@ public class NativePlayerActivity extends Activity {
         if (everPlayed || isFinishing() || servers.size() < 2 || current < 0) return;
         final int gen = loadGeneration;
         final int idx = current;
+        // A slow premium tab races a free server, never a second premium one: that would cost
+        // the shared account another connection and start another channel warming up.
+        boolean freeOnly = servers.get(idx).premium;
         int nextIdx = -1;
         for (int i = 1; i < servers.size(); i++) {
             int cand = (idx + i) % servers.size();
-            if (!failed.contains(servers.get(cand).pageUrl)) {
+            if (!failed.contains(servers.get(cand).pageUrl) && (!freeOnly || !servers.get(cand).premium)) {
                 nextIdx = cand;
                 break;
             }
@@ -724,7 +883,8 @@ public class NativePlayerActivity extends Activity {
         }
         if (!st.playableNatively()) {
             Log.i(TAG, st.server.name + " has no HLS (state=" + st.state + ")");
-            onFailure("gate".equals(st.state) ? "premium" : "no player");
+            // "warming": the CDN's warming.ts placeholder - no video on this server yet, try another.
+            onFailure("gate".equals(st.state) ? "premium" : "warming".equals(st.state) ? "warming" : "no player");
             return;
         }
         Map<String, String> headers = new HashMap<>();
@@ -737,10 +897,18 @@ public class NativePlayerActivity extends Activity {
                 .setReadTimeoutMs(12_000)
                 .setAllowCrossProtocolRedirects(true);
         MediaSource source;
-        if (st.hlsUrl.contains(".m3u8") || channelGroup == null) {
-            source = new HlsMediaSource.Factory(http)
-                    .setAllowChunklessPreparation(true)
-                    .createMediaSource(MediaItem.fromUri(st.hlsUrl));
+        // A channel's final URL (after the CDN's redirect to /auth/<token>) carries no extension;
+        // the channel's own URL says whether it is HLS.
+        if (st.hlsUrl.contains(".m3u8") || st.server.pageUrl.contains(".m3u8") || channelGroup == null) {
+            // A restarted premium channel repeats the same playlist for 30-40 s; ExoPlayer's
+            // default gives up on an unchanging live playlist after 3 target durations. Allow
+            // twice that - the stall timer above is the viewer-facing limit.
+            HlsMediaSource.Factory hls = new HlsMediaSource.Factory(http).setAllowChunklessPreparation(true);
+            if (st.server.premium || channelGroup != null) {
+                hls.setPlaylistTrackerFactory((dsf, policy, parserFactory) ->
+                        new DefaultHlsPlaylistTracker(dsf, policy, parserFactory, 6.0));
+            }
+            source = hls.createMediaSource(MediaItem.fromUri(st.hlsUrl));
         } else {
             // IPTV channels without an HLS variant are plain MPEG-TS over HTTP; let the default
             // factory sniff the container.
@@ -750,8 +918,17 @@ public class NativePlayerActivity extends Activity {
         player.prepare();
         player.setPlayWhenReady(true);
         handler.removeCallbacks(startTimeout);
-        handler.postDelayed(startTimeout, START_TIMEOUT_MS);
+        handler.postDelayed(startTimeout, startTimeoutMs());
         Log.i(TAG, "playing " + st.server.name + " via " + StreamResolver.hostOf(st.hlsUrl));
+    }
+
+    /** Premium tabs and Live TV channels are on the slow-starting premium CDN. */
+    private boolean onPremiumCdn() {
+        return channelGroup != null || (current >= 0 && current < servers.size() && servers.get(current).premium);
+    }
+
+    private long startTimeoutMs() {
+        return onPremiumCdn() ? PREMIUM_START_TIMEOUT_MS : START_TIMEOUT_MS;
     }
 
     /** A server failed: refresh it once (expired token), then move on, then give up. */
@@ -773,14 +950,18 @@ public class NativePlayerActivity extends Activity {
         if (channelGroup != null) {
             // The viewer chose this channel: don't zap away on their behalf.
             player.stop();
-            showStatusWithActions(getString(R.string.np_channel_failed, s.name), false);
+            int msg = "warming".equals(why) ? R.string.np_channel_warming : R.string.np_channel_failed;
+            showStatusWithActions(getString(msg, s.name), false);
             return;
         }
         if (!failed.contains(s.pageUrl)) failed.add(s.pageUrl);
         if (failed.size() < servers.size()) {
+            // The list is already in preference order (premium tabs first while we hold a pool
+            // slot, the remembered server may sit anywhere in it): the next try is the first
+            // untried one in that order, not the next one around the circle - otherwise starting
+            // on a remembered tab near the end would skip the better tabs before it.
             int next = current;
-            for (int i = 1; i <= servers.size(); i++) {
-                int cand = (current + i) % servers.size();
+            for (int cand = 0; cand < servers.size(); cand++) {
                 if (!failed.contains(servers.get(cand).pageUrl)) {
                     next = cand;
                     break;
@@ -811,8 +992,12 @@ public class NativePlayerActivity extends Activity {
             if (!"gate".equals(st.state)) allPremium = false;
         }
         player.stop();
+        boolean hasPremium = false;
+        for (StreamResolver.Server sv : servers) if (sv.premium) hasPremium = true;
         if (allPremium && !resolved.isEmpty()) {
             showPremiumOnly();
+        } else if (poolFull && hasPremium && !lease.held()) {
+            showStatusWithActions(getString(R.string.pool_full_free_failed, poolMax), anyEmbed);
         } else {
             showStatusWithActions(getString(R.string.np_all_failed), anyEmbed);
         }
@@ -821,7 +1006,9 @@ public class NativePlayerActivity extends Activity {
     private void retryAll() {
         failed.clear();
         retried.clear();
-        if (channelGroup != null && !servers.isEmpty()) {
+        // Live TV without a pool slot (the pool was full): go through the channel list again,
+        // which asks the pool first.
+        if (channelGroup != null && !servers.isEmpty() && (lease.held() || !Account.isSignedIn(this))) {
             switchTo(Math.max(current, 0), true);
             return;
         }

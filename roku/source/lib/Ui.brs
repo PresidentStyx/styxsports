@@ -1,19 +1,235 @@
 ' Render-thread helpers shared by the screens.
 
+' The Android app's palette (app/src/main/res/values/colors.xml), so both apps look the same.
 function Ui_color(name as string) as string
     if name = "bg" then return "0x0A0A0AFF"
-    if name = "card" then return "0x161616FF"
-    if name = "cardFocus" then return "0x232323FF"
-    if name = "line" then return "0x2A2A2AFF"
-    if name = "text" then return "0xF2F2F2FF"
-    if name = "dim" then return "0x9A9A9AFF"
-    if name = "live" then return "0xE53935FF"
-    if name = "gold" then return "0xF5C518FF"
-    if name = "accent" then return "0x3D8BFFFF"
-    if name = "pill" then return "0x1F1F1FFF"
-    if name = "pillOn" then return "0xF2F2F2FF"
+    if name = "card" or name = "surface" or name = "pill" then return "0x171717FF"
+    if name = "cardFocus" or name = "surfaceFocused" then return "0x242424FF"
+    if name = "line" or name = "outline" then return "0x262626FF"
+    if name = "outlineStrong" then return "0x343434FF"
+    if name = "text" then return "0xF5F5F5FF"
+    if name = "dim" or name = "muted" then return "0x9E9E9EFF"
+    if name = "live" then return "0xDC2626FF"
+    if name = "pillTime" then return "0x2E2E2EFF"
+    if name = "hot" then return "0xFB923CFF"
+    if name = "gold" then return "0xF5B942FF"
+    if name = "accent" or name = "pillOn" then return "0xFFFFFFFF"
     if name = "scrim" then return "0x000000B0"
     return "0xFFFFFFFF"
+end function
+
+' ---------------------------------------------------------------------------------------------
+' Fonts. Android TV draws the app in Roboto at density 2 (1 dp = 2 px at 1080p), so a 13 sp label
+' there is a 26 px Roboto label here. Font nodes are cached per component (m is the component).
+' ---------------------------------------------------------------------------------------------
+
+function Ui_font(size as integer, bold as boolean) as object
+    if m.uiFonts = invalid then m.uiFonts = {}
+    key = size.ToStr()
+    if bold then key += "b"
+    f = m.uiFonts[key]
+    if f = invalid
+        f = CreateObject("roSGNode", "Font")
+        if bold then f.uri = "pkg:/fonts/Roboto-Bold.ttf" else f.uri = "pkg:/fonts/Roboto-Regular.ttf"
+        f.size = size
+        m.uiFonts[key] = f
+    end if
+    return f
+end function
+
+' Android sp -> px. Android TV 1080p runs at density 2, and the APK runs with the system font
+' size one step up (font_scale 1.15, as on the Chromecast with Google TV). Android 14 applies
+' that scale non-linearly - small text grows the full 15%, 20 sp about 9%, 28 sp about 1%, and
+' 30 sp and up not at all - so this is the platform's 1.15 lookup table (FontScaleConverter),
+' interpolated linearly between the listed sizes. Matching it keeps chips, buttons, titles and
+' cards the same size as on the APK.
+function Ui_spToDp(sp as float) as float
+    xs = [8.0, 10.0, 12.0, 14.0, 18.0, 20.0, 24.0, 30.0, 100.0]
+    ys = [9.2, 11.5, 13.8, 16.4, 19.8, 21.8, 25.2, 30.0, 100.0]
+    if sp <= xs[0] then return sp * ys[0] / xs[0]
+    for i = 1 to xs.Count() - 1
+        if sp <= xs[i]
+            return ys[i - 1] + (sp - xs[i - 1]) * (ys[i] - ys[i - 1]) / (xs[i] - xs[i - 1])
+        end if
+    end for
+    return sp
+end function
+
+function Ui_sp(sp as float) as integer
+    return Int(Ui_spToDp(sp) * 2 + 0.5)
+end function
+
+' Width of a label's text. boundingRect() is only right once the label has been through a frame;
+' before that, estimate from Roboto's average glyph widths (callers re-measure a frame later).
+function Ui_textWidth(label as object) as integer
+    ' Measure unconstrained: a label that already has a width reports its (possibly ellipsized)
+    ' rendered text, which would shrink the pill a little on every re-measure.
+    if label.width <> 0 then label.width = 0
+    r = label.boundingRect()
+    if r <> invalid and r.width <> invalid and r.width > 0 then return Int(r.width + 0.5)
+    return Ui_estimateWidth(label.text, label.font)
+end function
+
+' Crest image URL the Poster can load. The site serves SVG crests (Android rasterises them with
+' androidsvg); Roku has no SVG decoder, so those go through wsrv.nl, which returns a PNG.
+function Ui_crestUrl(url as string, sizePx as integer) as string
+    if url = "" then return ""
+    if LCase(Right(url, 4)) <> ".svg" and Instr(1, LCase(url), ".svg?") = 0 then return url
+    return "https://wsrv.nl/?url=" + Ui_pctEncode(url) + "&w=" + sizePx.ToStr() + "&h=" + sizePx.ToStr() + "&fit=contain&output=png"
+end function
+
+' Percent-encodes everything but RFC 3986 unreserved characters (render-thread safe; roUrlTransfer is not).
+function Ui_pctEncode(s as string) as string
+    keep = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    out = ""
+    bytes = CreateObject("roByteArray")
+    bytes.FromAsciiString(s)
+    for i = 0 to bytes.Count() - 1
+        b = bytes[i]
+        ch = Chr(b)
+        if b < 128 and Instr(1, keep, ch) > 0
+            out += ch
+        else
+            hex = StrI(b, 16)
+            if Len(hex) < 2 then hex = "0" + hex
+            out += "%" + UCase(hex)
+        end if
+    end for
+    return out
+end function
+
+function Ui_estimateWidth(text as string, font as object) as integer
+    size = 26
+    bold = false
+    if font <> invalid
+        if font.hasField("size") then size = font.size
+        if font.hasField("uri") and Instr(1, font.uri, "Bold") > 0 then bold = true
+    end if
+    w = 0.0
+    for i = 1 to Len(text)
+        ch = Mid(text, i, 1)
+        code = Asc(ch)
+        if ch = " "
+            w += 0.25
+        else if (code >= 65 and code <= 90) or (code >= 48 and code <= 57)
+            w += 0.64
+        else if code >= 97 and code <= 122
+            w += 0.52
+        else if ch = "." or ch = "," or ch = ":" or ch = "'" or ch = "i" or ch = "l"
+            w += 0.27
+        else
+            w += 0.55
+        end if
+    end for
+    if bold then w = w * 1.05
+    return Int(w * size + 0.5)
+end function
+
+' Height of a single-line Android TextView of this text size: Roboto's top+bottom including the
+' font padding (~1.34 em; measured 1.33-1.37 on the APK). Roku labels get this as their explicit
+' height with the text centred, which puts glyphs where Android puts them.
+function Ui_lineHeight(size as integer) as integer
+    return Int(size * 1.34 + 0.5)
+end function
+
+' Distance between baselines of consecutive wrapped lines (ascent+descent, ~1.17 em) - the same
+' on Android and on Roku, whose Label uses the font's own line pitch.
+function Ui_linePitch(size as integer) as integer
+    return Int(size * 1.172 + 0.5)
+end function
+
+' Android TextView height for `lines` lines: one padded line plus the extra lines at the pitch.
+function Ui_textHeight(size as integer, lines as integer) as integer
+    if lines < 1 then lines = 1
+    return Ui_lineHeight(size) + (lines - 1) * Ui_linePitch(size)
+end function
+
+' LiveTvActivity geometry shared by the screen and its list items (1 dp = 2 px):
+' group row = 15 sp line + 2 x 11 dp padding; channel cell = 112 dp tall, 4 across the grid.
+function Ui_liveTvRowHeight() as integer
+    return Ui_lineHeight(Ui_sp(15)) + 44
+end function
+
+function Ui_liveTvCellSize() as object
+    return [259, 224]
+end function
+
+' Height of a (possibly wrapped) label, as Android would size the TextView: the line count is
+' measured when the label has been rendered, otherwise estimated from the text width. An empty
+' label still counts one line, like an Android TextView.
+function Ui_labelHeight(label as object, fontSize as integer, maxLines as integer) as integer
+    if label.text = "" then return Ui_lineHeight(fontSize)
+    lines = Ui_labelLines(label, fontSize)
+    if maxLines > 0 and lines > maxLines then lines = maxLines
+    return Ui_textHeight(fontSize, lines) + (lines - 1) * label.lineSpacing
+end function
+
+' Number of lines a label renders (measured when possible, else estimated from the text width).
+function Ui_labelLines(label as object, fontSize as integer) as integer
+    pitch = Ui_linePitch(fontSize) + label.lineSpacing
+    if pitch < 1 then pitch = 1
+    lines = 0
+    if label.wrap
+        r = label.boundingRect()
+        if r <> invalid and r.height <> invalid and r.height > 0 then lines = Int((r.height + pitch / 2) / pitch)
+    end if
+    if lines < 1
+        lines = 1
+        if label.wrap and label.width > 0
+            est = Ui_estimateWidth(label.text, label.font)
+            lines = Int((est + label.width - 1) / label.width)
+            ' explicit line breaks
+            parts = label.text.Split(Chr(10))
+            if parts.Count() > lines then lines = parts.Count()
+        end if
+    end if
+    if lines < 1 then lines = 1
+    return lines
+end function
+
+' ---------------------------------------------------------------------------------------------
+' Text formats copied from HomeActivity so the cards read the same on both apps.
+' ---------------------------------------------------------------------------------------------
+
+' Status pill: "LIVE  2nd Q 4:12" / "FINAL" / "7:30 PM" / "Tue 7:30 PM" / "Upcoming".
+function Ui_pillLabel(e as object) as string
+    if e.ended then return "FINAL"
+    if e.live
+        if isEmpty(e.lt) or UCase(e.lt) = "LIVE" then return "LIVE"
+        return "LIVE  " + e.lt
+    end if
+    if e.ts <= 0 then return "Upcoming"
+    return Ui_clock(e.ts)
+end function
+
+' "h:mm a" of a unix time, for the status line.
+function Ui_timeOf(ts as integer) as string
+    dt = CreateObject("roDateTime")
+    dt.FromSeconds(ts)
+    dt.ToLocalTime()
+    h = dt.GetHours()
+    ampm = "AM"
+    if h >= 12 then ampm = "PM"
+    h12 = h mod 12
+    if h12 = 0 then h12 = 12
+    return h12.ToStr() + ":" + padZero(dt.GetMinutes()) + " " + ampm
+end function
+
+' HomeActivity.prettyLeague: known keys get their proper name, others are title-cased.
+function Ui_prettyLeague(key as string) as string
+    if key = "" then return ""
+    names = {
+        epl: "Premier League", laliga: "La Liga", seriea: "Serie A", ligue1: "Ligue 1"
+        bundesliga: "Bundesliga", bundesliga2: "2. Bundesliga", mls: "MLS", championship: "Championship"
+        leagueone: "League One", leaguetwo: "League Two", eredivisie: "Eredivisie", ligamx: "Liga MX"
+        portugal: "Primeira Liga", argentina: "Argentine Primera", brazil: "Brasileirão"
+        colombia: "Colombian Primera A", ucl: "Champions League", uel: "Europa League"
+    }
+    known = names[LCase(key)]
+    if known <> invalid then return known
+    s = key.Replace("-", " ").Replace("_", " ")
+    if Len(s) <= 4 then return UCase(s)
+    return UCase(Left(s, 1)) + Mid(s, 2)
 end function
 
 ' ---------------------------------------------------------------------------------------------
@@ -30,7 +246,7 @@ sub Dev_dumpTree(node as object, parentShown as boolean)
     if shown then Dev_dumpOne(node)
     ' Lists render their own items (which observe m.global.dumpTick and dump themselves).
     st = node.subtype()
-    if st = "RowList" or st = "MarkupGrid" or st = "Video" then return
+    if st = "RowList" or st = "MarkupGrid" or st = "MarkupList" or st = "Video" then return
     for i = 0 to node.getChildCount() - 1
         Dev_dumpTree(node.getChild(i), shown)
     end for
@@ -59,6 +275,8 @@ sub Dev_dumpOne(node as object)
     else if st = "Poster"
         line.uri = node.uri
         if node.hasField("loadStatus") then line.ls = node.loadStatus
+        line.bc = node.blendColor
+        if node.loadDisplayMode = "scaleToFill" then line.fill = true
     else if st = "RowList"
         ' Items report row-relative rectangles, so the tool lays rows out from this geometry.
         line.cid = ""
@@ -88,13 +306,14 @@ sub Dev_dumpOne(node as object)
         line.vfs = node.vertFocusAnimationStyle
         line.lf = 30
         if node.rowLabelFont <> invalid and node.rowLabelFont.hasField("size") then line.lf = node.rowLabelFont.size
-    else if st = "MarkupGrid"
+    else if st = "MarkupGrid" or st = "MarkupList"
+        ' a MarkupList is a one-column grid to the tool
         line.cid = ""
         if node.content <> invalid then line.cid = node.content.id
         ap = Dev_absPos(node)
         line.tx = ap[0]
         line.ty = ap[1]
-        line.nc = node.numColumns
+        if st = "MarkupGrid" then line.nc = node.numColumns else line.nc = 1
         line.nr = node.numRows
         line.iw = Dev_arr(node.itemSize, 0, 0)
         line.ih = Dev_arr(node.itemSize, 1, 0)
@@ -143,9 +362,10 @@ function Dev_indexOf(parent as object, child as object) as integer
     return -1
 end function
 
-' Called by RowList / MarkupGrid item components when m.global.dumpTick changes. Emits an "Item"
-' header (which list content it belongs to, row/col) followed by the item's own nodes; the tool
-' positions the item from the list geometry and draws the children by their offsets.
+' Called by RowList / MarkupGrid / MarkupList item components when m.global.dumpTick changes.
+' Emits an "Item" header (which list content it belongs to, row/col) followed by the item's own
+' nodes; the tool positions the item from the list geometry and draws the children by their
+' offsets. The list's content root needs an id for the tool to match items to it.
 sub Dev_dumpItem(item as object)
     c = item.itemContent
     if c = invalid or not Dev_isShown(item) then return
@@ -248,6 +468,7 @@ function Ui_eventNode(e as object, starred as boolean) as object
     n.live = e.live
     n.ended = e.ended
     n.hot = e.hot
+    n.rank = toInt(e.rank)
     n.pro = e.pro
     n.league = e.league
     n.ch = e.ch
@@ -270,6 +491,7 @@ function Ui_eventFromNode(n as object) as object
     e.live = n.live
     e.ended = n.ended
     e.hot = n.hot
+    e.rank = n.rank
     e.pro = n.pro
     e.league = n.league
     e.ch = n.ch

@@ -23,6 +23,17 @@ const DEFAULTS = {
   anyIframe: '<iframe[^>]*\\ssrc="([^"]+)"',
   hlsUrl: '["\'](https?:[^"\']+\\.m3u8[^"\']*)["\']',
   hlsUrlBase64: 'atob\\(\\s*["\']([A-Za-z0-9+/=]{16,})["\']\\s*\\)',
+  // Any long quoted base64 string; the premium player passes its playlist URL through one, reversed.
+  base64Literal: '["\']([A-Za-z0-9+/]{40,}={0,2})["\']',
+  // Player pages whose <iframe> starts as about:blank and get their real player URL from a JSON
+  // call: fetch("api/player.php?id=" + id) -> {"url": ...}; group 1 = the path up to the id.
+  playerApiPath: '["\']([^"\'<>\\s]*?api/player\\.php\\?id=)["\']',
+  playerChannelId: 'loadPlayerChannel\\((\\d+)\\)',
+  playerApiFallback: 'initialPlayerUrlFallback\\s*=\\s*["\']([^"\']+)["\']',
+  // Obfuscated loader: var a=[n,n,n,...],k=<xor>,o=<offset>; text = fromCharCode(((n^k)-o+256)&255).
+  charcodeLoader: 'var\\s+\\w+\\s*=\\s*\\[(\\d+(?:\\s*,\\s*\\d+){99,})\\]\\s*,\\s*\\w+\\s*=\\s*(\\d+)\\s*,\\s*\\w+\\s*=\\s*(\\d+)',
+  // The account page's IPTV tab: <input id="iptv-m3u-plus" class="acc-iptv-url-input" value="...">.
+  iptvUrlInput: '<input[^>]*\\bid="([^"]+)"[^>]*class="acc-iptv-url-input"[^>]*\\bvalue="([^"]+)"',
 };
 
 const STRINGS = {

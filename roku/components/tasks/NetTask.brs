@@ -53,8 +53,15 @@ sub runJob()
         end if
 
     else if op = "resolveServer"
-        ' input.server
+        ' input.server; input.viaPool: we hold a lease, so a premium tab our own session gets no
+        ' player for (the site does not hand every session the same premium player) is resolved
+        ' through the Worker with the shared account instead.
         out = Resolver_resolve(cfg.parser, input.server, invalid)
+        if out.hlsUrl = invalid and input.server.premium = true and input.viaPool = true and out.state <> "gate" and out.state <> "warming"
+            logi("Resolver", input.server.name + ": no player for this session; asking the web player")
+            shared = Resolver_checked(Pool_resolveShared(input.server))
+            if shared.hlsUrl <> invalid or shared.state = "warming" then out = shared
+        end if
         out.ok = (out.hlsUrl <> invalid)
 
     else if op = "accountStatus"
@@ -78,12 +85,47 @@ sub runJob()
         Account_signOut(cfg)
         out = { ok: true }
 
+    else if op = "ping"
+        ' Anonymous "I'm open" heartbeat for sports.styxam.com/stats. Failures are ignored.
+        Http_postJson("https://sports.styxam.com/api/ping", FormatJson({ id: Pool_clientId(), platform: "roku", device: Pool_deviceName() }))
+        Pool_refreshInfo() ' is an account shared, does it have Live TV
+        out = { ok: true }
+
+    else if op = "resolveShared"
+        ' input.server (premium tab), through the Worker with this device's pool lease.
+        out = Resolver_checked(Pool_resolveShared(input.server))
+        out.ok = (out.hlsUrl <> invalid)
+
+    else if op = "poolAcquire"
+        ' input.kind ("game" | "tv"), input.label: a slot in the shared premium account's pool.
+        out = Pool_acquire(strOr(input.kind, "game"), strOr(input.label, ""))
+
+    else if op = "poolHeartbeat"
+        out = Pool_heartbeat(strOr(input.label, ""))
+
+    else if op = "poolRelease"
+        out = Pool_release()
+
+    else if op = "checkPlaylist"
+        ' input.url: one fetch of a playlist from this device -> { ok, url (final), warming, code, error }.
+        out = Resolver_checkPlaylist(input.url, "")
+
+    else if op = "probe"
+        ' Developer: what roUrlTransfer sees for input.url (status, headers incl. redirects, body head).
+        r = Http_get(input.url)
+        out = { ok: r.ok, code: r.code, error: r.error, headers: r.headers, headersArray: r.headersArray, head: Left(r.body, 300) }
+
     else if op = "iptvLoad"
         ' input.force: refresh even when the cache is fresh.
         idx = Iptv_cachedIndex()
         if idx = invalid or input.force = true or not Iptv_isFresh(idx)
-            if Account_playlistUrl() = "" then Account_discoverIptv(cfg)
-            fresh = Iptv_fetch()
+            if Account_isSignedIn()
+                if Account_playlistUrl() = "" then Account_discoverIptv(cfg)
+                fresh = Iptv_fetch()
+            else
+                ' No account here: the shared account's list, through the Worker, with our lease.
+                fresh = Pool_fetchIptv()
+            end if
             if fresh.error = invalid
                 idx = fresh
             else if idx = invalid

@@ -9,6 +9,9 @@
   <title>Styx Sports</title>
   <link rel="icon" href="/icon.png">
   <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -18,7 +21,8 @@
     <div class="top-right">
       <span class="status" id="status"></span>
       <button class="icon-btn" id="refresh" title="Refresh">⟳</button>
-      <a class="apk" href="/apk" title="Download the Android TV app">Get the TV app</a>
+      <button class="apk" id="account" title="Sign in to your premium account">Sign in</button>
+      <a class="apk" href="/install" title="Install on Android TV, Fire TV or Roku"><span class="phone-hide">Get the </span>TV app</a>
     </div>
   </header>
 
@@ -32,7 +36,10 @@
 
   <footer class="foot">
     <span>Right-click or long-press a game to star a team or league.</span>
-    <span>Arrow keys move · Enter plays · Esc closes.</span>
+    <span>Arrow keys move · Enter plays · Esc closes · R refreshes.</span>
+    <a class="foot-link" href="/stats">Active now</a>
+    <a id="open-site" class="foot-link" href="#" target="_blank" rel="noopener noreferrer">Open the site ↗</a>
+    <a class="foot-link" href="/install">Install on a TV</a>
   </footer>
 
   <!-- Player -->
@@ -63,6 +70,32 @@
 
   <!-- Favorites menu -->
   <div id="menu" class="menu hidden" role="menu"></div>
+
+  <!-- Premium account: the site's TV sign-in (code on this screen, approved on the phone) -->
+  <div id="acct" class="acct hidden" role="dialog" aria-modal="true" aria-labelledby="acct-title">
+    <div class="acct-card">
+      <button class="icon-btn acct-x" id="acct-close" title="Close (Esc)">✕</button>
+      <div class="acct-title" id="acct-title">Premium account</div>
+      <div id="acct-body"></div>
+      <div class="panel-actions acct-actions" id="acct-actions"></div>
+    </div>
+  </div>
+
+  <!-- Live TV: the premium account's channel list -->
+  <div id="livetv" class="livetv hidden" role="dialog" aria-label="Live TV">
+    <div class="lt-head">
+      <span class="lt-title">📺 Live TV</span>
+      <span class="lt-sub" id="lt-sub"></span>
+      <input id="lt-search" class="lt-search" type="search" placeholder="Search channels…" autocomplete="off">
+      <button class="icon-btn" id="lt-refresh" title="Reload the channel list">⟳</button>
+      <button class="icon-btn" id="lt-close" title="Close (Esc)">✕</button>
+    </div>
+    <div class="lt-body">
+      <nav class="lt-groups" id="lt-groups" aria-label="Channel groups"></nav>
+      <div class="lt-channels" id="lt-channels"></div>
+    </div>
+    <div class="lt-msg hidden" id="lt-msg"></div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
   <script src="/app.js"></script>

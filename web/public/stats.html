@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="robots" content="noindex">
+  <title>Active now — Styx Sports</title>
+  <link rel="icon" href="/icon.png">
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .wrap { max-width: 860px; margin: 0 auto; padding: 28px 24px 60px; }
+    .back { color: var(--muted); text-decoration: none; font-size: 14px; }
+    .back:hover { color: var(--text); }
+    h1 { font-size: 28px; margin: 18px 0 6px; }
+    .lead { color: var(--muted); margin: 0 0 28px; font-size: 15px; }
+    .total { background: var(--surface); border: 1px solid var(--outline); border-radius: 16px; padding: 28px 24px; text-align: center; margin-bottom: 18px; }
+    .total b { display: block; font-size: 72px; line-height: 1; letter-spacing: -2px; }
+    .total span { color: var(--muted); font-size: 14px; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .card { background: var(--surface); border: 1px solid var(--outline); border-radius: 14px; padding: 22px 16px; text-align: center; }
+    .card b { display: block; font-size: 40px; line-height: 1.1; }
+    .card span { color: var(--muted); font-size: 13px; font-weight: 600; }
+    .err { color: #f87171; min-height: 1.2em; margin-top: 18px; font-size: 14px; }
+    h2 { font-size: 20px; margin: 40px 0 6px; }
+    .pool { background: var(--surface); border: 1px solid var(--outline); border-radius: 16px; padding: 22px 24px; }
+    .pool-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+    .pool-head b { font-size: 44px; line-height: 1; }
+    .pool-head span { color: var(--muted); font-size: 14px; }
+    .slots { display: flex; gap: 8px; margin: 16px 0 6px; }
+    .slot { flex: 1; height: 12px; border-radius: 6px; background: var(--outline-strong); }
+    .slot.on { background: var(--gold); }
+    .leases { list-style: none; margin: 14px 0 0; padding: 0; font-size: 14px; }
+    .leases li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--outline); }
+    .leases li span:last-child { color: var(--muted); white-space: nowrap; }
+    .pool-note { color: var(--muted); font-size: 14px; margin: 14px 0 0; line-height: 1.5; }
+    .pool-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+    .pool-actions .btn { text-decoration: none; }
+    .ok { color: var(--gold); }
+    .devices { list-style: none; margin: 14px 0 0; padding: 0 4px; font-size: 14px; }
+    .devices li { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--outline); }
+    .devices li:first-child { border-top: 0; }
+    .dev-icon { width: 26px; text-align: center; flex: none; }
+    .dev-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dev-name i { color: var(--muted); font-style: normal; }
+    .dev-plat { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .dev-plat.premium { color: var(--gold); }
+    .dev-ago { color: var(--muted); font-size: 12px; white-space: nowrap; min-width: 3em; text-align: right; }
+    .empty { color: var(--muted); font-size: 14px; padding: 12px 4px 0; }
+    .leases li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lease-dev { color: var(--muted); }
+    @media (max-width: 640px) {
+      .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .card { padding: 14px 8px; }
+      .card b { font-size: 30px; }
+      .card span { font-size: 11px; }
+      .total b { font-size: 56px; }
+      .wrap { padding: 20px 14px 50px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/">← Home</a>
+    <h1>Active now</h1>
+    <p class="lead">Devices that pinged in the last 3 minutes. Refreshes every 5 seconds.</p>
+    <div class="total">
+      <b id="total">—</b>
+      <span>watching</span>
+    </div>
+    <div class="grid">
+      <div class="card"><b id="web">—</b><span>Web</span></div>
+      <div class="card"><b id="apk">—</b><span>Android / Fire TV</span></div>
+      <div class="card"><b id="roku">—</b><span>Roku</span></div>
+    </div>
+    <p class="err" id="err"></p>
+
+    <h2>Devices</h2>
+    <div class="pool">
+      <ul class="devices" id="devices"></ul>
+      <p class="empty hidden" id="devices-empty">Nobody is watching right now.</p>
+    </div>
+
+    <h2>Shared premium account</h2>
+    <div class="pool">
+      <div class="pool-head">
+        <b id="pool-used">—</b>
+        <span id="pool-max">of 5 connections in use</span>
+        <span id="pool-shared"></span>
+      </div>
+      <div class="slots" id="slots"></div>
+      <ul class="leases" id="leases"></ul>
+      <p class="pool-note" id="pool-note"></p>
+      <div class="pool-actions" id="pool-actions"></div>
+      <p class="err" id="pool-err"></p>
+    </div>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let me = { signedIn: false };
+    let poolState = null;
+
+    async function refresh() {
+      try {
+        const res = await fetch('/api/stats', { cache: 'no-store' });
+        if (res.status === 401) {
+          location.href = '/login?next=' + encodeURIComponent('/stats');
+          return;
+        }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const d = await res.json();
+        $('total').textContent = d.total;
+        $('web').textContent = d.web;
+        $('apk').textContent = d.apk;
+        $('roku').textContent = d.roku;
+        $('err').textContent = '';
+        if (d.pool) { poolState = d.pool; renderPool(); }
+        renderDevices(d.devices || []);
+      } catch (e) {
+        $('err').textContent = 'Could not load counts.';
+      }
+    }
+
+    async function loadMe() {
+      try {
+        const res = await fetch('/api/account', { cache: 'no-store' });
+        if (res.ok) me = await res.json();
+      } catch { /* leave as is */ }
+      renderPool();
+    }
+
+    function ago(ms) {
+      const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+      if (s < 60) return s + 's';
+      const m = Math.floor(s / 60);
+      return m < 60 ? m + 'm' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    }
+
+    const PLATFORM = { web: ['🌐', 'Web'], apk: ['📱', 'Android / Fire TV'], roku: ['📺', 'Roku'] };
+
+    // One line per device that pinged recently: what it calls itself, its platform, and what it
+    // is watching when it holds a shared-account lease (joined by the server).
+    function renderDevices(devices) {
+      const ul = $('devices');
+      ul.replaceChildren();
+      $('devices-empty').classList.toggle('hidden', devices.length > 0);
+      const order = { roku: 0, apk: 1, web: 2 };
+      devices.sort((a, b) => (order[a.platform] - order[b.platform]) || (b.lastSeen - a.lastSeen));
+      for (const d of devices) {
+        const [icon, plat] = PLATFORM[d.platform] || ['·', d.platform];
+        const li = document.createElement('li');
+        const ic = document.createElement('span'); ic.className = 'dev-icon'; ic.textContent = icon;
+        const name = document.createElement('span'); name.className = 'dev-name';
+        if (d.name) name.textContent = d.name;
+        else name.innerHTML = '<i>Unnamed device</i>';
+        const lease = d.watching;
+        if (lease) {
+          const w = document.createElement('i');
+          w.textContent = ' · ★ ' + (lease.kind === 'tv' ? '📺 ' : '') + (lease.label || (lease.kind === 'tv' ? 'Live TV' : 'a game'));
+          name.appendChild(w);
+        }
+        const pl = document.createElement('span'); pl.className = 'dev-plat' + (lease ? ' premium' : ''); pl.textContent = lease ? plat + ' · premium' : plat;
+        const ago_ = document.createElement('span'); ago_.className = 'dev-ago'; ago_.textContent = ago(d.lastSeen);
+        li.append(ic, name, pl, ago_);
+        ul.appendChild(li);
+      }
+    }
+
+    function renderPool() {
+      const p = poolState;
+      if (!p) return;
+      $('pool-used').textContent = p.used;
+      $('pool-max').textContent = 'of ' + p.max + ' connections in use';
+      $('pool-shared').textContent = p.shared
+        ? '· shared ' + ago(p.sharedAt) + ' ago' + (p.sharedPremium === false ? ' · premium locked on this account' : p.sharedIptv ? ' · Live TV available' : '')
+        : '· no account shared yet';
+      $('pool-shared').className = p.shared ? 'ok' : '';
+      const slots = $('slots');
+      slots.replaceChildren();
+      for (let i = 0; i < p.max; i++) {
+        const s = document.createElement('div');
+        s.className = 'slot' + (i < p.used ? ' on' : '');
+        slots.appendChild(s);
+      }
+      const ul = $('leases');
+      ul.replaceChildren();
+      for (const l of p.leases) {
+        const li = document.createElement('li');
+        const a = document.createElement('span');
+        a.textContent = (l.kind === 'tv' ? '📺 ' : '') + (l.label || (l.kind === 'tv' ? 'Live TV' : 'a game'));
+        if (l.device) {
+          const dev = document.createElement('span');
+          dev.className = 'lease-dev';
+          dev.textContent = ' · ' + l.device;
+          a.appendChild(dev);
+        }
+        const b = document.createElement('span');
+        b.textContent = (PLATFORM[l.platform] ? PLATFORM[l.platform][1] : l.platform) + ' · ' + ago(l.since);
+        li.append(a, b);
+        ul.appendChild(li);
+      }
+      $('pool-note').textContent = p.shared
+        ? 'Viewers without their own account borrow one of these connections while a premium stream or Live TV plays; a lease is dropped ' + p.ttlSec + ' s after the player closes. When all ' + p.max + ' are taken, everyone else gets the free servers.'
+        : 'Sign in with your StreamEast account on the home page (Sign in button), come back here and press Share. Everyone using the app then gets its premium servers and Live TV, up to ' + p.max + ' at a time; the rest fall back to free streams.';
+      const actions = $('pool-actions');
+      actions.replaceChildren();
+      const btn = (label, primary, fn) => {
+        const b = document.createElement('button');
+        b.className = 'btn' + (primary ? ' primary' : '');
+        b.textContent = label;
+        b.onclick = fn;
+        actions.appendChild(b);
+        return b;
+      };
+      if (me.signedIn) {
+        btn(p.shared ? 'Re-share my session' : 'Share my account with everyone', true, () => poolAction('share'));
+      } else {
+        const a = document.createElement('a');
+        a.className = 'btn primary';
+        a.href = '/';
+        a.textContent = 'Sign in on the home page first';
+        actions.appendChild(a);
+      }
+      if (p.shared) btn('Stop sharing', false, () => {
+        if (confirm('Stop sharing the premium account? Everyone drops to free servers immediately.')) poolAction('clear');
+      });
+    }
+
+    async function poolAction(what) {
+      $('pool-err').textContent = '';
+      try {
+        const res = await fetch('/api/pool/' + what, { method: 'POST', cache: 'no-store' });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || ('HTTP ' + res.status));
+        poolState = d;
+        renderPool();
+      } catch (e) {
+        $('pool-err').textContent = e.message;
+      }
+    }
+
+    loadMe();
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

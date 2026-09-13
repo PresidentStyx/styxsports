@@ -37,6 +37,24 @@ function Http_postForm(url as string, formBody as string, referer = "" as string
     return Http_request("POST", url, formBody, referer, 0, headers)
 end function
 
+function Http_postJson(url as string, jsonBody as string) as object
+    return Http_request("POST", url, jsonBody, "", 0, { "Content-Type": "application/json" })
+end function
+
+' Where a request ended up after redirects. roUrlTransfer follows them itself and never says
+' where it landed, but the headers it reports include every hop's Location, so the chain can be
+' replayed: each Location is resolved against the URL before it.
+function Http_finalUrl(r as object, requestedUrl as string) as string
+    url = requestedUrl
+    if type(r.headersArray) <> "roArray" then return url
+    for each h in r.headersArray
+        for each k in h
+            if LCase(k) = "location" and isStr(h[k]) and h[k] <> "" then url = absoluteUrl(h[k], url)
+        end for
+    end for
+    return url
+end function
+
 ' Follows the redirect chain and returns the HTML's canonical/og:url origin when the page names
 ' one, else the requested URL's origin. (roUrlTransfer does not expose the final URL.)
 function Http_landingOrigin(url as string) as string
@@ -53,7 +71,7 @@ end function
 ' ---------------------------------------------------------------------------------------------
 
 function Http_request(method as string, url as string, body as string, referer as string, timeoutMs as integer, extraHeaders as object) as object
-    result = { ok: false, code: 0, body: "", headers: {}, error: "" }
+    result = { ok: false, code: 0, body: "", headers: {}, headersArray: [], error: "" }
     if timeoutMs <= 0 then timeoutMs = Http_defaultTimeoutMs()
 
     xfer = CreateObject("roUrlTransfer")
@@ -102,6 +120,7 @@ function Http_request(method as string, url as string, body as string, referer a
     result.code = msg.GetResponseCode()
     result.body = msg.GetString()
     result.headers = msg.GetResponseHeaders()
+    result.headersArray = msg.GetResponseHeadersArray()
     if result.code >= 200 and result.code < 300
         result.ok = true
     else if result.code > 0

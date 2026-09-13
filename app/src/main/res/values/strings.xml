@@ -128,8 +128,17 @@
     <string name="ltv_group_gone">that channel group is no longer in the playlist</string>
     <string name="np_channel_of">Channel %1$d of %2$d  ·  %3$s</string>
     <string name="np_channel_failed">%1$s is not playing right now.\nTry again, or press Left/Right for another channel.</string>
+    <string name="np_channel_warming">%1$s is still starting up on the server (no video yet).\nTry again in a moment, or press Left/Right for another channel.</string>
     <string name="np_sign_in">Sign in for premium</string>
     <string name="np_premium_only_signed_out">This stream is for the site’s premium members only.\nSign in to your premium account to watch it, or pick another game.</string>
+
+    <!-- Shared premium account: 5-connection pool (Pool.java) -->
+    <string name="pool_full_note">Premium is full (%1$d/%2$d). Using a free server.</string>
+    <string name="pool_unreachable_note">Couldn’t reach the premium pool. Using a free server.</string>
+    <string name="pool_full_only">All %2$d shared premium connections are in use right now (%1$d/%2$d).\nFree servers aren’t listed for this game — try again in a minute.</string>
+    <string name="pool_full_free_failed">None of the free servers are playing right now, and all %1$d shared premium connections are in use.\nTry again in a minute.</string>
+    <string name="ltv_pool_full">All %2$d shared premium connections are in use right now (%1$d/%2$d).\nLive TV counts toward the same %2$d as games — try again in a minute.</string>
+    <string name="ltv_pool_unreachable">Couldn’t reach the premium pool (%1$s).\nLive TV needs one of the shared account’s connections.</string>
 
     <string name="update_allow_source_manual">Enable “Install unknown apps” for Styx Sports in Settings, then relaunch.</string>
 </resources>

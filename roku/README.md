@@ -20,6 +20,10 @@ directly from the Roku, plays HLS in Roku's own player, and shares `config.json`
    code, zips it to `out/StyxSports.zip`, removes the previous sideload and installs the new one.
    Rerun it to update; there is no self-update on Roku. Only one sideloaded channel can exist per
    device. `-BuildOnly` just produces the zip (upload it by hand at `http://<RokuIp>/`).
+   Every build is also copied to `../web/public/StyxSports.zip`; after `npx wrangler deploy` in
+   `web/` it is served at `sports.styxam.com/roku`, so a viewer installs **from a phone**: download
+   the zip there, open `http://<RokuIp>/` in the phone's browser (user `rokudev`), Upload, Install.
+   `sports.styxam.com/install#roku` has the step-by-step for them.
 3. Debug console (prints, crashes): `telnet <RokuIp> 8085`.
 
 ## Layout
@@ -36,7 +40,11 @@ source/lib/
   Site.brs               full schedule fetch (listing, AJAX batches, per-sport pages, status),
                          domain discovery via the gateway, snapshot cache in cachefs:/
   Resolver.brs           stream page -> server tabs -> embed chain -> HLS URL (plain / atob /
-                         reversed base64 for the premium inline player)
+                         reversed base64 for the premium inline player); Resolver_checkPlaylist
+                         fetches it once from the device (final URL after the CDN's 302,
+                         warming.ts detection)
+  Pool.brs               the shared premium account's 5-slot lease pool (acquire / heartbeat /
+                         release against sports.styxam.com/api/pool)
   Account.brs            TV sign-in flow (code, poll, login), status check, sign out, IPTV link discovery
   Iptv.brs               M3U (output=hls) download + parse; per-group JSON files in cachefs:/; recents
   Store.brs              favorites, Continue watching, remembered chip (registry)
@@ -68,6 +76,14 @@ Hisense Roku TVs return a black image from Roku's screenshot utility, and refuse
 
 # remote keys (down/up/left/right/ok/back/options/play) routed through the same code as real keys
 curl -X POST "http://<RokuIp>:8060/input?cmd=key&key=down"
+
+# play one URL in the channel player / fetch one URL with roUrlTransfer and print status, headers
+# (every redirect hop's Location included) and the body head to the debug console
+curl -X POST "http://<RokuIp>:8060/input?cmd=play&url=<url-encoded>"
+curl -X POST "http://<RokuIp>:8060/input?cmd=probe&url=<url-encoded>"
+
+# take / drop a pool lease by hand (shows up on sports.styxam.com/stats)
+curl -X POST "http://<RokuIp>:8060/input?cmd=lease&on=1"
 ```
 
 `layout-shot.ps1` uses the RowList/MarkupGrid geometry to place their items, because Roku reports
@@ -94,7 +110,26 @@ item rectangles in an internal coordinate space.
   (`Video.state = playing`); HUD shows period, score, server counter.
 - Premium Only chip shows the premium-flagged cards; the account screen issues a device code and
   QR and polls for approval.
-- Still to try with a signed-in account: premium server playback and the Live TV screen.
+- The premium CDN plays: a Live TV channel URL (`tv.steast.io/...m3u8`, which 302s to
+  `edge-N.iptv4.net/auth/<token>` and lists root-relative `/hls/<token>` segments) reaches
+  `Video.state = playing` both when the Video node is handed the original URL and when it is
+  handed the final one; the channel player now checks the playlist from the device first
+  (`checkPlaylist` op) and plays from the final URL, and a `warming.ts`-only playlist is shown as
+  "still starting up" instead of being looped.
+- Pool leases: `cmd=lease&on=1` appears on `/stats` as a Roku slot and heartbeats every 20 s;
+  PlayerScreen takes one before resolving a premium tab and LiveTvScreen before opening.
+- **Premium without a sign-in on the Roku, through the shared account** (`Pool.brs`): the
+  presence ping reads `/api/pool/info` into the registry; when an account is shared the home
+  screen stops hiding premium cards and shows the Live TV chip. Opening NFL Redzone took a lease
+  (`/acquire -> granted=true 3/5`, visible on `/stats` as `roku game 'NFL Redzone'`), resolved
+  the premium tab "Redzone 1" through `/api/stream?…&slot=` (`state=live cdn=gostreameast.to
+  direct=1`) and played it (`VODStartComplete 3.5 s`). Live TV loaded the shared account's list
+  through `/api/iptv?slot=` (11,378 channels in 204 groups) and a `tv.steast.io` channel reached
+  `Video.state = playing` in 3 s. Leaving the player released the slot. A signed-in Roku whose
+  own session gets no player for a premium tab falls back to the same Worker resolve
+  (`resolveServer` with `viaPool`).
+- Not playable natively anywhere: the site's generic "Server N" premium tabs, which are
+  `embed.st` JavaScript players (see the root README); the sweep moves past them.
 
 Things learned the hard way, in case they bite again:
 

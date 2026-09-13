@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Premium account: the site's TV sign-in (short code + QR), or the signed-in summary with Sign out. -->
+<!--
+  Premium account, laid out like AccountActivity (1 dp = 2 px): a row padded 72x40 dp, centred
+  vertically; left column = wordmark, title, lead, steps, status, buttons; right = the 340 dp code
+  card (label, big gold code, countdown, QR on white, scan hint). Signed in, the card is hidden.
+-->
 <component name="AccountScreen" extends="Group">
   <interface>
     <field id="navigate" type="assocarray" alwaysNotify="true" />
@@ -21,32 +25,31 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
     <Rectangle width="1920" height="1080" color="0x0A0A0AFF" />
-    <Poster translation="[72,34]" height="52" width="0" uri="pkg:/images/wordmark.png" loadDisplayMode="scaleToFit" />
-    <Label id="title" translation="[72,130]" width="1200" height="70" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" text="Premium account" />
-    <Label id="lead" translation="[72,210]" width="1200" height="130" font="font:MediumSystemFont" color="0xC8C8C8FF" wrap="true" lineSpacing="4" />
 
-    <!-- signed-out: steps + code -->
-    <Group id="signIn">
-      <Label id="steps" translation="[72,350]" width="1040" height="200" font="font:MediumSystemFont" color="0xF2F2F2FF" wrap="true" lineSpacing="10" />
-      <Label translation="[72,580]" width="400" height="34" font="font:SmallSystemFont" color="0x9A9A9AFF" text="Your code" />
-      <Rectangle translation="[72,620]" width="520" height="150" color="0x161616FF" />
-      <Label id="code" translation="[72,620]" width="520" height="150" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" text="--- ---" />
-      <Label id="countdown" translation="[620,680]" width="500" height="40" font="font:SmallSystemFont" color="0x9A9A9AFF" vertAlign="center" />
-      <Label id="statusText" translation="[72,800]" width="1040" height="80" font="font:MediumSystemFont" color="0xF5C518FF" wrap="true" />
-
-      <Rectangle translation="[1340,350]" width="440" height="440" color="0xFFFFFFFF" />
-      <Poster id="qr" translation="[1360,370]" width="400" height="400" loadDisplayMode="scaleToFit" />
-      <Label translation="[1280,800]" width="560" height="40" font="font:SmallSystemFont" color="0x9A9A9AFF" horizAlign="center" text="Scan with your phone camera" />
+    <!-- left column: x 144, width fills up to the card -->
+    <Group id="left" translation="[144,0]">
+      <Poster id="wordmark" width="392" height="60" uri="pkg:/images/wordmark.png" />
+      <Label id="title" text="Premium account" />
+      <Label id="lead" wrap="true" lineSpacing="5" />
+      <Label id="steps" wrap="true" lineSpacing="15" />
+      <Label id="statusText" wrap="true" />
+      <Group id="buttons" />
     </Group>
 
-    <!-- signed-in -->
-    <Group id="signedIn" visible="false">
-      <Label id="premiumText" translation="[72,350]" width="1040" height="120" font="font:MediumSystemFont" color="0xF2F2F2FF" wrap="true" />
-      <Label id="iptvText" translation="[72,470]" width="1040" height="80" font="font:MediumSystemFont" color="0x9A9A9AFF" wrap="true" />
+    <!-- code card: 340 dp wide, right-aligned to the 72 dp padding -->
+    <Group id="card" translation="[1096,0]">
+      <Poster id="cardBg" uri="pkg:/images/ui/panel.9.png" width="680" />
+      <Label id="codeLabel" text="YOUR CODE" width="560" horizAlign="center" />
+      <Label id="code" width="560" horizAlign="center" text="--- ---" />
+      <Label id="countdown" width="560" horizAlign="center" />
+      <Rectangle id="qrFrame" width="400" height="400" color="0xFFFFFFFF" />
+      <Poster id="qr" width="368" height="368" loadDisplayMode="scaleToFit" />
+      <Label id="scan" width="560" horizAlign="center" text="Scan with your phone camera" />
     </Group>
 
-    <Group id="buttons" translation="[72,930]" />
     <Timer id="pollTimer" duration="3" />
     <Timer id="tickTimer" repeat="true" duration="1" />
+    <Timer id="layoutTimer" repeat="false" duration="0.05" />
+    <Timer id="closeTimer" repeat="false" duration="1.6" />
   </children>
 </component>

@@ -10,6 +10,7 @@
     <field id="live" type="boolean" />
     <field id="ended" type="boolean" />
     <field id="hot" type="boolean" />
+    <field id="rank" type="integer" />
     <field id="pro" type="boolean" />
     <field id="league" type="string" />
     <field id="ch" type="string" />

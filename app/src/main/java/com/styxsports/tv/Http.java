@@ -103,6 +103,58 @@ final class Http {
         }
     }
 
+    /** A GET's status, final URL after redirects and (head of) body; no exception for 4xx/5xx. */
+    static final class Fetched {
+        final int code;
+        /** Where the response actually came from once every redirect was followed. */
+        final String finalUrl;
+        final String body;
+
+        Fetched(int code, String finalUrl, String body) {
+            this.code = code;
+            this.finalUrl = finalUrl;
+            this.body = body;
+        }
+    }
+
+    /** GET with redirects followed on this device; reads at most {@code maxBytes} of the body. */
+    static Fetched fetch(String url, String referer, int readTimeoutMs, long maxBytes) throws IOException {
+        HttpURLConnection c = open(url);
+        try {
+            c.setReadTimeout(readTimeoutMs);
+            if (referer != null) c.setRequestProperty("Referer", referer);
+            int code = c.getResponseCode();
+            InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            if (in != null) {
+                byte[] b = new byte[16 * 1024];
+                int n;
+                while (buf.size() < maxBytes && (n = in.read(b)) != -1) buf.write(b, 0, n);
+            }
+            return new Fetched(code, c.getURL().toString(), new String(buf.toByteArray(), StandardCharsets.UTF_8));
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    static String postJson(String url, String jsonBody) throws IOException {
+        HttpURLConnection c = open(url);
+        try {
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            byte[] body = jsonBody.getBytes(StandardCharsets.UTF_8);
+            c.setFixedLengthStreamingMode(body.length);
+            try (OutputStream out = c.getOutputStream()) {
+                out.write(body);
+            }
+            check(c);
+            return readText(c);
+        } finally {
+            c.disconnect();
+        }
+    }
+
     static String postForm(String url, String formBody) throws IOException {
         return postForm(url, formBody, null);
     }

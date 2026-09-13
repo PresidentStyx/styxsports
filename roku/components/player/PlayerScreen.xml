@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Full-screen player. Two modes:
+  Full-screen player, a port of NativePlayerActivity. Two modes:
     - game:    `event` (+ `base`) - resolves the stream page's servers, plays HLS, Left/Right switch server
     - channel: `channelGroup` + `channelIndex` - plays IPTV channels, Left/Right zap within the group
+
+  Chrome (all measurements are Android dp x 2):
+    - hudTop:    gradient scrim, [pill] [title] row, then the score line
+    - hudBottom: gradient scrim, "Server n of m · name" line, then the key hints
+    - status:    centred spinner + message + pill buttons (loading, errors, premium gate)
 -->
 <component name="PlayerScreen" extends="Group">
   <interface>
@@ -15,6 +20,8 @@
     <field id="base" type="string" />
     <field id="channelGroup" type="assocarray" />
     <field id="channelIndex" type="integer" value="-1" />
+    <!-- true once this screen took the shared premium pool slot; the scene releases it on pop -->
+    <field id="holdsLease" type="boolean" value="false" />
   </interface>
   <script type="text/brightscript" uri="PlayerScreen.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
@@ -26,38 +33,45 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Pool.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
     <Rectangle id="black" width="1920" height="1080" color="0x000000FF" />
     <Video id="video" width="1920" height="1080" enableUI="false" enableTrickPlay="false" />
 
-    <!-- HUD (bottom) -->
+    <!-- HUD: both halves fade together -->
     <Group id="hud">
-      <Rectangle translation="[0,840]" width="1920" height="240" color="0x000000A0" />
-      <Rectangle id="hudPillBg" translation="[72,890]" width="90" height="40" color="0xE53935FF" />
-      <Label id="hudPill" translation="[72,890]" width="90" height="40" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" horizAlign="center" vertAlign="center" />
-      <Label id="hudTitle" translation="[72,940]" width="1400" height="60" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" />
-      <Label id="hudScore" translation="[1500,890]" width="348" height="110" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" horizAlign="right" vertAlign="center" />
-      <Label id="hudServer" translation="[72,1004]" width="1000" height="34" font="font:SmallSystemFont" color="0x9A9A9AFF" vertAlign="center" />
-      <Label id="hudHint" translation="[900,1004]" width="948" height="34" font="font:SmallestSystemFont" color="0x9A9A9AFF" horizAlign="right" vertAlign="center" />
+      <Group id="hudTop">
+        <Poster id="topScrim" uri="pkg:/images/ui/scrim_top.png" loadDisplayMode="scaleToFill" width="1920" height="200" />
+        <Poster id="hudPillBg" uri="pkg:/images/ui/pill_live.9.png" />
+        <Label id="hudPill" horizAlign="center" vertAlign="center" />
+        <Label id="hudTitle" vertAlign="center" />
+        <Label id="hudScore" />
+      </Group>
+      <Group id="hudBottom">
+        <Poster id="bottomScrim" uri="pkg:/images/ui/scrim_bottom.png" loadDisplayMode="scaleToFill" width="1920" height="220" />
+        <Label id="hudServer" />
+        <Group id="hudHint">
+          <Poster id="hintLeft" uri="pkg:/images/ui/tri_l.png" />
+          <Poster id="hintRight" uri="pkg:/images/ui/tri_r.png" />
+          <Label id="hudHintText" />
+        </Group>
+      </Group>
+      <Animation id="hudAnim" duration="0.18" easeFunction="linear">
+        <FloatFieldInterpolator id="hudInterp" key="[0, 1]" fieldToInterp="hud.opacity" />
+      </Animation>
     </Group>
 
-    <!-- loading -->
-    <Group id="loading">
-      <Label id="loadingText" translation="[0,500]" width="1920" height="80" font="font:MediumSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" />
+    <!-- centre status: spinner + message + buttons -->
+    <Group id="status" visible="false">
+      <BusySpinner id="spinner" spinInterval="1.2" />
+      <Label id="statusText" horizAlign="center" wrap="true" />
+      <Group id="statusButtons" />
     </Group>
 
-    <!-- status panel -->
-    <Group id="panel" visible="false">
-      <Rectangle width="1920" height="1080" color="0x000000C0" />
-      <Rectangle translation="[460,300]" width="1000" height="480" color="0x161616FF" />
-      <Label id="panelTitle" translation="[500,330]" width="920" height="60" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" />
-      <Label id="panelText" translation="[500,400]" width="920" height="220" font="font:MediumSystemFont" color="0xC8C8C8FF" wrap="true" lineSpacing="6" />
-      <Group id="panelButtons" translation="[500,680]" />
-    </Group>
-
-    <Timer id="hudTimer" duration="4" />
+    <Timer id="hudTimer" duration="3.5" />
     <Timer id="retryTimer" duration="1.5" />
     <Timer id="scoreTimer" repeat="true" duration="30" />
+    <Timer id="layoutTimer" duration="0.05" />
   </children>
 </component>

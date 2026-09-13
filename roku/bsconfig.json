@@ -4,7 +4,8 @@
     "manifest",
     "source/**/*",
     "components/**/*",
-    "images/**/*"
+    "images/**/*",
+    "fonts/**/*"
   ],
   "stagingDir": "out/stage",
   "outFile": "out/StyxSports.zip",

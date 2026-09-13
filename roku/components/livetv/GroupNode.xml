@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MarkupList content for one channel group: its name, channel count, and whether it is the
+     group whose channels are showing (LiveTvActivity.GroupAdapter "active"). -->
+<component name="GroupNode" extends="ContentNode">
+  <interface>
+    <field id="name" type="string" />
+    <field id="count" type="integer" />
+    <field id="active" type="boolean" />
+  </interface>
+</component>

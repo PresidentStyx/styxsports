@@ -31,6 +31,11 @@ if ($LASTEXITCODE -ne 0) { throw "bsc reported errors; not deploying." }
 $zip = Join-Path $PSScriptRoot 'out\StyxSports.zip'
 if (-not (Test-Path $zip)) { throw "Package not found at $zip" }
 Write-Host ("Built {0} ({1:N0} KB)" -f $zip, ((Get-Item $zip).Length / 1KB))
+# The web serves this zip at sports.styxam.com/roku so a viewer can install from a phone
+# (see web/public/install.html). Deploy the Worker after building to publish the new one.
+$webCopy = Join-Path $PSScriptRoot '..\web\public\StyxSports.zip'
+Copy-Item $zip $webCopy -Force
+Write-Host "Copied to web/public/StyxSports.zip (run 'npx wrangler deploy' in web/ to publish it)"
 if ($BuildOnly) { exit 0 }
 
 if (-not $RokuIp) { $RokuIp = Read-Host "Roku IP address" }

@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MarkupGrid item: channel logo above its name. 380 x 220. -->
+<!--
+  MarkupGrid item: one channel, laid out like LiveTvActivity.ChannelAdapter (1 dp = 2 px): a
+  259x224 px card (surface, 1 dp outline, 12 dp corners) padded 12/12/12/10 dp with the logo
+  (full width, 44 dp tall, fit-centred) over the name (13 sp, centred, up to two lines). The
+  grid's white 3 dp focus ring is drawn on top while the grid has focus.
+-->
 <component name="ChannelCell" extends="Group">
   <interface>
     <field id="itemContent" type="node" onChange="onContent" />
@@ -19,10 +24,10 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
-    <Rectangle id="ring" translation="[-4,-4]" width="388" height="228" color="0x00000000" />
-    <Rectangle id="bg" width="380" height="220" color="0x161616FF" />
-    <Poster id="logo" translation="[110,22]" width="160" height="110" loadDisplayMode="scaleToFit" />
-    <Label id="initials" translation="[110,22]" width="160" height="110" font="font:LargeBoldSystemFont" color="0x5A5A5AFF" horizAlign="center" vertAlign="center" />
-    <Label id="name" translation="[16,140]" width="348" height="70" font="font:SmallBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" wrap="true" maxLines="2" />
+    <Poster id="bg" uri="pkg:/images/ui/card.9.png" width="259" height="224" />
+    <Poster id="logo" translation="[24,24]" width="211" height="88" loadDisplayMode="scaleToFit" />
+    <Poster id="placeholder" uri="pkg:/images/ui/crest_placeholder.png" translation="[91,30]" width="76" height="76" visible="false" />
+    <Label id="name" translation="[24,128]" width="211" horizAlign="center" vertAlign="center" wrap="true" maxLines="2" />
+    <Poster id="ring" uri="pkg:/images/ui/ring.9.png" width="259" height="224" visible="false" />
   </children>
 </component>

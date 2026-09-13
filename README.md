@@ -74,7 +74,8 @@ built from the site's schedule and a native full-screen player.
 1. On the TV, enable installs from unknown sources for **Downloader**
    (Fire TV: Settings → My Fire TV → Developer Options → Install unknown apps;
    Google TV: Settings → Apps → Security & restrictions → Unknown sources).
-2. In Downloader, enter `sports.styxam.com/apk` (short for
+2. In Downloader, enter code **4602383**. If the code fails, enter
+   `sports.styxam.com/apk` (short for
    `https://github.com/PresidentStyx/styxsports/releases/latest/download/StyxSports.apk`).
 3. Choose **Install**.
 
@@ -94,19 +95,144 @@ Cloudflare Worker from [`web/`](web/):
   browser cannot send itself. Playlist URIs are rewritten to signed `/hls/…`
   paths so the Worker cannot be used as a general proxy. The site's pages sit
   behind an SSO cookie handshake, so redirects are followed by hand with a
-  cookie jar. Team crests are proxied too (`/img`). `/apk` redirects to the
-  latest release.
+  cookie jar (anonymous reads share one per isolate; a signed-in viewer's own
+  jar rides along in their account cookie). Team crests are proxied too
+  (`/img`). `/apk` redirects to the
+  latest release; `/install` is the install guide for the Android TV / Fire TV
+  and Roku apps (the **Get the TV app** button). Both stay outside the password.
 - `web/public/` is the front end (no build step): the home screen with sport
   chips, Continue watching, Your teams (right-click / long-press a card to
-  star), Live now and per-sport rows; live clocks and scores refresh every
-  30 s. Arrow keys move between cards like a D-pad, Enter plays, Esc closes.
+  star), Live now and per-sport rows; premium-only games sit under a
+  **★ Premium Only** chip like in the app. The last schedule is kept in
+  `localStorage` and painted before the first fetch answers. Live clocks and
+  scores refresh every 30 s. Arrow keys move between cards like a D-pad, Enter
+  plays, Esc closes, R refreshes. A web manifest lets phones and TV browsers
+  add it to the home screen as a full-screen app. Under 600 px wide (a phone
+  held upright) the sideways strips become two-column grids on one scrolling
+  page, the top bar is one line with the sport chips under it, the player's
+  server list scrolls sideways, a first tap on the hidden player HUD only
+  brings it back (it does not pause), and Live TV puts the groups in a strip
+  across the top over a three-column channel grid (`@media (max-width: 600px)`
+  in `app.css`).
+- **Premium account** (`web/src/account.js`, the twin of `Account.java`): the
+  **Sign in** button runs the site's TV flow — the Worker asks the account
+  service for a code, the viewer enters it at `auth.streamea.st/activate`
+  (link, or QR for TV browsers), and `/api/account/poll` swaps the approved code
+  for a session. Each viewer's site cookies live in their own AES-GCM-encrypted,
+  HttpOnly `styx_acct` cookie (key derived from `HLS_SECRET`); nothing is
+  stored server-side and nothing is shared between viewers. Signed in,
+  `/api/stream` reads the stream page with that viewer's cookies, so the premium
+  servers come back as real players; the player tries them first (★ chips) and
+  falls back to the free ones, and learns from the first premium tab whether the
+  account really has premium (a `gate` state flips it to free-only).
+- **Live TV** (`/api/iptv`): a premium account's M3U Plus playlist, read off the
+  account page's IPTV tab, downloaded with `output=hls` (browsers play HLS
+  only), parsed into groups (sports first) and kept at the edge for 6 h under a
+  key derived from the playlist URL. The **📺 Live TV** chip opens a group /
+  channel screen with search and a Recently watched group; channels play
+  through the same `/hls/` proxy (the panel sends no CORS headers), signed per
+  channel by `/api/iptv/token`, which only accepts URLs from that viewer's own
+  playlist. ◀ ▶ in the player switch channels.
+- **Premium and Live TV play direct, not through the proxy.** The premium CDN
+  (`tv.steast.io` → `edge-N.iptv4.net/auth/…`) binds its segment tokens to the
+  IP that passed the `/auth/` hop, and every Worker subrequest leaves Cloudflare
+  from a different IP, so through `/hls/` the playlist loads and every segment
+  404s. All hops send `Access-Control-Allow-Origin: *`, so `/api/stream` and
+  `/api/iptv/token` also return the raw URL as `direct` when CORS allows it, and
+  the player tries that first (one fixed IP: the viewer's), falling back to the
+  proxied path if the direct attempt dies before the first frame. A playlist
+  whose only segment is `warming.ts` (the CDN spinning a channel up) is reported
+  as `warming` and not playable, so the player moves on instead of looping it.
+- **Shared premium account** (`web/src/pool.js`, the `Pool` Durable Object): the
+  site sells premium per account with a hard cap of 5 simultaneous connections
+  (Live TV tabs and IPTV apps count together). One account can be lent to every
+  viewer: sign in with it on the home page, then press **Share** on `/stats`;
+  the Worker copies that session into the Durable Object (the cookies never
+  reach a browser). A viewer without their own account takes a *lease* on one
+  of the 5 slots before a premium server or Live TV is resolved
+  (`/api/pool/acquire`), renews it every 20 s while the player is open
+  (`/api/pool/heartbeat`) and drops it on close or `pagehide`
+  (`/api/pool/release`; a missed lease expires after 45 s). Premium resolves
+  and `/api/iptv` only borrow the shared cookies when the request carries a
+  live lease id (`slot=`); when all slots are taken the player uses the free
+  servers and says so. `/stats` shows the slots in use, who holds them, and
+  has **Stop sharing**. `POOL_SLOTS` overrides the cap. Viewers signed in with
+  their own account take a lease too (the shared account usually *is* that
+  account, so its connection counts against the same 5 and shows on `/stats`),
+  but a full pool never keeps them off premium. `/api/pool/acquire`,
+  `/heartbeat`, `/release` and `/api/pool/info` (`{ shared, sharedIptv,
+  sharedPremium, used, max }`, no cookies) are outside the password gate like
+  `/api/ping`, so the Android and Roku apps can join the same pool.
+- **Who is watching** (`web/src/presence.js`, the `Presence` Durable Object):
+  every client posts `{ id, platform, device? }` to `/api/ping` once a minute
+  and drops off after 3 minutes of silence. `device` is what the device calls
+  itself: the APK sends the Android device name plus make and model ("DM TV ·
+  Google Chromecast"), the Roku its friendly name plus model ("Living Room ·
+  Roku Express 4K+"), and browsers are described by the Worker from the
+  User-Agent ("iPhone · Safari", "Windows PC · Chrome"; an iPad tells the
+  page itself because Safari there claims to be a Mac). `/stats` lists the
+  devices with their platform, last ping, and — since the ping id is also the
+  pool lease id — what premium stream each one holds; the ids themselves
+  never leave the Worker.
+- **Devices without their own sign-in use the shared account through the
+  Worker.** A live lease id is also accepted in place of the site password on
+  `/api/stream`, `/api/iptv` and `/api/iptv/token` (`slot=`), and `/hls/` paths
+  are open because they are HMAC-signed by the Worker. So a Roku (or APK) that
+  is not signed in learns from `/api/pool/info` that an account is shared,
+  takes a lease, asks `/api/stream?server=…&premium=1&slot=<lease>` for a
+  premium tab and gets back the playlist URL (`direct` when the CDN allows
+  cross-origin play, which the premium CDNs do; the signed proxy path
+  otherwise) - never the cookies - then plays it from its own IP, which is what
+  the IP-bound premium CDN needs anyway. Live TV works the same way from
+  `/api/iptv?slot=`. The Roku shows the Live TV chip and stops hiding premium
+  cards as soon as the ping learns an account is shared. A signed-in device
+  whose own session gets no player for a premium tab (see below) also falls
+  back to this.
+- **Two kinds of premium tab.** The site's *named* premium tabs ("Redzone 1",
+  "Raiders", "FOX") carry an inline Clappr player with the playlist as a
+  reversed-base64 literal, which every client resolves. Its generic *"Server N"*
+  premium tabs are `embed.st/embed-seast/...` iframes: a 462-byte page whose
+  obfuscated `bundle-seast.js` picks the source through its own protobuf API,
+  so no native client can read them (the web falls back to the iframe). The
+  Android player therefore tries named premium tabs before generic ones and
+  sweeps failures in list order rather than around the circle, so a remembered
+  tab near the end no longer skips the good ones before it.
+- **How the apps play the premium CDN** (`StreamResolver.checkPlaylist`,
+  `Resolver_checkPlaylist`): on Android and Roku the playlist is fetched once
+  from the device itself - never through a proxy - following the 302 to
+  `edge-N.iptv4.net/auth/<token>`, and the *final* URL is what the player gets,
+  so the root-relative `/hls/<token>` segments resolve against the edge that
+  authorised them. Measured against the CDN: the `/auth/` URL keeps answering
+  for 40 s+ and its segment tokens stay valid for 25 s+ from the same IP; a
+  channel with no viewer is (re)started by the first request and repeats the
+  same six-segment playlist for 30-40 s (or serves only `warming.ts`) before the
+  sequence jumps to live. So `warming.ts` is reported as `warming` and the
+  server skipped; ExoPlayer is given 6 target durations (not 3) before it
+  calls a live playlist stuck, one `BEHIND_LIVE_WINDOW` error rejoins the live
+  edge in place before the server counts as failed, and a premium tab gets 35 s
+  (not 20) to show its first frame. Once playing, a stall is a stall for every
+  server (15 s, then re-resolve / next server): a first attempt at giving
+  premium tabs 45 s and no race made the APK "buffer way more" than before.
+  The 6 s race is kept for premium tabs but only against a *free* server (a
+  second premium tab would cost the account a connection and start another
+  channel warming). Roku's `roUrlTransfer` reports every hop's
+  `Location` in `GetResponseHeadersArray()`, which is how `Http_finalUrl` learns
+  where a redirect ended.
   The player uses hls.js with the same server switching (← →, or the server
   chips), automatic fallback and a 6 s "race" to the next server when the first
   one is slow.
-- Some CDNs refuse requests from Cloudflare's network (they answer 403 even with
-  a valid token, and their tokens are bound to the IP that fetched the player
-  page, so the Worker cannot mint one for the viewer either). The Worker checks
-  each playlist once when resolving a server and flags it `playable: false`.
+- The resolver follows the same embed chains as the app, plus two shapes the
+  embed hosts use: a player page whose `<iframe>` starts as `about:blank` and
+  gets its real URL from `api/player.php?id=N` (`playerApiPath`,
+  `playerChannelId`, `playerApiFallback`), and a loader that ships the player
+  setup as an XOR/offset char-code array (`charcodeLoader`). Hops that answer
+  403/429/5xx are retried; every Worker subrequest leaves Cloudflare from a
+  different IPv4 address, so a retry is also a fresh IP.
+- That rotating egress IP is also the one thing the Worker cannot work around:
+  a CDN that binds its playlist token to the exact IP that loaded the player
+  page rejects the Worker's next request from a different one. The Worker
+  checks each playlist once when resolving a server and flags such servers
+  `playable: false`.
   Those servers are marked `▣` in the player and play through the site's own
   embed in a sandboxed `<iframe>` instead — that runs from the viewer's IP, so
   it works, but it carries the site's ads and can't be controlled by our HUD
@@ -155,6 +281,15 @@ tools) and pushes it to the Roku, replacing the previous sideload. There is no
 self-update: rerun the script to update. Only one sideloaded channel fits per
 device. Debug output: `telnet <RokuIp> 8085`. See [`roku/README.md`](roku/README.md)
 for the layout of the code and what still needs a real device to verify.
+
+Viewers do not need a PC: `deploy.ps1` also copies each build to
+`web/public/StyxSports.zip`, which the site serves at
+[`sports.styxam.com/roku`](https://sports.styxam.com/roku) (outside the
+password gate, like `/apk`). The Roku part of `/install` walks a phone through
+it: remote combo → note the Roku's `http://192.168.x.x` → download the zip on
+the phone → open that address in the phone's browser (`rokudev` + the password
+they chose) → Upload → Install. Redeploy the Worker after building a new
+channel so the zip on the site is current.
 
 ## Making changes
 

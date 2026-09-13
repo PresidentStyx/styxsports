@@ -3,13 +3,15 @@
 import { buildRules } from './rules.js';
 import {
   parseListing, parseCards, parseShowMore, mergeStatus, parseServers, playerState,
-  mainEmbed, firstEmbed, findHls, originOf, hostOf,
+  mainEmbed, firstEmbed, findHls, playerApiHint, originOf, hostOf,
 } from './parser.js';
 
 const CONFIG_URL = 'https://raw.githubusercontent.com/PresidentStyx/styxsports/master/config.json';
 const DEFAULT_CONFIG = {
   homeUrl: 'https://v5.gostreameast.link/',
   dataBaseUrl: 'https://v2.streameast.ga',
+  // The site's account service: TV sign-in codes, account status, sign-out (Account.java).
+  authBaseUrl: 'https://auth.streamea.st',
   allowedHostFragments: ['streameast', 'streamea.st'],
   parser: {},
 };
@@ -41,57 +43,90 @@ function baseHeaders(referer) {
   return h;
 }
 
-// Cookie jar, per isolate. The site fronts its pages with an SSO handshake
+// Cookie jar. The site fronts its pages with an SSO handshake
 // (/ -> auth.streamea.st/SsoHandoff.php -> /connect.php -> /) that only completes when the
 // cookies set along the way are sent back; fetch(redirect: 'follow') drops them, and the
 // resulting redirect loop trips the site's rate limiter. So redirects are followed by hand.
-const jar = new Map(); // host -> Map(name -> value)
+// Anonymous reads share one jar per isolate; a signed-in viewer carries their own (account.js).
 const MAX_REDIRECTS = 8;
 
-function cookieHeader(host) {
-  const parts = [];
-  const h = host.toLowerCase();
-  for (const [domain, cookies] of jar) {
-    if (h === domain || h.endsWith('.' + domain)) {
-      for (const [k, v] of cookies) parts.push(`${k}=${v}`);
+export class Jar {
+  /** @param {Record<string, Record<string, string>>} [entries] domain -> { name: value } */
+  constructor(entries) {
+    this.map = new Map(); // domain -> Map(name -> value)
+    this.dirty = false;
+    if (entries) {
+      for (const [domain, cookies] of Object.entries(entries)) this.map.set(domain, new Map(Object.entries(cookies)));
     }
   }
-  return parts.join('; ');
+
+  header(host) {
+    const parts = [];
+    const h = host.toLowerCase();
+    for (const [domain, cookies] of this.map) {
+      if (h === domain || h.endsWith('.' + domain)) {
+        for (const [k, v] of cookies) parts.push(`${k}=${v}`);
+      }
+    }
+    return parts.join('; ');
+  }
+
+  store(host, res) {
+    const list = typeof res.headers.getSetCookie === 'function'
+      ? res.headers.getSetCookie()
+      : (res.headers.get('set-cookie') ? [res.headers.get('set-cookie')] : []);
+    for (const raw of list) {
+      const [pair, ...attrs] = raw.split(';');
+      const eq = pair.indexOf('=');
+      if (eq <= 0) continue;
+      const name = pair.slice(0, eq).trim();
+      const value = pair.slice(eq + 1).trim();
+      let domain = host.toLowerCase();
+      let expired = false;
+      for (const a of attrs) {
+        const [k, v = ''] = a.trim().split('=');
+        const key = k.toLowerCase();
+        if (key === 'domain' && v) domain = v.trim().replace(/^\./, '').toLowerCase();
+        if (key === 'max-age' && Number(v) <= 0) expired = true;
+      }
+      if (!this.map.has(domain)) this.map.set(domain, new Map());
+      const cookies = this.map.get(domain);
+      if (expired || value === 'deleted') {
+        if (cookies.delete(name)) this.dirty = true;
+      } else if (cookies.get(name) !== value) {
+        cookies.set(name, value);
+        this.dirty = true;
+      }
+    }
+  }
+
+  /** Plain object for serialisation (empty domains dropped). */
+  toJSON() {
+    const out = {};
+    for (const [domain, cookies] of this.map) {
+      if (cookies.size) out[domain] = Object.fromEntries(cookies);
+    }
+    return out;
+  }
+
+  get size() {
+    let n = 0;
+    for (const cookies of this.map.values()) n += cookies.size;
+    return n;
+  }
 }
 
-function storeCookies(host, res) {
-  const list = typeof res.headers.getSetCookie === 'function'
-    ? res.headers.getSetCookie()
-    : (res.headers.get('set-cookie') ? [res.headers.get('set-cookie')] : []);
-  for (const raw of list) {
-    const [pair, ...attrs] = raw.split(';');
-    const eq = pair.indexOf('=');
-    if (eq <= 0) continue;
-    const name = pair.slice(0, eq).trim();
-    const value = pair.slice(eq + 1).trim();
-    let domain = host.toLowerCase();
-    let expired = false;
-    for (const a of attrs) {
-      const [k, v = ''] = a.trim().split('=');
-      const key = k.toLowerCase();
-      if (key === 'domain' && v) domain = v.trim().replace(/^\./, '').toLowerCase();
-      if (key === 'max-age' && Number(v) <= 0) expired = true;
-    }
-    if (!jar.has(domain)) jar.set(domain, new Map());
-    if (expired || value === 'deleted') jar.get(domain).delete(name);
-    else jar.get(domain).set(name, value);
-  }
-}
+const sharedJar = new Jar();
 
 /** fetch() with cookies and manual redirects; resolves to the final response. */
-export async function request(url, { method = 'GET', body, headers = {}, referer, timeoutMs = PAGE_TIMEOUT_MS } = {}) {
+export async function request(url, { method = 'GET', body, headers = {}, referer, timeoutMs = PAGE_TIMEOUT_MS, jar = sharedJar } = {}) {
   let current = url;
   let m = method;
   let b = body;
   let extra = headers;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const host = hostOf(current);
-    const cookie = cookieHeader(host);
+    const cookie = jar.header(host);
     const res = await fetch(current, {
       method: m,
       body: b,
@@ -100,7 +135,7 @@ export async function request(url, { method = 'GET', body, headers = {}, referer
       signal: AbortSignal.timeout(timeoutMs),
       cf: { cacheTtl: 0 },
     });
-    storeCookies(host, res);
+    jar.store(host, res);
     const location = res.headers.get('location');
     if (res.status >= 300 && res.status < 400 && location) {
       await res.body?.cancel();
@@ -113,13 +148,14 @@ export async function request(url, { method = 'GET', body, headers = {}, referer
   throw new Error(`too many redirects from ${hostOf(url)}`);
 }
 
-export async function getText(url, { referer, timeoutMs = PAGE_TIMEOUT_MS, init = {} } = {}) {
+export async function getText(url, { referer, timeoutMs = PAGE_TIMEOUT_MS, init = {}, jar } = {}) {
   const res = await request(url, {
     method: init.method || 'GET',
     body: init.body,
     headers: init.headers || {},
     referer,
     timeoutMs,
+    jar,
   });
   if (!res.ok) {
     await res.body?.cancel();
@@ -128,8 +164,10 @@ export async function getText(url, { referer, timeoutMs = PAGE_TIMEOUT_MS, init 
   return res.text();
 }
 
-async function postForm(url, body) {
+export async function postForm(url, body, { referer, jar } = {}) {
   return getText(url, {
+    referer,
+    jar,
     init: {
       method: 'POST',
       body,
@@ -154,6 +192,7 @@ export async function loadConfig() {
       const o = await res.json();
       if (typeof o.homeUrl === 'string' && o.homeUrl.startsWith('http')) cfg.homeUrl = o.homeUrl;
       if (typeof o.dataBaseUrl === 'string' && o.dataBaseUrl.startsWith('http')) cfg.dataBaseUrl = o.dataBaseUrl;
+      if (typeof o.authBaseUrl === 'string' && o.authBaseUrl.startsWith('http')) cfg.authBaseUrl = o.authBaseUrl;
       if (Array.isArray(o.allowedHostFragments) && o.allowedHostFragments.length) {
         cfg.allowedHostFragments = o.allowedHostFragments.filter((s) => typeof s === 'string');
       }
@@ -163,6 +202,7 @@ export async function loadConfig() {
     // defaults
   }
   cfg.dataBaseUrl = cfg.dataBaseUrl.replace(/\/+$/, '');
+  cfg.authBaseUrl = cfg.authBaseUrl.replace(/\/+$/, '');
   cfg.rules = buildRules(cfg.parser);
   cfg.isAllowedHost = (host) => {
     const h = (host || '').toLowerCase();
@@ -304,9 +344,12 @@ export async function fetchStatus(cfg) {
 // Streams
 // ---------------------------------------------------------------------------------------------
 
-/** The stream page and its server tabs (fast; no embed hops). */
-export async function streamPage(cfg, streamPageUrl) {
-  const html = await getText(streamPageUrl);
+/**
+ * The stream page and its server tabs (fast; no embed hops). With a signed-in viewer's `jar` the
+ * page comes back with that account's premium servers playable.
+ */
+export async function streamPage(cfg, streamPageUrl, jar) {
+  const html = await getText(streamPageUrl, { jar });
   const servers = parseServers(cfg.rules, html, streamPageUrl);
   let activeIndex = 0;
   servers.forEach((s, i) => { if (s.active) activeIndex = i; });
@@ -315,8 +358,8 @@ export async function streamPage(cfg, streamPageUrl) {
 }
 
 /** Resolves one server to its playlist, reusing the page HTML for the page's active server. */
-export async function resolveServer(cfg, server, page) {
-  const html = page && page.servers[page.activeIndex] === server ? page.html : await getText(server.pageUrl);
+export async function resolveServer(cfg, server, page, jar) {
+  const html = page && page.servers[page.activeIndex] === server ? page.html : await getText(server.pageUrl, { jar });
   return resolveFromHtml(cfg.rules, server, html);
 }
 
@@ -325,6 +368,14 @@ async function resolveFromHtml(r, server, pageHtml) {
   const embedUrl = mainEmbed(r, pageHtml, server.pageUrl);
   const base = { server: server.name, pageUrl: server.pageUrl, state, hlsUrl: null, playerOrigin: null, embed: null, log: [] };
   if (!embedUrl) {
+    // Premium servers have no iframe: the stream page itself carries the player.
+    const onPage = findHls(r, pageHtml);
+    if (onPage) {
+      base.hlsUrl = onPage;
+      base.playerOrigin = originOf(server.pageUrl);
+      base.log.push('hls on the stream page');
+      return base;
+    }
     base.log.push('no embed');
     return base;
   }
@@ -346,7 +397,10 @@ async function resolveFromHtml(r, server, pageHtml) {
       base.log.push(`hls at depth ${depth} on ${hostOf(hop.url)}`);
       return base;
     }
-    const next = firstEmbed(r, inner, hop.url);
+    let next = firstEmbed(r, inner, hop.url);
+    if (!next) {
+      next = await playerViaApi(r, inner, hop.url, base.log);
+    }
     if (!next) {
       base.log.push(`dead end at ${hostOf(hop.url)} (${inner.length} chars)`);
       break;
@@ -356,12 +410,50 @@ async function resolveFromHtml(r, server, pageHtml) {
   return base;
 }
 
-/** Embed hosts are flaky: one dropped connection is not a verdict on the server. */
-async function fetchHop(hop) {
-  try {
-    return await getText(hop.url, { referer: hop.referer, timeoutMs: HOP_TIMEOUT_MS });
-  } catch (e) {
-    if (e && e.name === 'TimeoutError') throw e; // a host this slow will not recover within a retry
-    return getText(hop.url, { referer: hop.referer, timeoutMs: HOP_TIMEOUT_MS });
+/**
+ * Pages whose <iframe> starts as about:blank and get the real player URL from a JSON endpoint
+ * (fetch("api/player.php?id=N") -> {"url": ...}), with a literal fallback URL on the page.
+ */
+async function playerViaApi(r, html, pageUrl, log) {
+  const hint = playerApiHint(r, html);
+  if (!hint) return null;
+  if (hint.id) {
+    try {
+      const apiUrl = new URL(hint.path + hint.id, pageUrl).toString();
+      const data = JSON.parse(await getText(apiUrl, { referer: pageUrl, timeoutMs: HOP_TIMEOUT_MS }));
+      if (data && typeof data.url === 'string' && data.url) {
+        log.push(`player url via api on ${hostOf(pageUrl)}`);
+        return new URL(data.url, pageUrl).toString();
+      }
+    } catch (e) {
+      log.push(`player api on ${hostOf(pageUrl)} failed: ${e.message}`);
+    }
   }
+  if (hint.fallback) {
+    log.push(`player url via fallback literal on ${hostOf(pageUrl)}`);
+    return new URL(hint.fallback, pageUrl).toString();
+  }
+  return null;
+}
+
+/**
+ * Embed hosts are flaky: one dropped connection or a 403 is not a verdict on the server. Every
+ * subrequest leaves Cloudflare from a different IPv4 address, so a retry is also a fresh IP.
+ */
+const HOP_ATTEMPTS = 3;
+const HOP_RETRY_PAUSE_MS = 250;
+
+async function fetchHop(hop) {
+  let last;
+  for (let attempt = 1; attempt <= HOP_ATTEMPTS; attempt++) {
+    try {
+      return await getText(hop.url, { referer: hop.referer, timeoutMs: HOP_TIMEOUT_MS });
+    } catch (e) {
+      last = e;
+      if (e && e.name === 'TimeoutError') throw e; // a host this slow will not recover within a retry
+      if (/^HTTP 4(?!03|29)\d\d/.test(e && e.message || '')) throw e; // 404 etc. will not change
+      if (attempt < HOP_ATTEMPTS) await new Promise((res) => setTimeout(res, HOP_RETRY_PAUSE_MS));
+    }
+  }
+  throw last;
 }

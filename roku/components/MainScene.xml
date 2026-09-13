@@ -19,9 +19,13 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Pool.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
     <Rectangle id="bg" width="1920" height="1080" color="0x0A0A0AFF" />
     <Group id="screens" />
+    <Timer id="presenceTimer" repeat="true" duration="60" />
+    <!-- Shared premium pool lease heartbeat (a lease expires after 45 s without one). -->
+    <Timer id="leaseTimer" repeat="true" duration="20" />
   </children>
 </component>
