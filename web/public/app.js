@@ -72,6 +72,10 @@
 
   async function api(path) {
     const res = await fetch(path, { cache: 'no-store' });
+    if (res.status === 401) { // session expired or cleared: back to the password screen
+      location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+      await new Promise(() => {}); // never resolves; the page is navigating away
+    }
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
       try { msg = (await res.json()).error || msg; } catch { /* plain */ }

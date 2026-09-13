@@ -5,11 +5,13 @@
 //   /api/stream?server=  one server resolved
 //   /hls/<token>         signed HLS proxy (see hls.js)
 //   /apk                 latest Android TV build (GitHub Releases)
+//   /login, /logout      site password (secret SITE_PASSWORD; see auth.js) — everything below needs it
 //   everything else      static front end (public/)
 import { loadConfig, fetchSchedule, fetchStatus, streamPage, resolveServer, currentBase, request } from './site.js';
 import { handleHls, proxyPath } from './hls.js';
 import { hostOf } from './parser.js';
 import { DESKTOP_UA } from './site.js';
+import { gate, handleLogin, handleLogout } from './auth.js';
 
 const APK_URL = 'https://github.com/PresidentStyx/styxsports/releases/latest/download/StyxSports.apk';
 const SCHEDULE_TTL_S = 60;
@@ -30,6 +32,10 @@ export default {
       if (path === '/apk' || path === '/download' || path.toLowerCase() === '/styxsports.apk') {
         return Response.redirect(APK_URL, 302);
       }
+      if (path === '/login') return await handleLogin(request, env);
+      if (path === '/logout') return handleLogout(request);
+      const denied = await gate(request, env, path);
+      if (denied) return denied;
       if (path.startsWith('/hls/')) return await handleHls(request, env, path.slice(5));
       if (path === '/api/schedule') return await cached(request, ctx, SCHEDULE_TTL_S, apiSchedule);
       if (path === '/api/status') return await cached(request, ctx, STATUS_TTL_S, apiStatus);
