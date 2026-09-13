@@ -171,7 +171,14 @@ final class StreamResolver {
         String state = firstGroup(rules.playerState, pageHtml, "");
         String embedUrl = mainEmbed(pageHtml, server.pageUrl);
         if (embedUrl == null) {
-            Log.i(TAG, server.name + ": no embed (state=" + state + ")");
+            // Premium servers play inline: the page itself carries a Clappr player whose playlist
+            // URL is a (reversed) base64 literal. No iframe, so nothing for the WebView fallback.
+            String inline = findHls(pageHtml);
+            if (inline != null) {
+                Log.i(TAG, server.name + ": inline hls on " + hostOf(inline));
+                return new Stream(server, inline, originOf(server.pageUrl), null, state);
+            }
+            Log.i(TAG, server.name + ": no embed (state=" + state + ") " + fingerprint(pageHtml));
             return new Stream(server, null, null, null, state);
         }
         Target embed = new Target(embedUrl, server.pageUrl);
@@ -215,22 +222,36 @@ final class StreamResolver {
         }
     }
 
-    /** Playlist URL in a player page: plain (JSON-escaped) first, then base64 (atob). */
+    /**
+     * Playlist URL in a player page: plain (JSON-escaped) first, then base64 (atob), then any
+     * long base64 literal that decodes - plain or reversed - to a playlist URL.
+     */
     private String findHls(String html) {
         String plain = firstGroup(rules.hlsUrl, html, null);
         if (plain != null) return unescapeJs(plain);
-        Matcher m = rules.hlsUrlBase64.matcher(html);
+        String viaAtob = decodedPlaylist(rules.hlsUrlBase64, html);
+        if (viaAtob != null) return viaAtob;
+        return decodedPlaylist(rules.base64Literal, html);
+    }
+
+    private static String decodedPlaylist(Pattern p, String html) {
+        Matcher m = p.matcher(html);
         while (m.find()) {
+            String decoded;
             try {
-                String decoded = new String(Base64.decode(m.group(1), Base64.DEFAULT), "UTF-8").trim();
-                if (decoded.startsWith("http") && (decoded.contains(".m3u8") || decoded.contains("/hls"))) {
-                    return decoded;
-                }
-            } catch (Exception ignored) {
-                // not a URL
+                decoded = new String(Base64.decode(m.group(1), Base64.DEFAULT), "UTF-8").trim();
+            } catch (Exception notBase64) {
+                continue;
             }
+            if (isPlaylistUrl(decoded)) return decoded;
+            String reversed = new StringBuilder(decoded).reverse().toString().trim();
+            if (isPlaylistUrl(reversed)) return reversed;
         }
         return null;
+    }
+
+    private static boolean isPlaylistUrl(String s) {
+        return s.startsWith("http") && (s.contains(".m3u8") || s.contains("/hls")) && !s.contains("\n");
     }
 
     /** Script/iframe sources and playback hints of a page, for diagnosing unsupported players. */

@@ -52,6 +52,12 @@ final class ParserRules {
     final Pattern hlsUrl;
     /** A base64-encoded playlist URL, e.g. Clappr's {@code source: window.atob("...")}. */
     final Pattern hlsUrlBase64;
+    /**
+     * Any long quoted base64 string; the premium player passes its playlist URL through an
+     * obfuscating helper ({@code atob(s).split('').reverse().join('')}) rather than atob directly.
+     * Candidates are decoded both plain and reversed and kept only when they form a playlist URL.
+     */
+    final Pattern base64Literal;
 
     private ParserRules(JSONObject o) {
         cardStart = re(o, "cardStart", "<(?:div|a)\\s+class=\"m-card\\b([^\"]*)\"([^>]*)>");
@@ -94,6 +100,7 @@ final class ParserRules {
         anyIframe = re(o, "anyIframe", "<iframe[^>]*\\ssrc=\"([^\"]+)\"");
         hlsUrl = re(o, "hlsUrl", "[\"'](https?:[^\"']+\\.m3u8[^\"']*)[\"']");
         hlsUrlBase64 = re(o, "hlsUrlBase64", "atob\\(\\s*[\"']([A-Za-z0-9+/=]{16,})[\"']\\s*\\)");
+        base64Literal = re(o, "base64Literal", "[\"']([A-Za-z0-9+/]{40,}={0,2})[\"']");
     }
 
     static ParserRules defaults() {

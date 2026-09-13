@@ -104,6 +104,8 @@ public class NativePlayerActivity extends Activity {
     /** Servers that failed in this auto-fallback sweep. */
     private final List<String> failed = new ArrayList<>();
     private int loadGeneration;
+    /** When the current server was selected; used to pace automatic fail-over. */
+    private long switchedAt;
     private boolean everPlayed;
     /** The current server was picked by the user; remember it once it actually plays. */
     private boolean manualSelection;
@@ -448,6 +450,9 @@ public class NativePlayerActivity extends Activity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 Log.w(TAG, "player error: " + error.getErrorCodeName() + " " + describe(error.getCause()));
+                if (error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED) {
+                    peekManifest(currentStream());
+                }
                 onFailure(error.getErrorCodeName());
             }
 
@@ -545,6 +550,7 @@ public class NativePlayerActivity extends Activity {
         if (servers.isEmpty()) return;
         index = ((index % servers.size()) + servers.size()) % servers.size();
         current = index;
+        switchedAt = System.currentTimeMillis();
         manualSelection = manual;
         if (manual) {
             failed.clear();
@@ -687,7 +693,19 @@ public class NativePlayerActivity extends Activity {
             }
             Toast.makeText(this, getString(R.string.np_trying_next, s.name, servers.get(next).name),
                     Toast.LENGTH_SHORT).show();
-            switchTo(next, false);
+            // Servers that die instantly would otherwise be swept in a burst of page fetches,
+            // which the site rate-limits (HTTP 429); pace the sweep.
+            long sinceSwitch = System.currentTimeMillis() - switchedAt;
+            final int target = next;
+            final int gen = ++loadGeneration;
+            if (sinceSwitch < 3_000L) {
+                showStatus(getString(R.string.np_connecting_to, servers.get(next).name), true);
+                handler.postDelayed(() -> {
+                    if (gen == loadGeneration && !isFinishing()) switchTo(target, false);
+                }, 1_500L);
+            } else {
+                switchTo(target, false);
+            }
             return;
         }
         // Everything failed. Offer the web player if any server had an embed.
@@ -856,6 +874,21 @@ public class NativePlayerActivity extends Activity {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** What did the CDN send instead of a playlist? Logged (head only) to diagnose dead servers. */
+    private void peekManifest(StreamResolver.Stream st) {
+        if (st == null || st.hlsUrl == null) return;
+        io.execute(() -> {
+            try {
+                String body = Http.getText(st.hlsUrl, st.playerOrigin + "/");
+                String head = body.length() > 160 ? body.substring(0, 160) : body;
+                Log.w(TAG, st.server.name + " manifest body (" + body.length() + " chars): "
+                        + head.replaceAll("\\s+", " "));
+            } catch (Exception e) {
+                Log.w(TAG, st.server.name + " manifest fetch: " + e.getMessage());
+            }
+        });
     }
 
     /** "HTTP 403 from host" for CDN refusals, else the exception itself. */

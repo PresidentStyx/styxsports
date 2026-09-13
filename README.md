@@ -151,7 +151,11 @@ through `/ajax/ajax_match_cards.php`), and `/data/espn_status_batch.json` for
 live clocks and scores. The player relies on the stream page's server tabs
 (`li.se-stream > a[href]`, `.is-active` / `.is-pro`), its `iframe#iframe` embed,
 and a playlist URL inside the embed chain (a quoted `….m3u8…` string or a
-base64 `atob("…")` argument). If the site changes any of that, patch the matching
+base64 `atob("…")` argument). Premium servers have no iframe: the stream page
+itself carries a Clappr player whose playlist URL is a base64 literal of the
+*reversed* URL (`atob(s).split('').reverse().join('')`), so the resolver also
+tries every long base64 literal on the page, plain and reversed
+(`base64Literal`). If the site changes any of that, patch the matching
 `parser` key in `config.json`; as a last resort flip `nativePlayer` /
 `nativeHome` to `false`.
 
