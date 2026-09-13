@@ -18,10 +18,20 @@ final class UpdateFlow {
 
     static final int REQ_INSTALL_PERMISSION = 1001;
 
+    /** A TV app is rarely relaunched, so re-check while it sits open (on resume and on the refresh tick). */
+    private static final long RECHECK_MS = 30 * 60_000L;
+    /** After "Later", leave the viewer alone for this long before offering the same version again. */
+    private static final long SNOOZE_MS = 4 * 60 * 60_000L;
+
     private final Activity activity;
     private final ExecutorService io;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private File pendingInstall;
+    private long lastCheckAt;
+    private boolean checking;
+    private boolean offering;
+    private String snoozedVersion;
+    private long snoozedAt;
 
     UpdateFlow(Activity activity, ExecutorService io) {
         this.activity = activity;
@@ -29,11 +39,23 @@ final class UpdateFlow {
     }
 
     /**
-     * Background check. A newer release is downloaded quietly first, so the card that appears
-     * has a single "Install now" step; if the download fails the classic offer (download on
-     * request) is shown instead.
+     * Background check, right now (launch, Refresh button). A newer release is downloaded
+     * quietly first, so the card that appears has a single "Install now" step; if the download
+     * fails the classic offer (download on request) is shown instead.
      */
     void checkInBackground() {
+        check(true);
+    }
+
+    /** Background check unless one ran recently; call freely from resume/refresh paths. */
+    void checkIfDue() {
+        if (System.currentTimeMillis() - lastCheckAt >= RECHECK_MS) check(false);
+    }
+
+    private void check(boolean force) {
+        if (checking || offering) return;
+        checking = true;
+        lastCheckAt = System.currentTimeMillis();
         io.execute(() -> {
             try {
                 AppUpdater.Release latest = AppUpdater.fetchLatest();
@@ -42,6 +64,9 @@ final class UpdateFlow {
                     AppUpdater.cleanup(activity);
                     return;
                 }
+                boolean snoozed = latest.version.equals(snoozedVersion)
+                        && System.currentTimeMillis() - snoozedAt < SNOOZE_MS;
+                if (snoozed && !force) return;
                 File apk;
                 try {
                     apk = AppUpdater.downloadIfNeeded(activity, latest);
@@ -55,6 +80,8 @@ final class UpdateFlow {
                 });
             } catch (Exception ignored) {
                 // Update check is best-effort.
+            } finally {
+                handler.post(() -> checking = false);
             }
         });
     }
@@ -65,31 +92,42 @@ final class UpdateFlow {
 
     /** The APK is already on disk: one button installs it. */
     private void offerReady(AppUpdater.Release release, File apk) {
-        if (gone()) return;
+        if (gone() || offering) return;
         String message = activity.getString(R.string.update_ready_message,
                 release.version, AppUpdater.installedVersion(activity));
         if (!release.notes.isEmpty()) message += "\n\n" + release.notes;
 
+        offering = true;
         new AlertDialog.Builder(activity)
                 .setTitle(R.string.update_ready_title)
                 .setMessage(message)
                 .setPositiveButton(R.string.update_install_now, (d, w) -> install(apk))
-                .setNegativeButton(R.string.update_later, null)
+                .setNegativeButton(R.string.update_later, (d, w) -> snooze(release))
+                .setOnCancelListener(d -> snooze(release))
+                .setOnDismissListener(d -> offering = false)
                 .show();
     }
 
     private void offer(AppUpdater.Release release) {
-        if (gone()) return;
+        if (gone() || offering) return;
         String message = activity.getString(R.string.update_message,
                 release.version, AppUpdater.installedVersion(activity));
         if (!release.notes.isEmpty()) message += "\n\n" + release.notes;
 
+        offering = true;
         new AlertDialog.Builder(activity)
                 .setTitle(R.string.update_title)
                 .setMessage(message)
                 .setPositiveButton(R.string.update_install, (d, w) -> downloadAndInstall(release))
-                .setNegativeButton(R.string.update_later, null)
+                .setNegativeButton(R.string.update_later, (d, w) -> snooze(release))
+                .setOnCancelListener(d -> snooze(release))
+                .setOnDismissListener(d -> offering = false)
                 .show();
+    }
+
+    private void snooze(AppUpdater.Release release) {
+        snoozedVersion = release.version;
+        snoozedAt = System.currentTimeMillis();
     }
 
     private void downloadAndInstall(AppUpdater.Release release) {

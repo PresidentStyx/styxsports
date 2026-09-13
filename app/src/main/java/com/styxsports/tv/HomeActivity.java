@@ -126,6 +126,7 @@ public class HomeActivity extends Activity {
         @Override
         public void run() {
             fullRefresh(false);
+            updates.checkIfDue();
             handler.postDelayed(this, FULL_REFRESH_INTERVAL_MS);
         }
     };
@@ -278,6 +279,7 @@ public class HomeActivity extends Activity {
         bar.addView(pillButton(getString(R.string.action_refresh), v -> {
             Toast.makeText(this, R.string.refreshing, Toast.LENGTH_SHORT).show();
             fullRefresh(true);
+            updates.checkInBackground(); // "is there a new version?" is part of Refresh
         }));
         View site = pillButton(getString(R.string.action_open_site), v -> openWebsite());
         ((LinearLayout.LayoutParams) site.getLayoutParams()).leftMargin = dp(10);
@@ -1131,6 +1133,8 @@ public class HomeActivity extends Activity {
         handler.postDelayed(statusTick, STATUS_INTERVAL_MS);
         handler.postDelayed(fullTick, FULL_REFRESH_INTERVAL_MS);
         bindAccountButton();
+        // The launcher keeps this activity alive for days; a new release must not need a force-stop.
+        if (CrashLog.pendingReport(this) == null) updates.checkIfDue();
         if (snapshot != null && !loading) {
             boolean premiumHidden = premiumHidden();
             if (premiumHidden != renderedPremiumHidden || Account.hasIptv(this) != renderedLiveTv
