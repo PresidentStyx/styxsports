@@ -73,6 +73,10 @@ public class HomeActivity extends Activity {
     private String filterCategory;
     /** Chip value for the "Premium Only" tab (not a real category name). */
     private static final String PREMIUM_FILTER = "__premium_only__";
+    /** Chip that opens the Live TV screen (premium IPTV playlist); never a filter. */
+    private static final String LIVE_TV_TAB = "__live_tv__";
+    private boolean renderedLiveTv;
+    private long lastAccountCheckAt;
     /** Whether the last render kept premium-only games out of the regular rows. */
     private boolean renderedPremiumHidden;
     private LinearLayout chips;
@@ -307,22 +311,31 @@ public class HomeActivity extends Activity {
         } else {
             accountButton.setText("★ " + getString(R.string.action_account_premium));
         }
-        if (signedIn && Account.isStale(this)) recheckAccount();
+        if (signedIn && (Account.isStale(this) || Account.iptvStale(this))) recheckAccount();
     }
 
     /** Sessions lapse; make sure the button (and the player's server choice) reflect reality. */
     private void recheckAccount() {
+        // Offline the checks stay stale; don't hammer the account service on every re-render.
+        long now = System.currentTimeMillis();
+        if (now - lastAccountCheckAt < 60_000L) return;
+        lastAccountCheckAt = now;
         final Account account = new Account(this, config);
         io.execute(() -> {
             try {
-                account.refreshStatus();
-            } catch (Exception ignored) {
-                return; // offline; keep the cached answer
+                if (Account.isStale(this) && !account.refreshStatus()) return;
+                if (Account.iptvStale(this)) account.discoverIptv();
+            } catch (Exception e) {
+                android.util.Log.w("StyxHome", "account re-check failed: " + e); // offline; keep the cached answer
+            } finally {
+                handler.post(() -> {
+                    bindAccountButton();
+                    if (snapshot != null && !loading
+                            && (premiumHidden() != renderedPremiumHidden || Account.hasIptv(this) != renderedLiveTv)) {
+                        render(snapshot);
+                    }
+                });
             }
-            handler.post(() -> {
-                bindAccountButton();
-                if (snapshot != null && !loading && premiumHidden() != renderedPremiumHidden) render(snapshot);
-            });
         });
     }
 
@@ -350,11 +363,16 @@ public class HomeActivity extends Activity {
         for (Snapshot.Category c : s.byCategory().keySet()) names.add(c.name);
         // Without a premium account the premium-only games live in their own tab.
         if (premiumHidden()) names.add(PREMIUM_FILTER);
+        // With one, the account's IPTV channels get a tab of their own (a separate screen).
+        boolean liveTv = Account.hasIptv(this);
+        renderedLiveTv = liveTv;
+        if (liveTv) names.add(LIVE_TV_TAB);
         if (filterCategory != null && !names.contains(filterCategory)) filterCategory = null;
         for (final String name : names) {
             final TextView chip = new TextView(this);
             chip.setText(name == null ? getString(R.string.chip_all)
-                    : PREMIUM_FILTER.equals(name) ? getString(R.string.chip_premium_only) : name);
+                    : PREMIUM_FILTER.equals(name) ? getString(R.string.chip_premium_only)
+                    : LIVE_TV_TAB.equals(name) ? getString(R.string.chip_live_tv) : name);
             chip.setTag(name);
             chip.setTextColor(ContextCompat.getColorStateList(this, R.color.button_text));
             chip.setTextSize(13);
@@ -389,6 +407,10 @@ public class HomeActivity extends Activity {
     }
 
     private void selectFilter(String name) {
+        if (LIVE_TV_TAB.equals(name)) {
+            startActivity(LiveTvActivity.intent(this));
+            return;
+        }
         if (name == null ? filterCategory == null : name.equals(filterCategory)) return;
         filterCategory = name;
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_FILTER, name).apply();
@@ -1111,7 +1133,7 @@ public class HomeActivity extends Activity {
         bindAccountButton();
         if (snapshot != null && !loading) {
             boolean premiumHidden = premiumHidden();
-            if (premiumHidden != renderedPremiumHidden
+            if (premiumHidden != renderedPremiumHidden || Account.hasIptv(this) != renderedLiveTv
                     || !keyOf(premiumPass(continueWatching(snapshot), premiumHidden, false)).equals(recentsKey)) {
                 render(snapshot);
             }

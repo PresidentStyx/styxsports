@@ -27,6 +27,9 @@ final class Account {
     private static final String KEY_CHECKED_AT = "checked_at";
     private static final String KEY_PREMIUM = "premium"; // "yes" / "no" / absent = unknown
     private static final String KEY_DEVICE_ID = "device_id";
+    private static final String KEY_IPTV_PLUS = "iptv_plus_url";
+    private static final String KEY_IPTV_EPG = "iptv_epg_url";
+    private static final String KEY_IPTV_CHECKED_AT = "iptv_checked_at";
 
     /** Re-check the session this often while the app is in use. */
     static final long RECHECK_MS = 6L * 60 * 60 * 1000;
@@ -147,6 +150,11 @@ final class Account {
         Http.flushCookies();
         if (!refreshStatus()) throw new IOException("Signed in, but the account service does not see a session");
         prefs(ctx).edit().remove(KEY_PREMIUM).apply(); // learn it fresh from the first stream
+        try {
+            discoverIptv();
+        } catch (IOException e) {
+            Log.w(TAG, "IPTV discovery failed: " + e.getMessage()); // retried from the home screen
+        }
     }
 
     /** Asks the account service whether the cookies still make a signed-in session. */
@@ -157,9 +165,57 @@ final class Account {
         SharedPreferences.Editor e = prefs(ctx).edit()
                 .putBoolean(KEY_SIGNED_IN, signedIn)
                 .putLong(KEY_CHECKED_AT, System.currentTimeMillis());
-        if (!signedIn) e.remove(KEY_PREMIUM);
+        if (!signedIn) e.remove(KEY_PREMIUM).remove(KEY_IPTV_PLUS).remove(KEY_IPTV_EPG);
         e.apply();
+        if (!signedIn) Iptv.clearCache(ctx);
         return signedIn;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // IPTV playlist (premium perk)
+    // ---------------------------------------------------------------------------------------------
+
+    /** The account's personal playlist URL with logos and groups ("M3U Plus"), or null. */
+    static String playlistUrl(Context ctx) {
+        return prefs(ctx).getString(KEY_IPTV_PLUS, null);
+    }
+
+    /** The account's personal XMLTV (EPG) URL, or null. */
+    static String epgUrl(Context ctx) {
+        return prefs(ctx).getString(KEY_IPTV_EPG, null);
+    }
+
+    static boolean hasIptv(Context ctx) {
+        return isSignedIn(ctx) && playlistUrl(ctx) != null;
+    }
+
+    /**
+     * Reads the personal playlist links off the account page's IPTV tab. Premium accounts get
+     * them; others simply have none, which is recorded so the Live TV tab stays hidden.
+     */
+    boolean discoverIptv() throws IOException {
+        String html = Http.getText(config.authBaseUrl + "/my-account/?tab=iptv");
+        java.util.Map<String, String> urls = new java.util.HashMap<>();
+        java.util.regex.Matcher in = config.parser.iptvUrlInput.matcher(html);
+        while (in.find()) urls.put(in.group(1), SiteParser.unescape(in.group(2)));
+        String plus = urls.get("iptv-m3u-plus");
+        String epg = urls.get("acc-epg-xmltv");
+        SharedPreferences.Editor e = prefs(ctx).edit().putLong(KEY_IPTV_CHECKED_AT, System.currentTimeMillis());
+        if (plus == null || !plus.startsWith("http")) {
+            e.remove(KEY_IPTV_PLUS).remove(KEY_IPTV_EPG).apply();
+            Log.i(TAG, "no IPTV playlist on this account (" + urls.size() + " links seen)");
+            return false;
+        }
+        e.putString(KEY_IPTV_PLUS, plus);
+        if (epg != null && epg.startsWith("http")) e.putString(KEY_IPTV_EPG, epg);
+        else e.remove(KEY_IPTV_EPG);
+        e.apply();
+        Log.i(TAG, "IPTV playlist found on " + StreamResolver.hostOf(plus));
+        return true;
+    }
+
+    static boolean iptvStale(Context ctx) {
+        return System.currentTimeMillis() - prefs(ctx).getLong(KEY_IPTV_CHECKED_AT, 0) > RECHECK_MS;
     }
 
     /** Signs out on the account service and forgets every cookie the app holds. */
@@ -177,6 +233,7 @@ final class Account {
             // no WebView cookie store on this device
         }
         prefs(ctx).edit().clear().apply();
+        Iptv.clearCache(ctx);
     }
 
     // ---------------------------------------------------------------------------------------------

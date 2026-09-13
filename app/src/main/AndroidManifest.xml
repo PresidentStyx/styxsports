@@ -56,6 +56,13 @@
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.StyxSports.Home" />
 
+        <activity
+            android:name=".LiveTvActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.StyxSports" />
+
         <!-- WebView for the stream page (or the whole site as a fallback). -->
         <activity
             android:name=".PlayerActivity"

@@ -22,6 +22,14 @@ built from the site's schedule and a native full-screen player.
   one that has no premium) premium-only games are kept out of the regular rows
   and collected under a **★ Premium Only** chip; the player offers **Sign in for
   premium** when a game has no free server. **Sign out** is on the same screen.
+- **Live TV** (**📺 Live TV** chip, premium accounts only): the account's IPTV
+  playlist as its own screen — channel groups down the left (sports groups first),
+  the selected group's channels with logos on the right, **★ Recently watched**
+  at the top once you have used it. **OK** plays a channel in the native player;
+  **◀ ▶** there zap through the group. The app finds the personal playlist link
+  on the account page's IPTV tab by itself (nothing to type), downloads the
+  ~11k-channel list once, keeps it on disk and refreshes it every 12 h (or on
+  **Menu**). Signing out deletes the playlist and the link.
 - **Favorites**: long-press **OK** on a card to star either team or the league/sport.
   Starred games get a ★, sort first in every row and fill a **Your Teams** row.
 - **Native player**: picking a game resolves the stream page to its HLS playlist
@@ -155,9 +163,12 @@ base64 `atob("…")` argument). Premium servers have no iframe: the stream page
 itself carries a Clappr player whose playlist URL is a base64 literal of the
 *reversed* URL (`atob(s).split('').reverse().join('')`), so the resolver also
 tries every long base64 literal on the page, plain and reversed
-(`base64Literal`). If the site changes any of that, patch the matching
-`parser` key in `config.json`; as a last resort flip `nativePlayer` /
-`nativeHome` to `false`.
+(`base64Literal`). Live TV reads the personal playlist links off
+`authBaseUrl/my-account/?tab=iptv` (`input.acc-iptv-url-input` with ids
+`iptv-m3u-plus` and `acc-epg-xmltv`; `iptvUrlInput`) and fetches the M3U Plus
+list with `?output=hls` (falls back to the plain MPEG-TS list). If the site
+changes any of that, patch the matching `parser` key in `config.json`; as a
+last resort flip `nativePlayer` / `nativeHome` to `false`.
 
 ### With a new APK (code changes)
 

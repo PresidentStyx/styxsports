@@ -413,6 +413,7 @@ public class AccountActivity extends Activity {
             boolean ok;
             try {
                 ok = account.refreshStatus();
+                if (ok && Account.iptvStale(this)) account.discoverIptv();
             } catch (Exception e) {
                 return; // offline: keep showing what we know
             }

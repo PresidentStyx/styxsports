@@ -63,6 +63,7 @@
     <string name="np_paused">Paused</string>
     <string name="np_server_of">Server %1$d of %2$d  ·  %3$s</string>
     <string name="np_hint">◀ ▶ switch server   ·   OK play/pause   ·   Back home</string>
+    <string name="np_hint_channels">◀ ▶ change channel   ·   OK play/pause   ·   Back to channels</string>
     <string name="np_reconnecting">Reconnecting to %1$s…</string>
     <string name="np_trying_next">%1$s isn’t responding — trying %2$s</string>
     <string name="np_only_server">This game has only one server.</string>
@@ -114,6 +115,19 @@
     <string name="acct_premium_yes">✓  Premium servers are unlocked on this account.</string>
     <string name="acct_premium_no">This account does not seem to have premium: its premium servers were locked. Free servers are used instead.</string>
     <string name="np_premium_marker">Premium</string>
+
+    <!-- Live TV (premium IPTV playlist) -->
+    <string name="chip_live_tv">📺 Live TV</string>
+    <string name="ltv_title">Live TV</string>
+    <string name="ltv_subtitle">%1$s channels · %2$d groups · updated %3$s</string>
+    <string name="ltv_hint">OK  watch   ·   ◀ ▶ in player  change channel   ·   Menu  refresh</string>
+    <string name="ltv_loading">Loading your channel list…</string>
+    <string name="ltv_refreshing">Refreshing the channel list…</string>
+    <string name="ltv_failed">Could not load the channel list: %1$s</string>
+    <string name="ltv_empty">the playlist has no channels</string>
+    <string name="ltv_group_gone">that channel group is no longer in the playlist</string>
+    <string name="np_channel_of">Channel %1$d of %2$d  ·  %3$s</string>
+    <string name="np_channel_failed">%1$s is not playing right now.\nTry again, or press Left/Right for another channel.</string>
     <string name="np_sign_in">Sign in for premium</string>
     <string name="np_premium_only_signed_out">This stream is for the site’s premium members only.\nSign in to your premium account to watch it, or pick another game.</string>
 

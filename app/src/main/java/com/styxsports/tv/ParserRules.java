@@ -58,6 +58,11 @@ final class ParserRules {
      * Candidates are decoded both plain and reversed and kept only when they form a playlist URL.
      */
     final Pattern base64Literal;
+    /**
+     * The personal playlist links on the account page's IPTV tab: group 1 = the input's id
+     * (iptv-m3u-plus, iptv-m3u---hls, iptv-standard-m3u, acc-epg-xmltv), group 2 = the URL.
+     */
+    final Pattern iptvUrlInput;
 
     private ParserRules(JSONObject o) {
         cardStart = re(o, "cardStart", "<(?:div|a)\\s+class=\"m-card\\b([^\"]*)\"([^>]*)>");
@@ -101,6 +106,8 @@ final class ParserRules {
         hlsUrl = re(o, "hlsUrl", "[\"'](https?:[^\"']+\\.m3u8[^\"']*)[\"']");
         hlsUrlBase64 = re(o, "hlsUrlBase64", "atob\\(\\s*[\"']([A-Za-z0-9+/=]{16,})[\"']\\s*\\)");
         base64Literal = re(o, "base64Literal", "[\"']([A-Za-z0-9+/]{40,}={0,2})[\"']");
+        iptvUrlInput = re(o, "iptvUrlInput",
+                "<input[^>]*\\bid=\"([^\"]+)\"[^>]*class=\"acc-iptv-url-input\"[^>]*\\bvalue=\"([^\"]+)\"");
     }
 
     static ParserRules defaults() {

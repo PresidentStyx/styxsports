@@ -34,6 +34,8 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
@@ -58,6 +60,8 @@ public class NativePlayerActivity extends Activity {
 
     private static final String TAG = "StyxNative";
     private static final String EXTRA_EVENT = "event";
+    private static final String EXTRA_CHANNEL_GROUP = "channelGroup";
+    private static final String EXTRA_CHANNEL_INDEX = "channelIndex";
     private static final String PREFS = "styxsports_servers";
 
     private static final long HUD_HIDE_MS = 3500L;
@@ -77,8 +81,21 @@ public class NativePlayerActivity extends Activity {
         return i;
     }
 
+    /**
+     * Plays channel {@code index} of a Live TV group; Left/Right zap through the group. The
+     * playlist is read from {@link Iptv} (memory or disk), not passed in the intent.
+     */
+    static Intent channelIntent(Context ctx, String group, int index) {
+        return new Intent(ctx, NativePlayerActivity.class)
+                .putExtra(EXTRA_CHANNEL_GROUP, group)
+                .putExtra(EXTRA_CHANNEL_INDEX, index);
+    }
+
     private RemoteConfig config;
     private Event event;
+    /** Live TV mode: the group being zapped through; null when playing a game's stream page. */
+    private String channelGroup;
+    private List<Iptv.Channel> channels;
     private StreamResolver resolver;
     private final ExecutorService io = Executors.newCachedThreadPool();
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -131,7 +148,16 @@ public class NativePlayerActivity extends Activity {
         config = RemoteConfig.load(this);
         resolver = new StreamResolver(config.parser);
         density = getResources().getDisplayMetrics().density;
-        event = parseEvent(getIntent().getStringExtra(EXTRA_EVENT));
+        channelGroup = getIntent().getStringExtra(EXTRA_CHANNEL_GROUP);
+        if (channelGroup != null) {
+            event = new Event();
+            event.id = "iptv:" + channelGroup;
+            event.url = "iptv://" + android.net.Uri.encode(channelGroup);
+            event.league = channelGroup;
+            event.live = true;
+        } else {
+            event = parseEvent(getIntent().getStringExtra(EXTRA_EVENT));
+        }
         if (event == null || event.url.isEmpty()) {
             finish();
             return;
@@ -151,7 +177,7 @@ public class NativePlayerActivity extends Activity {
         super.onResume();
         applyImmersiveMode();
         handler.removeCallbacks(scoreTick);
-        handler.postDelayed(scoreTick, SCORE_REFRESH_MS);
+        if (channelGroup == null) handler.postDelayed(scoreTick, SCORE_REFRESH_MS);
     }
 
     @Override
@@ -262,7 +288,7 @@ public class NativePlayerActivity extends Activity {
         hudHint = new TextView(this);
         hudHint.setTextColor(0xFFBBBBBB);
         hudHint.setTextSize(13);
-        hudHint.setText(R.string.np_hint);
+        hudHint.setText(channelGroup != null ? R.string.np_hint_channels : R.string.np_hint);
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hp.topMargin = dp(4);
@@ -349,7 +375,9 @@ public class NativePlayerActivity extends Activity {
             return;
         }
         StreamResolver.Server s = servers.get(current);
-        String label = getString(R.string.np_server_of, current + 1, servers.size(), s.name);
+        String label = channelGroup != null
+                ? getString(R.string.np_channel_of, current + 1, servers.size(), channelGroup)
+                : getString(R.string.np_server_of, current + 1, servers.size(), s.name);
         if (s.premium) label += "   ·   ★ " + getString(R.string.np_premium_marker);
         if (player != null && !player.getPlayWhenReady() && everPlayed) {
             label += "   ·   " + getString(R.string.np_paused);
@@ -439,7 +467,11 @@ public class NativePlayerActivity extends Activity {
                     if (!everPlayed) {
                         everPlayed = true;
                         failed.clear();
-                        if (manualSelection) rememberServer();
+                        if (channelGroup != null && channels != null && current < channels.size()) {
+                            Iptv.recordRecent(NativePlayerActivity.this, channels.get(current));
+                        } else if (manualSelection) {
+                            rememberServer();
+                        }
                         showHud();
                     }
                 } else if (state == Player.STATE_ENDED) {
@@ -466,6 +498,30 @@ public class NativePlayerActivity extends Activity {
 
     private void resolvePage() {
         final int gen = ++loadGeneration;
+        if (channelGroup != null) {
+            io.execute(() -> {
+                Iptv list = Iptv.cached(this);
+                if (list == null) {
+                    try {
+                        list = Iptv.fetch(this);
+                    } catch (Exception e) {
+                        final String why = shortError(e);
+                        handler.post(() -> {
+                            if (gen != loadGeneration || isFinishing()) return;
+                            showStatusWithActions(getString(R.string.np_page_failed, why), false);
+                        });
+                        return;
+                    }
+                }
+                final Iptv.Group g = Iptv.RECENT_GROUP.equals(channelGroup)
+                        ? new Iptv.Group(channelGroup, Iptv.recents(this)) : list.group(channelGroup);
+                handler.post(() -> {
+                    if (gen != loadGeneration || isFinishing()) return;
+                    onChannelsLoaded(g);
+                });
+            });
+            return;
+        }
         io.execute(() -> {
             try {
                 StreamResolver.Page p = resolver.page(event.url);
@@ -529,6 +585,27 @@ public class NativePlayerActivity extends Activity {
         switchTo(start, false);
     }
 
+    /** Live TV: every channel of the group becomes a "server", so Left/Right zap through them. */
+    private void onChannelsLoaded(Iptv.Group g) {
+        servers.clear();
+        resolved.clear();
+        channels = g == null ? null : g.channels;
+        if (channels == null || channels.isEmpty()) {
+            showStatusWithActions(getString(R.string.np_page_failed, getString(R.string.ltv_group_gone)), false);
+            return;
+        }
+        int start = getIntent().getIntExtra(EXTRA_CHANNEL_INDEX, 0);
+        String origin = StreamResolver.originOf(new SiteRepository(this).currentBase(config));
+        for (Iptv.Channel c : channels) {
+            StreamResolver.Server s = new StreamResolver.Server(c.name, c.url, false, false);
+            servers.add(s);
+            resolved.put(c.url, new StreamResolver.Stream(s, c.url, origin, null, "live"));
+        }
+        if (start < 0 || start >= servers.size()) start = 0;
+        Log.i(TAG, "live tv: " + servers.size() + " channels in " + channelGroup + ", starting at " + start);
+        switchTo(start, false);
+    }
+
     /** Every server is premium and none is available to us. */
     private void showPremiumOnly() {
         if (Account.isSignedIn(this)) {
@@ -562,12 +639,17 @@ public class NativePlayerActivity extends Activity {
         player.stop();
         player.clearMediaItems();
         StreamResolver.Server s = servers.get(index);
+        if (channelGroup != null) {
+            event.home = s.name;
+            hudTitle.setText(s.name);
+        }
         showStatus(getString(R.string.np_connecting_to, s.name), true);
         bindServerLabel();
         showHud();
 
         StreamResolver.Stream cached = resolved.get(s.pageUrl);
-        if (cached != null && !retried.contains(s.pageUrl)) {
+        // Live TV channels are direct URLs: nothing to re-resolve, just play (again).
+        if (cached != null && (channelGroup != null || !retried.contains(s.pageUrl))) {
             play(cached);
             return;
         }
@@ -654,9 +736,16 @@ public class NativePlayerActivity extends Activity {
                 .setConnectTimeoutMs(12_000)
                 .setReadTimeoutMs(12_000)
                 .setAllowCrossProtocolRedirects(true);
-        HlsMediaSource source = new HlsMediaSource.Factory(http)
-                .setAllowChunklessPreparation(true)
-                .createMediaSource(MediaItem.fromUri(st.hlsUrl));
+        MediaSource source;
+        if (st.hlsUrl.contains(".m3u8") || channelGroup == null) {
+            source = new HlsMediaSource.Factory(http)
+                    .setAllowChunklessPreparation(true)
+                    .createMediaSource(MediaItem.fromUri(st.hlsUrl));
+        } else {
+            // IPTV channels without an HLS variant are plain MPEG-TS over HTTP; let the default
+            // factory sniff the container.
+            source = new DefaultMediaSourceFactory(http).createMediaSource(MediaItem.fromUri(st.hlsUrl));
+        }
         player.setMediaSource(source);
         player.prepare();
         player.setPlayWhenReady(true);
@@ -679,6 +768,12 @@ public class NativePlayerActivity extends Activity {
             retried.add(s.pageUrl);
             Toast.makeText(this, getString(R.string.np_reconnecting, s.name), Toast.LENGTH_SHORT).show();
             switchTo(current, false);
+            return;
+        }
+        if (channelGroup != null) {
+            // The viewer chose this channel: don't zap away on their behalf.
+            player.stop();
+            showStatusWithActions(getString(R.string.np_channel_failed, s.name), false);
             return;
         }
         if (!failed.contains(s.pageUrl)) failed.add(s.pageUrl);
@@ -726,6 +821,10 @@ public class NativePlayerActivity extends Activity {
     private void retryAll() {
         failed.clear();
         retried.clear();
+        if (channelGroup != null && !servers.isEmpty()) {
+            switchTo(Math.max(current, 0), true);
+            return;
+        }
         resolved.clear();
         hideStatus();
         showStatus(getString(R.string.np_connecting), true);
