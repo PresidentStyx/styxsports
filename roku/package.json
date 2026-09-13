@@ -1,0 +1,14 @@
+{
+  "name": "styxsports-roku",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Styx Sports Roku channel (BrightScript / SceneGraph). Build with `npm run build`, sideload with deploy.ps1.",
+  "scripts": {
+    "build": "bsc",
+    "check": "bsc --create-package false"
+  },
+  "devDependencies": {
+    "brighterscript": "^0.73.4",
+    "brs": "^0.45.0"
+  }
+}

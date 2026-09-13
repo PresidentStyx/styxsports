@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Premium account: the site's TV sign-in (short code + QR), or the signed-in summary with Sign out. -->
+<component name="AccountScreen" extends="Group">
+  <interface>
+    <field id="navigate" type="assocarray" alwaysNotify="true" />
+    <field id="close" type="boolean" alwaysNotify="true" />
+    <field id="resumed" type="boolean" alwaysNotify="true" />
+    <field id="start" type="boolean" alwaysNotify="true" onChange="onStart" />
+  </interface>
+  <script type="text/brightscript" uri="AccountScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Http.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Config.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/SiteParser.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Site.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Resolver.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
+  <children>
+    <Rectangle width="1920" height="1080" color="0x0A0A0AFF" />
+    <Poster translation="[72,34]" height="52" width="0" uri="pkg:/images/wordmark.png" loadDisplayMode="scaleToFit" />
+    <Label id="title" translation="[72,130]" width="1200" height="70" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" text="Premium account" />
+    <Label id="lead" translation="[72,210]" width="1040" height="120" font="font:MediumSystemFont" color="0xC8C8C8FF" wrap="true" lineSpacing="4" />
+
+    <!-- signed-out: steps + code -->
+    <Group id="signIn">
+      <Label id="steps" translation="[72,350]" width="1040" height="200" font="font:MediumSystemFont" color="0xF2F2F2FF" wrap="true" lineSpacing="10" />
+      <Label translation="[72,580]" width="400" height="34" font="font:SmallSystemFont" color="0x9A9A9AFF" text="Your code" />
+      <Rectangle translation="[72,620]" width="520" height="150" color="0x161616FF" />
+      <Label id="code" translation="[72,620]" width="520" height="150" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" text="--- ---" />
+      <Label id="countdown" translation="[620,680]" width="500" height="40" font="font:SmallSystemFont" color="0x9A9A9AFF" vertAlign="center" />
+      <Label id="statusText" translation="[72,800]" width="1040" height="80" font="font:MediumSystemFont" color="0xF5C518FF" wrap="true" />
+
+      <Rectangle translation="[1340,350]" width="440" height="440" color="0xFFFFFFFF" />
+      <Poster id="qr" translation="[1360,370]" width="400" height="400" loadDisplayMode="scaleToFit" />
+      <Label translation="[1340,800]" width="440" height="40" font="font:SmallSystemFont" color="0x9A9A9AFF" horizAlign="center" text="Scan with your phone camera" />
+    </Group>
+
+    <!-- signed-in -->
+    <Group id="signedIn" visible="false">
+      <Label id="premiumText" translation="[72,350]" width="1040" height="120" font="font:MediumSystemFont" color="0xF2F2F2FF" wrap="true" />
+      <Label id="iptvText" translation="[72,470]" width="1040" height="80" font="font:MediumSystemFont" color="0x9A9A9AFF" wrap="true" />
+    </Group>
+
+    <Group id="buttons" translation="[72,930]" />
+    <Timer id="pollTimer" duration="3" />
+    <Timer id="tickTimer" repeat="true" duration="1" />
+  </children>
+</component>

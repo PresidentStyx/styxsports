@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RowList item: one game. 440 x 250. -->
+<component name="EventCard" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="focusPercent" type="float" onChange="onFocus" />
+    <field id="rowHasFocus" type="boolean" onChange="onFocus" />
+    <field id="rowListHasFocus" type="boolean" onChange="onFocus" />
+  </interface>
+  <script type="text/brightscript" uri="EventCard.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Http.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Config.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/SiteParser.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Site.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Resolver.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
+  <children>
+    <Rectangle id="ring" translation="[-4,-4]" width="448" height="258" color="0x00000000" />
+    <Rectangle id="bg" width="440" height="250" color="0x161616FF" />
+    <Rectangle id="stripe" width="6" height="250" color="0x00000000" />
+
+    <Rectangle id="whenBg" translation="[22,20]" width="90" height="34" color="0x2A2A2AFF" />
+    <Label id="when" translation="[22,20]" width="90" height="34" font="font:SmallBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" />
+    <Label id="league" translation="[126,20]" width="200" height="34" font="font:SmallestSystemFont" color="0x9A9A9AFF" vertAlign="center" />
+    <Label id="tag" translation="[330,20]" width="88" height="34" font="font:SmallestBoldSystemFont" color="0xF5C518FF" horizAlign="right" vertAlign="center" />
+
+    <Poster id="crestHome" translation="[22,76]" width="64" height="64" loadDisplayMode="scaleToFit" />
+    <Label id="home" translation="[100,72]" width="300" height="70" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" wrap="true" maxLines="2" lineSpacing="0" />
+    <Poster id="crestAway" translation="[22,152]" width="64" height="64" loadDisplayMode="scaleToFit" />
+    <Label id="away" translation="[100,148]" width="300" height="70" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" wrap="true" maxLines="2" lineSpacing="0" />
+
+    <Label id="score" translation="[300,140]" width="118" height="80" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" horizAlign="right" vertAlign="center" />
+    <Label id="star" translation="[388,214]" width="40" height="30" font="font:SmallBoldSystemFont" color="0xF5C518FF" horizAlign="right" vertAlign="center" />
+  </children>
+</component>

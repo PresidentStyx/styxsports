@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home: top bar, sport chips, rows of game cards. -->
+<component name="HomeScreen" extends="Group">
+  <interface>
+    <field id="navigate" type="assocarray" alwaysNotify="true" />
+    <field id="close" type="boolean" alwaysNotify="true" />
+    <field id="resumed" type="boolean" alwaysNotify="true" onChange="onResumed" />
+    <field id="start" type="boolean" alwaysNotify="true" onChange="onStart" />
+  </interface>
+  <script type="text/brightscript" uri="HomeScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Http.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Config.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/SiteParser.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Site.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Resolver.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
+  <children>
+    <!-- top bar -->
+    <Poster id="wordmark" translation="[72,34]" width="0" height="52" uri="pkg:/images/wordmark.png" loadDisplayMode="scaleToFit" />
+    <Label id="status" translation="[72,96]" width="900" height="30" font="font:SmallestSystemFont" color="0x9A9A9AFF" />
+    <Group id="topButtons" translation="[1848,40]" />
+
+    <!-- chips -->
+    <Group id="chipClip" translation="[72,150]">
+      <Group id="chips" />
+    </Group>
+
+    <!-- rows -->
+    <RowList id="rows" translation="[72,236]" itemComponentName="EventCard"
+             itemSize="[1776,300]" numRows="3" rowItemSize="[[440,250]]" rowItemSpacing="[[20,0]]"
+             rowHeights="[300]" rowSpacings="[24]" rowLabelOffset="[[0,10]]" showRowLabel="[true]"
+             rowLabelFont="font:MediumBoldSystemFont" rowLabelColor="0xF2F2F2FF"
+             focusXOffset="[0]" rowFocusAnimationStyle="fixedFocusWrap" vertFocusAnimationStyle="fixedFocus"
+             drawFocusFeedback="false" />
+
+    <Label id="message" translation="[72,520]" width="1776" height="120" font="font:MediumSystemFont" color="0x9A9A9AFF" horizAlign="center" vertAlign="center" wrap="true" />
+    <Label id="hint" translation="[72,1020]" width="1776" height="30" font="font:SmallestSystemFont" color="0x5A5A5AFF" horizAlign="center" />
+
+    <Timer id="statusTimer" repeat="true" duration="30" />
+    <Timer id="fullTimer" repeat="true" duration="600" />
+  </children>
+</component>

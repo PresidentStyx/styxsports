@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One game in the card rows. A ContentNode so RowList accepts it; the fields mirror the event record. -->
+<component name="EventNode" extends="ContentNode">
+  <interface>
+    <field id="home" type="string" />
+    <field id="away" type="string" />
+    <field id="url" type="string" />
+    <field id="cat" type="integer" />
+    <field id="ts" type="integer" />
+    <field id="live" type="boolean" />
+    <field id="ended" type="boolean" />
+    <field id="hot" type="boolean" />
+    <field id="pro" type="boolean" />
+    <field id="league" type="string" />
+    <field id="ch" type="string" />
+    <field id="ca" type="string" />
+    <field id="lt" type="string" />
+    <field id="sc" type="string" />
+    <field id="starred" type="boolean" />
+  </interface>
+</component>

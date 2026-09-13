@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MarkupGrid item: channel logo above its name. 380 x 220. -->
+<component name="ChannelCell" extends="Group">
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="focusPercent" type="float" onChange="onFocus" />
+    <field id="itemHasFocus" type="boolean" onChange="onFocus" />
+    <field id="gridHasFocus" type="boolean" onChange="onFocus" />
+  </interface>
+  <script type="text/brightscript" uri="ChannelCell.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Http.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Config.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/SiteParser.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Site.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Resolver.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
+  <children>
+    <Rectangle id="ring" translation="[-4,-4]" width="388" height="228" color="0x00000000" />
+    <Rectangle id="bg" width="380" height="220" color="0x161616FF" />
+    <Poster id="logo" translation="[110,22]" width="160" height="110" loadDisplayMode="scaleToFit" />
+    <Label id="initials" translation="[110,22]" width="160" height="110" font="font:LargeBoldSystemFont" color="0x5A5A5AFF" horizAlign="center" vertAlign="center" />
+    <Label id="name" translation="[16,140]" width="348" height="70" font="font:SmallBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" wrap="true" maxLines="2" />
+  </children>
+</component>

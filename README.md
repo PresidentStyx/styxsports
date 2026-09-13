@@ -126,6 +126,36 @@ npx wrangler secret put HLS_SECRET   # any long random string; signs the /hls pa
 `wrangler.jsonc` declares `sports.styxam.com` as a custom domain, so the first
 deploy creates the DNS record and certificate on the `styxam.com` zone.
 
+## Roku channel — roku/
+
+Roku is not Android and has no browser, so [`roku/`](roku/) is a third build of
+the same app, written in BrightScript/SceneGraph. It talks to the site
+directly from the Roku (so the Cloudflare-blocked CDNs are not an issue: the
+stream plays from the viewer's own IP) and reads the same `config.json` /
+`parser` overrides as the APK. What it does: the home screen (chips, Continue
+watching, ★ Your teams, Live now, per-sport rows, live scores every 30 s, `*`
+on a card to star a team or league), the player (Roku's native HLS player with
+the player page's origin as `Referer`/`Origin`, ◀ ▶ server switching, automatic
+fallback, premium servers first when signed in, Premium-only gate when not),
+the premium account sign-in (same code + QR flow), and Live TV (the account's
+IPTV list, HLS variant only; Roku cannot play raw MPEG-TS).
+
+Roku killed private channels in 2022, so it is installed by **sideloading**:
+put the Roku in developer mode once (remote: Home ×3, Up ×2, Right, Left,
+Right, Left, Right → enable the installer → set a password → it reboots), then
+from a PC on the same network:
+
+```
+cd roku
+.\deploy.ps1 -RokuIp 192.168.1.50 -Password <dev password>
+```
+
+That validates and packages the channel (`npx bsc`, first run installs the
+tools) and pushes it to the Roku, replacing the previous sideload. There is no
+self-update: rerun the script to update. Only one sideloaded channel fits per
+device. Debug output: `telnet <RokuIp> 8085`. See [`roku/README.md`](roku/README.md)
+for the layout of the code and what still needs a real device to verify.
+
 ## Making changes
 
 ### Without a new APK (remote config)

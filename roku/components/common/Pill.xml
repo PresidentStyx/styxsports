@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A rounded-looking pill (chip / button) sized to its text. Focus and selection are driven by fields. -->
+<component name="Pill" extends="Group">
+  <interface>
+    <field id="text" type="string" onChange="relayout" />
+    <field id="selected" type="boolean" onChange="restyle" />
+    <field id="focused" type="boolean" onChange="restyle" />
+    <field id="accent" type="string" onChange="restyle" />
+    <field id="minWidth" type="integer" value="0" onChange="relayout" />
+    <field id="pillHeight" type="integer" value="56" onChange="relayout" />
+    <field id="pillWidth" type="integer" value="0" />
+  </interface>
+  <script type="text/brightscript" uri="Pill.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Http.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Config.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/SiteParser.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Site.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Resolver.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
+  <children>
+    <Rectangle id="ring" color="0x00000000" />
+    <Rectangle id="bg" color="0x1F1F1FFF" />
+    <Label id="label" font="font:SmallBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" />
+  </children>
+</component>

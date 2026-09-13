@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live TV: channel groups down the left, the selected group's channels on the right. -->
+<component name="LiveTvScreen" extends="Group">
+  <interface>
+    <field id="navigate" type="assocarray" alwaysNotify="true" />
+    <field id="close" type="boolean" alwaysNotify="true" />
+    <field id="resumed" type="boolean" alwaysNotify="true" onChange="onResumed" />
+    <field id="start" type="boolean" alwaysNotify="true" onChange="onStart" />
+  </interface>
+  <script type="text/brightscript" uri="LiveTvScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Http.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Config.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/SiteParser.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Site.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Resolver.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
+  <children>
+    <Rectangle width="1920" height="1080" color="0x0A0A0AFF" />
+    <Label translation="[72,40]" width="800" height="60" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" text="Live TV" />
+    <Label id="subtitle" translation="[72,104]" width="1200" height="34" font="font:SmallSystemFont" color="0x9A9A9AFF" />
+    <Label translation="[1000,50]" width="848" height="40" font="font:SmallestSystemFont" color="0x5A5A5AFF" horizAlign="right" text="OK  watch   ·   Left/Right in player  change channel   ·   *  refresh" />
+
+    <LabelList id="groups" translation="[72,170]" itemSize="[560,64]" numRows="13" itemSpacing="[0,4]"
+               font="font:SmallBoldSystemFont" color="0xC8C8C8FF" focusedColor="0x0A0A0AFF"
+               drawFocusFeedbackOnTop="false" textHorizAlign="left" />
+
+    <MarkupGrid id="grid" translation="[680,170]" itemComponentName="ChannelCell" numColumns="3" numRows="3"
+                itemSize="[380,220]" itemSpacing="[16,16]" drawFocusFeedback="false" vertFocusAnimationStyle="floatingFocus" />
+
+    <Label id="message" translation="[72,520]" width="1776" height="120" font="font:MediumSystemFont" color="0x9A9A9AFF" horizAlign="center" vertAlign="center" wrap="true" />
+  </children>
+</component>

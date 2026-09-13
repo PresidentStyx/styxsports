@@ -1,0 +1,14 @@
+{
+  "rootDir": ".",
+  "files": [
+    "manifest",
+    "source/**/*",
+    "components/**/*",
+    "images/**/*"
+  ],
+  "stagingDir": "out/stage",
+  "outFile": "out/StyxSports.zip",
+  "retainStagingDir": false,
+  "createPackage": true,
+  "autoImportComponentScript": false
+}

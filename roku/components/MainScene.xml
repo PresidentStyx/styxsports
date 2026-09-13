@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Root scene: a stack of full-screen components (Home, Player, Account, Live TV). Screens ask for
+  navigation through their `navigate` field ({screen, ...args}) and close themselves with `close`.
+-->
+<component name="MainScene" extends="Scene">
+  <interface>
+    <field id="launchArgs" type="assocarray" />
+  </interface>
+  <script type="text/brightscript" uri="MainScene.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Http.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Config.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/SiteParser.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Site.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Resolver.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
+  <children>
+    <Rectangle id="bg" width="1920" height="1080" color="0x0A0A0AFF" />
+    <Group id="screens" />
+  </children>
+</component>

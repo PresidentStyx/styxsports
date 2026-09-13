@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One IPTV channel in the Live TV grid. -->
+<component name="ChannelNode" extends="ContentNode">
+  <interface>
+    <field id="name" type="string" />
+    <field id="logo" type="string" />
+    <field id="group" type="string" />
+    <field id="url" type="string" />
+  </interface>
+</component>
