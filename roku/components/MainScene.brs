@@ -4,8 +4,9 @@ sub init()
     m.screens = m.top.findNode("screens")
     m.stack = []
 
-    ' Shared config for every screen; refreshed in the background right away.
-    m.global.addFields({ config: Config_load() })
+    ' Shared config for every screen; refreshed in the background right away. dumpTick is bumped by
+    ' the "dump" dev command so RowList/MarkupGrid items (not reachable from the tree) dump too.
+    m.global.addFields({ config: Config_load(), dumpTick: 0 })
     m.configTask = Ui_task("config", {}, "onConfigRefreshed")
 
     pushScreen("HomeScreen", {})
@@ -14,6 +15,28 @@ end sub
 sub onConfigRefreshed(ev as object)
     r = ev.getData()
     if r <> invalid and r.changed = true then m.global.config = Config_load()
+end sub
+
+' Developer commands (only reachable from the LAN via ECP while sideloaded):
+'   cmd=dump           print the on-screen layout as JSON lines for tools/layout-shot.ps1
+'   cmd=key&key=down   act on a remote key (this TV refuses ECP keypress with 403); screens
+'                      implement `devKey` and route it through the same code as real keys
+sub onDevCmd()
+    info = parseJsonSafe(m.top.devCmd)
+    if info = invalid or info.cmd = invalid then return
+    if info.cmd = "dump"
+        Dev_dumpTree(m.top, true)
+        m.global.dumpTick = m.global.dumpTick + 1
+    else if info.cmd = "key" and info.key <> invalid
+        key = LCase(info.key)
+        if key = "ok" then key = "OK"
+        if key = "back" and m.stack.Count() > 1
+            popScreen()
+        else if m.stack.Count() > 0
+            top = m.stack.Peek()
+            if top.hasField("devKey") then top.devKey = key
+        end if
+    end if
 end sub
 
 ' ---------------------------------------------------------------------------------------------

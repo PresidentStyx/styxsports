@@ -11,10 +11,18 @@ sub Main(args as dynamic)
     screen.show()
     scene.launchArgs = args
 
+    ' ECP "input" messages (curl -X POST "http://<roku>:8060/input?cmd=dump") reach us here; they
+    ' drive the developer tools (layout dump, key injection). Harmless in normal use.
+    input = CreateObject("roInput")
+    input.setMessagePort(port)
+
     while true
         msg = wait(0, port)
         if type(msg) = "roSGScreenEvent"
             if msg.isScreenClosed() then return
+        else if type(msg) = "roInputEvent"
+            info = msg.getInfo()
+            if info <> invalid and info.cmd <> invalid then scene.devCmd = FormatJson(info)
         end if
     end while
 end sub

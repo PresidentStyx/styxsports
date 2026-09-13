@@ -431,6 +431,11 @@ sub closeScreen()
     m.top.close = true
 end sub
 
+' Developer key injection (see MainScene.onDevCmd); the player handles every key itself.
+sub onDevKey()
+    onKeyEvent(m.top.devKey, true)
+end sub
+
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     if key = "back"

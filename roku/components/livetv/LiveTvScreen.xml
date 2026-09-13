@@ -6,6 +6,7 @@
     <field id="close" type="boolean" alwaysNotify="true" />
     <field id="resumed" type="boolean" alwaysNotify="true" onChange="onResumed" />
     <field id="start" type="boolean" alwaysNotify="true" onChange="onStart" />
+    <field id="devKey" type="string" alwaysNotify="true" onChange="onDevKey" />
   </interface>
   <script type="text/brightscript" uri="LiveTvScreen.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />

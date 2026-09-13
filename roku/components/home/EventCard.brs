@@ -10,8 +10,15 @@ sub init()
     m.crestAway = m.top.findNode("crestAway")
     m.home = m.top.findNode("home")
     m.away = m.top.findNode("away")
-    m.score = m.top.findNode("score")
+    m.scoreHome = m.top.findNode("scoreHome")
+    m.scoreAway = m.top.findNode("scoreAway")
     m.star = m.top.findNode("star")
+    m.global.observeField("dumpTick", "onDumpTick")
+end sub
+
+' Layout dump tool (see Ui.brs): RowList items are not reachable from the scene tree.
+sub onDumpTick()
+    Dev_dumpItem(m.top)
 end sub
 
 sub onContent()
@@ -24,11 +31,24 @@ sub onContent()
     m.crestAway.uri = c.ca
     m.crestHome.visible = c.ch <> ""
     m.crestAway.visible = c.ca <> ""
-    hasScore = c.sc <> "" and c.away <> ""
+    ' "31 - 24" -> per-team scores; anything else is shown whole on the home line.
+    scoreHome = ""
+    scoreAway = ""
+    if c.sc <> "" and c.away <> ""
+        parts = c.sc.Split("-")
+        if parts.Count() = 2
+            scoreHome = parts[0].Trim()
+            scoreAway = parts[1].Trim()
+        else
+            scoreHome = c.sc.Trim()
+        end if
+    end if
+    hasScore = scoreHome <> ""
+
     if c.away = ""
         ' Single-title card (UFC card, F1 session, ...): one big block, up to three lines.
         m.home.translation = [22, 56]
-        m.home.width = 396
+        m.home.width = 528
         m.home.height = 134
         m.home.wrap = true
         m.home.maxLines = 3
@@ -49,11 +69,11 @@ sub onContent()
         m.home.translation = [homeX, 56]
         m.away.translation = [awayX, 126]
         if hasScore
-            m.home.width = 258 - homeX
-            m.away.width = 258 - awayX
+            m.home.width = 472 - homeX
+            m.away.width = 472 - awayX
         else
-            m.home.width = 418 - homeX
-            m.away.width = 418 - awayX
+            m.home.width = 550 - homeX
+            m.away.width = 550 - awayX
         end if
     end if
 
@@ -81,7 +101,7 @@ sub onContent()
     m.whenBg.width = w
     m.when.width = w
     m.league.translation = [w + 36, 14]
-    m.league.width = 290 - w
+    m.league.width = 360 - (w + 36)
 
     if c.pro
         m.tag.text = "PREMIUM"
@@ -93,8 +113,10 @@ sub onContent()
     end if
     if c.pro then m.tag.color = Ui_color("gold")
 
-    m.score.text = c.sc
-    m.score.visible = hasScore
+    m.scoreHome.text = scoreHome
+    m.scoreAway.text = scoreAway
+    m.scoreHome.visible = hasScore
+    m.scoreAway.visible = hasScore and scoreAway <> ""
     if c.starred then m.star.text = Chr(9733) else m.star.text = ""
 end sub
 

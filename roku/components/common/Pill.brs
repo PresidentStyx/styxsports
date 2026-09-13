@@ -13,7 +13,8 @@ sub relayout()
     textW = 0
     r = m.label.boundingRect()
     if r <> invalid and r.width <> invalid then textW = Int(r.width)
-    if textW = 0 then textW = Len(m.top.text) * 15
+    est = Len(m.top.text) * 15
+    if textW < est then textW = est
     w = textW + 44
     if w < m.top.minWidth then w = m.top.minWidth
     ' The ring is a 3 px frame drawn around the pill when focused.

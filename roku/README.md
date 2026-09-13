@@ -50,8 +50,28 @@ components/
   livetv/                LiveTvScreen (LabelList groups + MarkupGrid channels), ChannelCell, ChannelNode
   common/Pill.*          chip / button
 tools/make-images.ps1    regenerates images/ from web/public/wordmark.png
+tools/layout-shot.ps1    draws what the running channel shows (see Developer tools)
 deploy.ps1               build + sideload
 ```
+
+## Developer tools
+
+Hisense Roku TVs return a black image from Roku's screenshot utility, and refuse ECP `keypress`
+(403), so the channel carries two small hooks reachable only over the LAN while sideloaded
+(`main.brs` -> `MainScene.onDevCmd`):
+
+```powershell
+# picture of the current screen: every visible node's device-measured rectangle, text, colour,
+# drawn with System.Drawing; labels the device reports as ellipsized are underlined in red and
+# listed. Geometry is exact, glyphs are approximate.
+.\tools\layout-shot.ps1 -Ip <RokuIp> -Out $env:TEMP\home.png
+
+# remote keys (down/up/left/right/ok/back/options/play) routed through the same code as real keys
+curl -X POST "http://<RokuIp>:8060/input?cmd=key&key=down"
+```
+
+`layout-shot.ps1` uses the RowList/MarkupGrid geometry to place their items, because Roku reports
+item rectangles in an internal coordinate space.
 
 ## Remote
 
@@ -66,23 +86,21 @@ deploy.ps1               build + sideload
 | Player | `*` | try all servers again |
 | Live TV | ◀ ▶ | between groups and channels; `*` refreshes the list |
 
-## Verified so far / still to verify on a device
+## Verified on a device (Hisense 58R6+, Roku OS 15.3.4)
 
-Without a Roku on the network nothing here has run on real hardware yet. What has been checked:
+- Schedule loads through the SSO cookie handshake (50+ games, 4 categories), home renders with
+  three rows of 572px cards, chips and top buttons; no label truncation reported by the device.
+- Opening a game resolves the server list (11-14 servers) and plays Server 1 over native HLS
+  (`Video.state = playing`); HUD shows period, score, server counter.
+- Premium Only chip shows the premium-flagged cards; the account screen issues a device code and
+  QR and polls for approval.
+- Still to try with a signed-in account: premium server playback and the Live TV screen.
 
-- `npx bsc` (BrighterScript) validates every file: syntax, scope, unknown functions.
-- The shared libraries were executed with the `brs` interpreter against a real listing page,
-  status feed and stream page: 4 categories / 57 games parsed with crests, clocks and scores;
-  the JSON cache round-trips; 12 server tabs parsed with premium flags, player state and the
-  embed URL; the M3U parser handles CRLF, missing logos and sports-first ordering.
+Things learned the hard way, in case they bite again:
 
-First things to watch on the debug console when a device is available:
-
-1. `roUrlTransfer.GetCookies("", "")` returning every domain's cookies (the jar). If not, the
-   SSO handshake fails and pages come back empty: fix in `CookieJar_collectFrom`.
-2. The account status check tells signed-in from signed-out by page content
-   (`Account_refreshStatus`), because Roku hides the final URL after redirects.
-3. `Video` node `addHeader` for `Referer`/`Origin` (ifHttpAgent on the node). If the CDN 403s,
-   switch to `content.HttpHeaders` in `playUrl`.
+1. `roFileSystem` is MAIN/TASK-only; on the render thread use `MatchFiles` / `ReadAsciiFile`.
+2. `roUrlTransfer.GetCookies()` records carry `Expires` as an `roDateTime`, which `FormatJson`
+   rejects; the jar stores a normalized form (`CookieJar_normalize`).
+3. `Label.boundingRect()` is unreliable before the first frame; `Pill` takes the larger of the
+   measurement and a character-count estimate.
 4. Registry size: cookies + config + favorites + recents must stay under 16 KB total.
-5. `Pill` widths come from `Label.boundingRect()` right after setting the text.

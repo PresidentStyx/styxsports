@@ -129,6 +129,47 @@ sub onChannelSelected(ev as object)
     m.top.navigate = { screen: "PlayerScreen", channelGroup: { name: name, channels: m.channels }, channelIndex: i }
 end sub
 
+' Developer key injection (see MainScene.onDevCmd). The LabelList and MarkupGrid consume arrows
+' and OK themselves, so those are reproduced here; everything else goes through onKeyEvent.
+sub onDevKey()
+    key = m.top.devKey
+    if m.groups.hasFocus() and m.groups.content <> invalid
+        n = m.groups.content.getChildCount()
+        i = m.groups.itemFocused
+        if key = "down" and i < n - 1
+            m.groups.jumpToItem = i + 1
+            return
+        else if key = "up" and i > 0
+            m.groups.jumpToItem = i - 1
+            return
+        else if key = "OK"
+            m.groups.itemSelected = i
+            return
+        end if
+    else if m.grid.hasFocus() and m.grid.content <> invalid
+        n = m.grid.content.getChildCount()
+        i = m.grid.itemFocused
+        cols = m.grid.numColumns
+        if key = "right" and i < n - 1
+            m.grid.jumpToItem = i + 1
+            return
+        else if key = "left" and (i mod cols) > 0
+            m.grid.jumpToItem = i - 1
+            return
+        else if key = "down" and i + cols < n
+            m.grid.jumpToItem = i + cols
+            return
+        else if key = "up" and i - cols >= 0
+            m.grid.jumpToItem = i - cols
+            return
+        else if key = "OK"
+            m.grid.itemSelected = i
+            return
+        end if
+    end if
+    onKeyEvent(key, true)
+end sub
+
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     if key = "back"

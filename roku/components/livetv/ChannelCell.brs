@@ -5,6 +5,12 @@ sub init()
     m.initials = m.top.findNode("initials")
     m.name = m.top.findNode("name")
     m.logo.observeField("loadStatus", "onLogoStatus")
+    m.global.observeField("dumpTick", "onDumpTick")
+end sub
+
+' Layout dump tool (see Ui.brs): grid items are not reachable from the scene tree.
+sub onDumpTick()
+    Dev_dumpItem(m.top)
 end sub
 
 sub onContent()

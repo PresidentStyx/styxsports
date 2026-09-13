@@ -10,6 +10,7 @@
     <field id="close" type="boolean" alwaysNotify="true" />
     <field id="resumed" type="boolean" alwaysNotify="true" onChange="onResumed" />
     <field id="start" type="boolean" alwaysNotify="true" onChange="onStart" />
+    <field id="devKey" type="string" alwaysNotify="true" onChange="onDevKey" />
     <field id="event" type="assocarray" />
     <field id="base" type="string" />
     <field id="channelGroup" type="assocarray" />

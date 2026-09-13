@@ -6,6 +6,8 @@
 <component name="MainScene" extends="Scene">
   <interface>
     <field id="launchArgs" type="assocarray" />
+    <!-- Developer commands arriving over ECP (/input?cmd=...), see main.brs. -->
+    <field id="devCmd" type="string" onChange="onDevCmd" alwaysNotify="true" />
   </interface>
   <script type="text/brightscript" uri="MainScene.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />

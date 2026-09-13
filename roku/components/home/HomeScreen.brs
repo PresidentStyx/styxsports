@@ -30,6 +30,7 @@ sub init()
     m.retryOnOk = false
     m.accountChecking = false
     m.everFocusedRows = false
+    m.contentSerial = 0
     m.renderedSignedIn = Account_isSignedIn()
     m.renderedLiveTv = Account_hasIptv()
 
@@ -405,6 +406,10 @@ sub buildRows(keepFocus as boolean)
     end if
 
     root = CreateObject("roSGNode", "ContentNode")
+    ' Stamp the content so recycled RowList items holding stale content can be told apart
+    ' (layout dump tool).
+    m.contentSerial = m.contentSerial + 1
+    root.id = "rows" + m.contentSerial.ToStr()
     for each row in rows
         rn = root.createChild("ContentNode")
         rn.title = row.title
@@ -560,8 +565,37 @@ sub activateTop(i as integer)
     end if
 end sub
 
+' Developer key injection (see MainScene.onDevCmd). The RowList normally consumes arrows and OK
+' itself, so those are reproduced here; everything else goes through onKeyEvent.
+sub onDevKey()
+    key = m.top.devKey
+    if m.focusArea = "rows" and m.rows.content <> invalid and m.rows.content.getChildCount() > 0
+        f = m.rows.rowItemFocused
+        if f = invalid or f.Count() < 2 then f = [0, 0]
+        rowCount = m.rows.content.getChildCount()
+        if key = "down"
+            if f[0] < rowCount - 1 then m.rows.jumpToRowItem = [f[0] + 1, 0]
+            return
+        else if key = "left" or key = "right"
+            n = m.rows.content.getChild(f[0]).getChildCount()
+            if n = 0 then return
+            col = f[1]
+            if key = "right" then col = (col + 1) mod n else col = (col - 1 + n) mod n
+            m.rows.jumpToRowItem = [f[0], col]
+            return
+        else if key = "OK"
+            selectRowItem(f)
+            return
+        end if
+    end if
+    onKeyEvent(key, true)
+end sub
+
 sub onRowItemSelected(ev as object)
-    sel = ev.getData()
+    selectRowItem(ev.getData())
+end sub
+
+sub selectRowItem(sel as object)
     content = m.rows.content
     if sel = invalid or sel.Count() < 2 or content = invalid then return
     row = content.getChild(sel[0])

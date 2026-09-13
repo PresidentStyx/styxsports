@@ -6,6 +6,7 @@
     <field id="close" type="boolean" alwaysNotify="true" />
     <field id="resumed" type="boolean" alwaysNotify="true" onChange="onResumed" />
     <field id="start" type="boolean" alwaysNotify="true" onChange="onStart" />
+    <field id="devKey" type="string" alwaysNotify="true" onChange="onDevKey" />
   </interface>
   <script type="text/brightscript" uri="HomeScreen.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Util.brs" />
@@ -30,12 +31,12 @@
     </Group>
 
     <!-- rows -->
-    <!-- 3 rows must fit between the chips (~y200) and the hint (y1024): 214 + 3*250 + 2*14 = 992 -->
+    <!-- 3 rows must fit between the chips (~y200) and the hint (y1024): 214 + 3*258 + 2*12 = 1012 -->
     <RowList id="rows" translation="[72,214]" itemComponentName="EventCard"
-             itemSize="[1776,250]" numRows="3" rowItemSize="[[440,210]]" rowItemSpacing="[[20,0]]"
-             rowHeights="[250]" rowSpacings="[14]" rowLabelOffset="[[0,6]]" showRowLabel="[true]"
+             itemSize="[1776,258]" numRows="3" rowItemSize="[[572,210]]" rowItemSpacing="[[30,0]]"
+             rowHeights="[258]" rowSpacings="[12]" rowLabelOffset="[[0,6]]" showRowLabel="[true]"
              rowLabelFont="font:MediumBoldSystemFont" rowLabelColor="0xF2F2F2FF"
-             focusXOffset="[0]" rowFocusAnimationStyle="fixedFocusWrap" vertFocusAnimationStyle="fixedFocus"
+             focusXOffset="[0]" rowFocusAnimationStyle="fixedFocusWrap" vertFocusAnimationStyle="floatingFocus"
              drawFocusFeedback="false" />
 
     <Label id="message" translation="[72,520]" width="1776" height="120" font="font:MediumSystemFont" color="0x9A9A9AFF" horizAlign="center" vertAlign="center" wrap="true" />
