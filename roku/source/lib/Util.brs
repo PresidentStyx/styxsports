@@ -228,8 +228,29 @@ end function
 ' Files
 ' ---------------------------------------------------------------------------------------------
 
+' roFileSystem is a MAIN/TASK-only component, so it cannot be used on the render thread. The
+' global MatchFiles works everywhere; split the path into dir + name and look for the name.
 function fileExists(path as string) as boolean
-    return CreateObject("roFileSystem").Exists(path)
+    slash = 0
+    for i = Len(path) to 1 step -1
+        if Mid(path, i, 1) = "/"
+            slash = i
+            exit for
+        end if
+    end for
+    if slash = 0 then return false
+    dir = Left(path, slash)
+    name = Mid(path, slash + 1)
+    ' MatchFiles treats * ? [ ] as special; our names are plain, but escape just in case.
+    pattern = ""
+    for i = 1 to Len(name)
+        ch = Mid(name, i, 1)
+        if ch = "*" or ch = "?" or ch = "[" or ch = "]" then pattern += "\" + ch else pattern += ch
+    end for
+    for each f in MatchFiles(dir, pattern)
+        if f = name then return true
+    end for
+    return false
 end function
 
 ' ---------------------------------------------------------------------------------------------

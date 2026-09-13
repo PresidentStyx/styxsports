@@ -29,6 +29,7 @@ sub init()
     m.lastError = ""
     m.retryOnOk = false
     m.accountChecking = false
+    m.everFocusedRows = false
     m.renderedSignedIn = Account_isSignedIn()
     m.renderedLiveTv = Account_hasIptv()
 
@@ -87,11 +88,17 @@ sub onSchedule(ev as object)
     r = ev.getData()
     if r = invalid then return
     if r.ok = true
+        logi("Home", "schedule: " + r.events.Count().ToStr() + " events, " + r.categories.Count().ToStr() + " categories from " + strOr(r.base, "?"))
         m.lastError = ""
         m.snapshot = r
         render(false)
+        ' First data after an empty launch: move focus onto the cards.
+        if not m.everFocusedRows and m.rows.content <> invalid and m.rows.content.getChildCount() > 0
+            focusRows()
+        end if
     else
         m.lastError = strOr(r.error, "unknown error")
+        logi("Home", "schedule failed: " + m.lastError)
         if m.snapshot = invalid
             showMessage("Could not load the schedule." + Chr(10) + m.lastError + Chr(10) + Chr(10) + "Press OK to try again.")
             m.retryOnOk = true
@@ -456,6 +463,7 @@ end sub
 sub focusRows()
     if m.rows.content <> invalid and m.rows.content.getChildCount() > 0
         m.focusArea = "rows"
+        m.everFocusedRows = true
         m.rows.setFocus(true)
     else
         m.focusArea = "chips"

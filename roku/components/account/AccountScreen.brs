@@ -164,7 +164,7 @@ sub signOut()
     Ui_task("accountSignOut", {}, "onSignedOut")
 end sub
 
-sub onSignedOut(ev as object)
+sub onSignedOut()
     m.busy = false
     showToast("Signed out.")
     beginSignIn()

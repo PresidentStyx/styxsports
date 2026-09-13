@@ -117,17 +117,19 @@ end function
 ' Cookie jar (registry section "cookies", key "jar", JSON array of Roku cookie records)
 ' ---------------------------------------------------------------------------------------------
 
+' Stored jar is a plain, JSON-safe form: [{ domain, path, name, value, exp }] where exp is unix
+' seconds (0 = session cookie). roUrlTransfer's own cookie records carry Expires as an roDateTime,
+' which FormatJson cannot serialize, so records are normalized on the way in and rebuilt on the
+' way out.
 function CookieJar_load() as object
     sec = CreateObject("roRegistrySection", "cookies")
     if not sec.Exists("jar") then return []
     arr = parseJsonSafe(sec.Read("jar"))
     if type(arr) <> "roArray" then return []
-    ' drop expired
     now = nowSeconds()
     out = []
     for each c in arr
-        exp = 0
-        if c.Expires <> invalid then exp = toInt(c.Expires)
+        exp = toInt(c.exp)
         if exp = 0 or exp > now then out.Push(c)
     end for
     return out
@@ -147,7 +149,15 @@ end sub
 
 sub CookieJar_applyTo(xfer as object)
     jar = CookieJar_load()
-    if jar.Count() > 0 then xfer.AddCookies(jar)
+    if jar.Count() = 0 then return
+    records = []
+    for each c in jar
+        exp = toInt(c.exp)
+        dt = CreateObject("roDateTime")
+        if exp > 0 then dt.FromSeconds(exp) else dt.FromSeconds(nowSeconds() + 31536000)
+        records.Push({ Domain: c.domain, Path: strOr(c.path, "/"), Name: c.name, Value: strOr(c.value, ""), Expires: dt })
+    end for
+    xfer.AddCookies(records)
 end sub
 
 ' Merges the transfer's cookie cache back into the jar (same domain+path+name replaces).
@@ -156,18 +166,41 @@ sub CookieJar_collectFrom(xfer as object)
     if type(fresh) <> "roArray" or fresh.Count() = 0 then return
     jar = CookieJar_load()
     for each c in fresh
-        key = LCase(strOr(c.Domain, "")) + "|" + strOr(c.Path, "/") + "|" + strOr(c.Name, "")
+        rec = CookieJar_normalize(c)
+        if rec = invalid then goto nextCookie
+        key = rec.domain + "|" + rec.path + "|" + rec.name
         replaced = false
         for i = 0 to jar.Count() - 1
             j = jar[i]
-            jk = LCase(strOr(j.Domain, "")) + "|" + strOr(j.Path, "/") + "|" + strOr(j.Name, "")
+            jk = LCase(strOr(j.domain, "")) + "|" + strOr(j.path, "/") + "|" + strOr(j.name, "")
             if jk = key
-                jar[i] = c
+                jar[i] = rec
                 replaced = true
                 exit for
             end if
         end for
-        if not replaced then jar.Push(c)
+        if not replaced then jar.Push(rec)
+        nextCookie:
     end for
     CookieJar_save(jar)
 end sub
+
+function CookieJar_normalize(c as object) as dynamic
+    name = strOr(c.Name, "")
+    if name = "" then return invalid
+    exp = 0
+    if c.Expires <> invalid
+        if type(c.Expires) = "roDateTime"
+            exp = c.Expires.AsSeconds()
+        else
+            exp = toInt(c.Expires)
+        end if
+    end if
+    return {
+        domain: LCase(strOr(c.Domain, ""))
+        path: strOr(c.Path, "/")
+        name: name
+        value: strOr(c.Value, "")
+        exp: exp
+    }
+end function

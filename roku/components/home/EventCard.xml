@@ -19,21 +19,21 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
-    <Rectangle id="ring" translation="[-4,-4]" width="448" height="258" color="0x00000000" />
-    <Rectangle id="bg" width="440" height="250" color="0x161616FF" />
-    <Rectangle id="stripe" width="6" height="250" color="0x00000000" />
+    <Rectangle id="ring" translation="[-4,-4]" width="448" height="218" color="0x00000000" />
+    <Rectangle id="bg" width="440" height="210" color="0x161616FF" />
+    <Rectangle id="stripe" width="6" height="210" color="0x00000000" />
 
-    <Rectangle id="whenBg" translation="[22,20]" width="90" height="34" color="0x2A2A2AFF" />
-    <Label id="when" translation="[22,20]" width="90" height="34" font="font:SmallBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" />
-    <Label id="league" translation="[126,20]" width="200" height="34" font="font:SmallestSystemFont" color="0x9A9A9AFF" vertAlign="center" />
-    <Label id="tag" translation="[330,20]" width="88" height="34" font="font:SmallestBoldSystemFont" color="0xF5C518FF" horizAlign="right" vertAlign="center" />
+    <Rectangle id="whenBg" translation="[22,14]" width="90" height="32" color="0x2A2A2AFF" />
+    <Label id="when" translation="[22,14]" width="90" height="32" font="font:SmallBoldSystemFont" color="0xF2F2F2FF" horizAlign="center" vertAlign="center" />
+    <Label id="league" translation="[126,14]" width="200" height="32" font="font:SmallestSystemFont" color="0x9A9A9AFF" vertAlign="center" />
+    <Label id="tag" translation="[330,14]" width="88" height="32" font="font:SmallestBoldSystemFont" color="0xF5C518FF" horizAlign="right" vertAlign="center" />
 
-    <Poster id="crestHome" translation="[22,76]" width="64" height="64" loadDisplayMode="scaleToFit" />
-    <Label id="home" translation="[100,72]" width="300" height="70" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" wrap="true" maxLines="2" lineSpacing="0" />
-    <Poster id="crestAway" translation="[22,152]" width="64" height="64" loadDisplayMode="scaleToFit" />
-    <Label id="away" translation="[100,148]" width="300" height="70" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" wrap="true" maxLines="2" lineSpacing="0" />
+    <Poster id="crestHome" translation="[22,60]" width="56" height="56" loadDisplayMode="scaleToFit" />
+    <Label id="home" translation="[92,56]" width="326" height="64" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" wrap="false" maxLines="1" />
+    <Poster id="crestAway" translation="[22,130]" width="56" height="56" loadDisplayMode="scaleToFit" />
+    <Label id="away" translation="[92,126]" width="326" height="64" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" vertAlign="center" wrap="false" maxLines="1" />
 
-    <Label id="score" translation="[300,140]" width="118" height="80" font="font:LargeBoldSystemFont" color="0xF2F2F2FF" horizAlign="right" vertAlign="center" />
-    <Label id="star" translation="[388,214]" width="40" height="30" font="font:SmallBoldSystemFont" color="0xF5C518FF" horizAlign="right" vertAlign="center" />
+    <Label id="score" translation="[262,56]" width="156" height="134" font="font:MediumBoldSystemFont" color="0xF2F2F2FF" horizAlign="right" vertAlign="center" />
+    <Label id="star" translation="[388,176]" width="40" height="30" font="font:SmallBoldSystemFont" color="0xF5C518FF" horizAlign="right" vertAlign="center" />
   </children>
 </component>

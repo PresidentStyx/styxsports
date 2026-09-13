@@ -24,23 +24,37 @@ sub onContent()
     m.crestAway.uri = c.ca
     m.crestHome.visible = c.ch <> ""
     m.crestAway.visible = c.ca <> ""
+    hasScore = c.sc <> "" and c.away <> ""
     if c.away = ""
-        ' Single-title card (UFC card, F1 session, ...): one big line.
-        m.home.translation = [22, 76]
-        m.home.width = 380
-        m.home.height = 150
+        ' Single-title card (UFC card, F1 session, ...): one big block, up to three lines.
+        m.home.translation = [22, 56]
+        m.home.width = 396
+        m.home.height = 134
+        m.home.wrap = true
         m.home.maxLines = 3
         m.away.visible = false
         m.crestHome.visible = false
         m.crestAway.visible = false
     else
-        m.home.translation = [100, 72]
-        m.home.width = 300
-        m.home.height = 70
-        m.home.maxLines = 2
+        m.home.wrap = false
+        m.home.maxLines = 1
+        m.home.height = 64
         m.away.visible = true
-        if c.ch = "" then m.home.translation = [22, 72]
-        if c.ca = "" then m.away.translation = [22, 148] else m.away.translation = [100, 148]
+        ' Names start after the crest (or at the left edge when there is none) and stop short of
+        ' the score column when a score is showing.
+        homeX = 92
+        awayX = 92
+        if c.ch = "" then homeX = 22
+        if c.ca = "" then awayX = 22
+        m.home.translation = [homeX, 56]
+        m.away.translation = [awayX, 126]
+        if hasScore
+            m.home.width = 258 - homeX
+            m.away.width = 258 - awayX
+        else
+            m.home.width = 418 - homeX
+            m.away.width = 418 - awayX
+        end if
     end if
 
     m.league.text = UCase(c.league)
@@ -66,7 +80,7 @@ sub onContent()
     if w > 200 then w = 200
     m.whenBg.width = w
     m.when.width = w
-    m.league.translation = [w + 36, 20]
+    m.league.translation = [w + 36, 14]
     m.league.width = 290 - w
 
     if c.pro
@@ -80,11 +94,7 @@ sub onContent()
     if c.pro then m.tag.color = Ui_color("gold")
 
     m.score.text = c.sc
-    m.score.visible = c.sc <> "" and c.away <> ""
-    if m.score.visible
-        m.home.width = 190
-        m.away.width = 190
-    end if
+    m.score.visible = hasScore
     if c.starred then m.star.text = Chr(9733) else m.star.text = ""
 end sub
 

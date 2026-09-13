@@ -8,9 +8,12 @@ end sub
 sub relayout()
     m.label.text = m.top.text
     h = m.top.pillHeight
+    ' boundingRect is only valid once the label has been rendered; pills built before the first
+    ' frame (the home chips) read 0, so fall back to an estimate from the character count.
     textW = 0
     r = m.label.boundingRect()
     if r <> invalid and r.width <> invalid then textW = Int(r.width)
+    if textW = 0 then textW = Len(m.top.text) * 15
     w = textW + 44
     if w < m.top.minWidth then w = m.top.minWidth
     ' The ring is a 3 px frame drawn around the pill when focused.
