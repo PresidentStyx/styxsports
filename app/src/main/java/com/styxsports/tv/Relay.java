@@ -166,20 +166,18 @@ final class Relay {
      * the CDN playlist URL and, for the free CDNs, its own proxied copy; the CDN is tried from
      * here first (fast, and the only thing that works for CDNs whose tokens are bound to the
      * viewer's IP), the proxy when this network refuses the CDN or the CDN refuses this device.
-     * The premium CDN is never proxied (its panel bans the account for it), so a premium tab on
-     * a network that blocks that CDN resolves to nothing and the free tabs are used.
+     * The premium CDN is never proxied as HLS (its panel bans the account for it); on a network
+     * that blocks that CDN the Worker relays the panel's continuous MPEG-TS instead (`ts`, one
+     * connection per viewer - see hls.js tsPath), which the player takes as a progressive stream.
      *
      * A premium tab spends a connection of the shared account, so it needs this device's pool
      * lease (the Worker refuses otherwise: state "gate"). Never throws.
      */
     static StreamResolver.Stream resolve(Context ctx, StreamResolver.Server server, boolean premium) {
         String origin = StreamResolver.originOf(server.pageUrl);
-        if (premium && premiumBlocked()) {
-            // Every premium tab plays from the same CDN, and this network refused it a moment
-            // ago: don't spend seconds (and a Worker page fetch) finding that out tab by tab.
-            Log.i(TAG, server.name + ": premium CDN is blocked here, skipping");
-            return new StreamResolver.Stream(server, null, origin, null, "blocked");
-        }
+        // Every premium tab plays from the same CDN; when this network refused it a moment ago,
+        // don't spend seconds finding that out again tab by tab - go straight to the TS relay.
+        final boolean skipDirect = premium && premiumBlocked();
         try {
             ensureAnnounced(ctx);
             String q = "?server=" + Uri.encode(server.pageUrl) + "&name=" + Uri.encode(server.name)
@@ -198,22 +196,33 @@ final class Relay {
             String direct = s.isNull("direct") ? "" : s.optString("direct", "");
             String hop = s.isNull("hop") ? "" : s.optString("hop", "");
             String proxy = s.isNull("hls") ? "" : BASE + s.optString("hls", "");
+            String ts = s.isNull("ts") ? "" : BASE + s.optString("ts", "");
             String playerOrigin = s.isNull("playerOrigin") ? "" : s.optString("playerOrigin", "");
             if (!playerOrigin.isEmpty()) origin = playerOrigin;
             Log.i(TAG, server.name + " via web: state=" + state + " cdn=" + s.optString("cdn", "-")
-                    + " direct=" + !direct.isEmpty() + " hop=" + !hop.isEmpty() + " proxy=" + !proxy.equals(BASE));
-            if (direct.isEmpty() && proxy.equals(BASE)) return new StreamResolver.Stream(server, null, origin, null, state);
+                    + " direct=" + !direct.isEmpty() + " hop=" + !hop.isEmpty() + " proxy=" + !proxy.equals(BASE)
+                    + " ts=" + !ts.equals(BASE));
+            if (ts.equals(BASE)) ts = "";
+            if (direct.isEmpty() && proxy.equals(BASE) && ts.isEmpty()) {
+                return new StreamResolver.Stream(server, null, origin, null, state);
+            }
+            if (skipDirect && !ts.isEmpty()) {
+                Log.i(TAG, server.name + ": premium CDN is blocked here; playing the TS relay");
+                return new StreamResolver.Stream(server, ts, origin, null, state);
+            }
 
             // The CDN from here first, then the edge its front door redirects to, then the
             // Worker's proxy: each one look from this device (Ways).
-            Ways w = tryWays(server.name, origin, direct, hop, proxy.equals(BASE) ? "" : proxy);
+            Ways w = tryWays(server.name, origin, skipDirect ? "" : direct, hop, proxy.equals(BASE) ? "" : proxy);
             if (w.url != null) return new StreamResolver.Stream(server, w.url, origin, null, state);
             if (w.cdnUnreachable && s.optBoolean("ownAddressOnly", false)) {
-                // The premium CDN (never proxied) does not answer from here at all: the other
-                // premium tabs would fail the same way for the next while.
-                Log.w(TAG, "premium CDN unreachable from this network; premium tabs skipped for "
-                        + PREMIUM_BLOCKED_MS / 60_000 + " min");
+                // The premium CDN does not answer from here at all, and the other premium tabs
+                // would fail the same way for the next while: remember it, and play the panel
+                // through the Worker's TS relay when it offered one.
+                Log.w(TAG, "premium CDN unreachable from this network; premium tabs "
+                        + (ts.isEmpty() ? "skipped" : "relayed as TS") + " for " + PREMIUM_BLOCKED_MS / 60_000 + " min");
                 premiumBlockedUntil = System.currentTimeMillis() + PREMIUM_BLOCKED_MS;
+                if (!ts.isEmpty()) return new StreamResolver.Stream(server, ts, origin, null, state);
                 return new StreamResolver.Stream(server, null, origin, null, "blocked");
             }
             return new StreamResolver.Stream(server, null, origin, null, w.state);
@@ -226,21 +235,31 @@ final class Relay {
     /**
      * A Live TV channel whose front door this network refuses: the Worker (/api/iptv/token)
      * says which edge the channel redirects to, and the edge is tried from here (segments only
-     * play from the address that opened it). The Worker never proxies this CDN itself - the
-     * panel bans the account when one viewer's requests arrive from many addresses - so when
-     * the edge is blocked too, the channel cannot play on this network (IOException with the
-     * Worker's message). Needs this device's pool lease or a channel of the account shared to
-     * the pool.
+     * play from the address that opened it). The Worker never proxies this CDN as HLS - the
+     * panel bans the account when one viewer's requests arrive from many addresses - but it
+     * relays the channel's continuous MPEG-TS (`ts`: one connection per viewer), which is what
+     * plays when the edge is blocked too. Only when neither exists can the channel not play on
+     * this network (IOException with the Worker's message). Needs this device's pool lease or a
+     * channel of the account shared to the pool.
      *
-     * @return the playlist URL to play, or null with the reason in {@link Ways#state}
+     * @return the URL to play, or null with the reason in {@link Ways#state}
      */
     static Ways channel(Context ctx, String name, String channelUrl, String playerOrigin) throws IOException {
         JSONObject o = call(ctx, BASE + "/api/iptv/token?u=" + Uri.encode(channelUrl) + "&slot="
                 + Uri.encode(Presence.id(ctx)) + "&relay=1", 30_000);
         String hop = o.isNull("hop") ? "" : o.optString("hop", "");
         String hls = o.isNull("hls") ? "" : o.optString("hls", "");
-        if (hop.isEmpty() && hls.isEmpty()) throw new IOException(o.optString("error", "no way to the channel"));
-        return tryWays(name, playerOrigin, "", hop, hls.isEmpty() ? "" : BASE + hls);
+        String ts = o.isNull("ts") ? "" : o.optString("ts", "");
+        if (hop.isEmpty() && hls.isEmpty() && ts.isEmpty()) {
+            throw new IOException(o.optString("error", "no way to the channel"));
+        }
+        Ways w = hop.isEmpty() && hls.isEmpty() ? new Ways(null, "")
+                : tryWays(name, playerOrigin, "", hop, hls.isEmpty() ? "" : BASE + hls);
+        if (w.url == null && !ts.isEmpty() && !"warming".equals(w.state)) {
+            Log.i(TAG, name + ": playing the Worker's TS relay");
+            return new Ways(BASE + ts, "");
+        }
+        return w;
     }
 
     /** What {@link #tryWays} found: a playlist URL to play, or none and why ("warming", "cdn 404", ""). */

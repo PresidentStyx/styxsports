@@ -15,7 +15,7 @@
 //   /login, /logout      site password (secret SITE_PASSWORD; see auth.js) — everything below needs it
 //   everything else      static front end (public/)
 import { loadConfig, fetchSchedule, fetchStatus, streamPage, resolveServer, currentBase, request } from './site.js';
-import { handleHls, proxyPath, proxyable } from './hls.js';
+import { handleHls, handleTs, proxyPath, tsPath, proxyable } from './hls.js';
 import { hostOf } from './parser.js';
 import { DESKTOP_UA } from './site.js';
 import { gate, handleLogin, handleLogout } from './auth.js';
@@ -78,7 +78,7 @@ export default {
       // APK's Relay): its install id, the same one that pings /api/ping, is its credential.
       const device = request.headers.get(DEVICE_HEADER) || '';
       const app = !!device && APP_PATHS.has(path) && await isTvDevice(env, device);
-      const denied = leased || app || path.startsWith('/hls/') ? null : await gate(request, env, path);
+      const denied = leased || app || path.startsWith('/hls/') || path.startsWith('/ts/') ? null : await gate(request, env, path);
       if (denied) return denied;
       if (path === '/api/stats') {
         const res = await handleStats(env);
@@ -105,6 +105,7 @@ export default {
         return env.ASSETS.fetch(new URL('/stats.html', request.url));
       }
       if (path.startsWith('/hls/')) return await handleHls(request, env, path.slice(5));
+      if (path.startsWith('/ts/')) return await handleTs(request, env, path.slice(4));
       if (path === '/api/schedule') return await cached(request, ctx, SCHEDULE_TTL_S, apiSchedule);
       if (path === '/api/status') return await cached(request, ctx, STATUS_TTL_S, apiStatus);
       if (path === '/api/stream') return await apiStream(request, env, url);
@@ -434,13 +435,16 @@ async function apiIptvToken(request, env, url) {
   const answer = async () => {
     const hls = await proxyPath(env, u, null);
     const hop = relay ? await firstHop(u, null) : null;
+    // The panel's continuous-TS relay (hls.js tsPath): one connection per viewer, safe to carry.
+    const ts = relay && !hls ? await tsPath(env, u, null) : null;
     return json({
       hls,
       direct: u,
       hop,
+      ts,
       ownAddressOnly: !hls,
       // For the relay: nothing else to try means the message below, not a proxied stream.
-      error: relay && !hls && !hop ? 'this channel plays only from your own network, which blocks it' : undefined,
+      error: relay && !hls && !hop && !ts ? 'this channel plays only from your own network, which blocks it' : undefined,
     });
   };
   if (iptvUrlAllowed(session, u)) return await answer();
@@ -541,6 +545,9 @@ async function publicStream(env, s, { origin = '', native = false, relay = false
     direct: direct ? s.hlsUrl : null,
     playerOrigin: s.playerOrigin || null,
     hop: relay && s.hlsUrl ? await firstHop(s.hlsUrl, s.playerOrigin) : null,
+    // The panel's continuous-TS relay (one connection per viewer, see hls.js tsPath): the way a
+    // device whose network refuses the panel still plays premium.
+    ts: relay && ownAddressOnly ? await tsPath(env, s.hlsUrl, s.playerOrigin) : null,
     ownAddressOnly,
     playable: ownAddressOnly || !!(check && check.ok && !check.warming),
     warming: !!(check && check.warming),

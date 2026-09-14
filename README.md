@@ -258,9 +258,27 @@ Cloudflare Worker from [`web/`](web/):
   check the playlist from the device as before, the web fetches it once from
   the browser (`checkDirect` in `app.js`) and treats a `warming.ts`-only
   playlist or a non-playlist answer as "try another server". The APK's Relay
-  (below) therefore only ever proxies *free* streams; on a network that blocks
-  the premium hosts, premium tabs fall through to the free ones and Live TV
-  shows "can't play on this network" (and gives its pool slot back).
+  (below) therefore only ever proxies *free* streams as HLS.
+- **The premium panel is relayed as continuous TS instead** (`hls.js`
+  `tsPath`/`handleTs`, path `/ts/<token>`). Beside every `…/<id>.m3u8` the
+  Xtream panel serves `…/<id>.ts`: the same channel as one endless MPEG-TS
+  HTTP response (its front door 302s to the same `edge-N.iptv4.net`, which
+  then streams `video/mp2t` for as long as the connection lives). That is what
+  every IPTV player in the world does, and it has none of HLS's problem: one
+  Worker subrequest *is* the viewing session, so the panel sees a single
+  connection from a single address and there are no per-segment tokens to
+  bind. `/api/stream` and `/api/iptv/token` mint a `ts` token only for the
+  panel's hosts and only when a TV device asked with `relay=1` (its own
+  network refuses the panel); `handleTs` follows the redirect inside the one
+  fetch, strips `Range`, sets no timeout, and pipes the body through. The APK
+  (`Relay.resolve`/`Relay.channel`) plays that URL as a progressive stream
+  (`DefaultMediaSourceFactory`, sniffed as TS - not `HlsMediaSource`), with
+  the premium runway. Verified on the office TV, whose firewall refuses
+  `tv.steast.io` outright: the premium "Home" tab of an MLB game went from
+  "CDN from here: Unable to parse TLS packet header" to first frame in ~4 s.
+  The web and Roku don't use it (hls.js can't play raw TS; the Roku has no
+  progressive-TS format) - on a blocking network those still fall through to
+  the free tabs.
 - **A "no premium" verdict expires** (`account.js` `storedPremium`,
   `PREMIUM_NO_TTL_MS` = 2 h). Whether an account has premium is learnt from
   what a premium tab answers (`notePremium`: a playlist means yes, the "gate"
@@ -287,9 +305,10 @@ Cloudflare Worker from [`web/`](web/):
   and through the proxy the next. Three things learnt from that run:
   - Once the premium CDN fails to answer from the device (a TLS/connect
     failure, not a refusal) the APK remembers it for 10 minutes
-    (`Relay.premiumBlocked`) and skips the remaining premium tabs without
-    asking the Worker or pacing the sweep - seven tabs used to cost 24 s of
-    "Connecting…" before the free ones were reached; now it is instant.
+    (`Relay.premiumBlocked`): the remaining premium tabs skip the futile
+    direct check and go straight to the Worker's `ts` relay (above), or are
+    skipped without pacing when there is none - seven tabs used to cost 24 s
+    of "Connecting…" before the free ones were reached.
   - When a *free* server ends up playing while a pool slot is held (premium
     tabs failed, or the viewer picked it), the slot is released right away;
     a later premium pick acquires again. Likewise Live TV gives its slot back

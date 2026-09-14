@@ -168,7 +168,10 @@ public class NativePlayerActivity extends Activity {
     private int poolUsed, poolMax = 5;
 
     private final Runnable hideHud = this::hideHud;
-    private final Runnable stallCheck = () -> onFailure("stalled");
+    private final Runnable stallCheck = () -> {
+        Log.w(TAG, "stalled: " + liveState());
+        onFailure("stalled");
+    };
     private final Runnable startTimeout = () -> onFailure("no video after " + startTimeoutMs() / 1000 + "s");
     /** Behind-live-window recoveries on the current server (reset on every switch). */
     private int liveEdgeResyncs;
@@ -512,7 +515,7 @@ public class NativePlayerActivity extends Activity {
                         Log.i(TAG, "buffering: " + liveState());
                     }
                 } else if (state == Player.STATE_READY) {
-                    if (everPlayed) Log.i(TAG, "resumed: " + liveState());
+                    Log.i(TAG, (everPlayed ? "resumed: " : "ready: ") + liveState());
                     handler.removeCallbacks(stallCheck);
                     handler.removeCallbacks(startTimeout);
                     handler.removeCallbacks(impatience);
@@ -851,8 +854,8 @@ public class NativePlayerActivity extends Activity {
                         + (c.shape().isEmpty() ? "" : " " + c.shape())
                         + (c.error == null ? "" : " " + c.error));
                 // The CDN did not answer at all: on a network that blocks it by name, the web
-                // relay knows the edge behind it (Relay.channel). It never proxies this CDN, so
-                // when the edge is blocked too the channel simply cannot play here.
+                // relay knows the edge behind it (Relay.channel), and when the edge is blocked
+                // too it relays the channel's continuous TS itself (/ts/, progressive playback).
                 Relay.Ways ways = null;
                 if (!c.ok && c.code == 0) {
                     Log.i(TAG, direct.server.name + ": CDN unreachable from here; asking the web relay");
@@ -1030,18 +1033,21 @@ public class NativePlayerActivity extends Activity {
         // A stream relayed through the Worker's proxy: each segment makes two trips (CDN to
         // Cloudflare, Cloudflare to here), so it arrives later than from the CDN itself.
         final boolean viaProxy = st.hlsUrl.startsWith(Pool.WEB + "/hls/");
+        // The premium panel relayed by the Worker as one continuous MPEG-TS response (Relay.java):
+        // not HLS at all - a plain progressive stream with no live window to sit in.
+        final boolean viaTs = st.hlsUrl.startsWith(Pool.WEB + "/ts/");
         // Premium tabs, Live TV and proxied streams: wait for a runway before the first frame
         // and after a stall (see RUNWAY_*), and join the live window 30 s back when it is that
         // deep (the free CDNs' windows are 60 s).
-        loadControl.runway = premiumCdn || viaProxy;
+        loadControl.runway = premiumCdn || viaProxy || viaTs;
         MediaItem.Builder item = new MediaItem.Builder().setUri(st.hlsUrl);
-        if (premiumCdn || viaProxy) {
+        if ((premiumCdn || viaProxy) && !viaTs) {
             item.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()
                     .setTargetOffsetMs(PREMIUM_LIVE_OFFSET_MS).build());
         }
         // A channel's final URL (after the CDN's redirect to /auth/<token>) carries no extension;
         // the channel's own URL says whether it is HLS.
-        if (st.hlsUrl.contains(".m3u8") || st.server.pageUrl.contains(".m3u8") || channelGroup == null) {
+        if (!viaTs && (st.hlsUrl.contains(".m3u8") || st.server.pageUrl.contains(".m3u8") || channelGroup == null)) {
             // A restarted premium channel repeats the same playlist for 30-40 s; ExoPlayer's
             // default gives up on an unchanging live playlist after 3 target durations. Allow
             // twice that - the stall timer above is the viewer-facing limit.
@@ -1052,8 +1058,8 @@ public class NativePlayerActivity extends Activity {
             }
             source = hls.createMediaSource(item.build());
         } else {
-            // IPTV channels without an HLS variant are plain MPEG-TS over HTTP; let the default
-            // factory sniff the container.
+            // IPTV channels without an HLS variant, and the Worker's /ts/ relay of the premium
+            // panel, are plain MPEG-TS over HTTP; let the default factory sniff the container.
             source = new DefaultMediaSourceFactory(http).createMediaSource(item.build());
         }
         player.setMediaSource(source);
