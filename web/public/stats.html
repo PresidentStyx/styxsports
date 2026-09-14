@@ -28,14 +28,14 @@
     .pool-head b { font-size: 44px; line-height: 1; }
     .pool-head span { color: var(--muted); font-size: 14px; }
     .accounts { display: flex; flex-direction: column; gap: 10px; margin: 16px 0 6px; }
-    .acct { background: var(--bg); border: 1px solid var(--outline); border-radius: 12px; padding: 12px 14px; }
-    .acct-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .acct-name { font-weight: 700; }
-    .acct-meta { color: var(--muted); font-size: 12px; flex: 1; }
-    .acct-meta .warn { color: #f87171; }
-    .acct-n { font-size: 13px; font-weight: 600; white-space: nowrap; }
-    .acct-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 12px; padding: 4px 6px; border-radius: 6px; }
-    .acct-x:hover { color: #f87171; background: var(--surface); }
+    .shacct { background: var(--bg); border: 1px solid var(--outline); border-radius: 12px; padding: 12px 14px; }
+    .shacct-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .shacct-name { font-weight: 700; }
+    .shacct-meta { color: var(--muted); font-size: 12px; flex: 1; }
+    .shacct-meta .warn { color: #f87171; }
+    .shacct-n { font-size: 13px; font-weight: 600; white-space: nowrap; }
+    .shacct-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 12px; padding: 4px 6px; border-radius: 6px; }
+    .shacct-x:hover { color: #f87171; background: var(--surface); }
     .slots { display: flex; gap: 6px; margin-top: 10px; }
     .slot { flex: 1; height: 10px; border-radius: 5px; background: var(--outline-strong); }
     .slot.on { background: var(--gold); }
@@ -198,17 +198,17 @@
       box.replaceChildren();
       for (const a of accounts) {
         const card = document.createElement('div');
-        card.className = 'acct';
+        card.className = 'shacct';
         const head = document.createElement('div');
-        head.className = 'acct-head';
-        const name = document.createElement('span'); name.className = 'acct-name'; name.textContent = a.label;
+        head.className = 'shacct-head';
+        const name = document.createElement('span'); name.className = 'shacct-name'; name.textContent = a.label;
         head.appendChild(name);
         if (a.key === mineKey) { const m = document.createElement('span'); m.className = 'mine'; m.textContent = 'yours'; head.appendChild(m); }
-        const meta = document.createElement('span'); meta.className = 'acct-meta';
+        const meta = document.createElement('span'); meta.className = 'shacct-meta';
         meta.textContent = 'shared ' + ago(a.sharedAt) + ' ago' + (a.iptv ? ' · Live TV' : ' · no Live TV');
         if (a.premium === false) { const w = document.createElement('span'); w.className = 'warn'; w.textContent = ' · premium locked'; meta.appendChild(w); }
-        const n = document.createElement('span'); n.className = 'acct-n'; n.textContent = a.used + ' / ' + a.max;
-        const x = document.createElement('button'); x.className = 'acct-x'; x.textContent = 'Remove';
+        const n = document.createElement('span'); n.className = 'shacct-n'; n.textContent = a.used + ' / ' + a.max;
+        const x = document.createElement('button'); x.className = 'shacct-x'; x.textContent = 'Remove';
         x.onclick = () => {
           if (confirm('Stop sharing "' + a.label + '"? Anyone borrowing it drops to free servers.')) poolAction('remove', { key: a.key });
         };
