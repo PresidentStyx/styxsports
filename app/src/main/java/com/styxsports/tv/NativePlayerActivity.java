@@ -47,6 +47,7 @@ import androidx.media3.ui.PlayerView;
 
 import org.json.JSONObject;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -591,7 +592,7 @@ public class NativePlayerActivity extends Activity {
         }
         io.execute(() -> {
             try {
-                StreamResolver.Page p = resolver.page(event.url);
+                final StreamResolver.Page p = fetchPage();
                 handler.post(() -> {
                     if (gen != loadGeneration || isFinishing()) return;
                     onPageResolved(p);
@@ -604,6 +605,22 @@ public class NativePlayerActivity extends Activity {
                 });
             }
         });
+    }
+
+    /** The stream page's server tabs: from the site, or through the web relay when this network refuses it. Blocking. */
+    private StreamResolver.Page fetchPage() throws IOException {
+        if (Relay.active(this)) return Relay.page(this, event.url);
+        try {
+            return resolver.page(event.url);
+        } catch (IOException e) {
+            if (!Relay.looksBlocked(e)) throw e;
+            // The site stopped answering since the schedule loaded (or the schedule came from
+            // the launch cache): read the page through the relay instead.
+            Log.w(TAG, "stream page: " + shortError(e) + "; asking the web relay");
+            StreamResolver.Page p = Relay.page(this, event.url);
+            Relay.set(this, true);
+            return p;
+        }
     }
 
     private void onPageResolved(StreamResolver.Page p) {
@@ -826,12 +843,30 @@ public class NativePlayerActivity extends Activity {
                         + " at " + StreamResolver.hostOf(c.url) + (c.warming ? " (warming)" : "")
                         + (c.shape().isEmpty() ? "" : " " + c.shape())
                         + (c.error == null ? "" : " " + c.error));
+                // The CDN did not answer at all: on a network that blocks it by name, the web
+                // relay knows the edge behind it (Relay.channel). It never proxies this CDN, so
+                // when the edge is blocked too the channel simply cannot play here.
+                Relay.Ways ways = null;
+                if (!c.ok && c.code == 0) {
+                    Log.i(TAG, direct.server.name + ": CDN unreachable from here; asking the web relay");
+                    try {
+                        ways = Relay.channel(this, direct.server.name, direct.hlsUrl, direct.playerOrigin);
+                    } catch (IOException e) {
+                        Log.w(TAG, direct.server.name + ": relay has no way to it: " + e.getMessage());
+                        ways = new Relay.Ways(null, "blocked");
+                    }
+                }
+                final Relay.Ways via = ways;
                 handler.post(() -> {
                     if (gen != loadGeneration || isFinishing()) return;
                     if (c.ok && c.warming) {
                         onFailure("warming");
                     } else if (!c.ok && c.code >= 400) {
                         onFailure(c.error);
+                    } else if (via != null && via.url != null) {
+                        play(new StreamResolver.Stream(direct.server, via.url, direct.playerOrigin, null, direct.state));
+                    } else if (via != null) {
+                        onFailure(via.state.isEmpty() ? "unreachable" : via.state);
                     } else {
                         play(new StreamResolver.Stream(direct.server, c.ok ? c.url : direct.hlsUrl, direct.playerOrigin, null, direct.state));
                     }
@@ -846,26 +881,9 @@ public class NativePlayerActivity extends Activity {
         final int gen = ++loadGeneration;
         handler.removeCallbacks(impatience);
         if (!manual && servers.size() > 1) handler.postDelayed(impatience, IMPATIENCE_MS);
-        final boolean viaPool = s.premium && lease.held();
-        // No account here: this session cannot open a premium tab at all, so the Worker reads it
-        // with the shared account straight away.
-        final boolean sharedOnly = viaPool && !Account.isSignedIn(this);
         io.execute(() -> {
             try {
-                StreamResolver.Stream st;
-                if (sharedOnly) {
-                    st = Pool.resolveShared(this, s);
-                } else {
-                    st = resolver.resolve(s, page);
-                    // The site does not give every session the same premium player: when ours
-                    // gets an embed it cannot read, the Worker resolves the tab with the shared account.
-                    if (viaPool && !st.playableNatively() && !"gate".equals(st.state) && !"warming".equals(st.state)) {
-                        Log.i(TAG, s.name + ": no player for this session; asking the web player");
-                        StreamResolver.Stream shared = Pool.resolveShared(this, s);
-                        if (shared.playableNatively() || "warming".equals(shared.state)) st = shared;
-                    }
-                }
-                final StreamResolver.Stream got = st;
+                final StreamResolver.Stream got = resolveServer(s);
                 handler.post(() -> {
                     if (isFinishing()) return;
                     resolved.put(s.pageUrl, got); // keep it for manual switching even if superseded
@@ -880,6 +898,43 @@ public class NativePlayerActivity extends Activity {
                 });
             }
         });
+    }
+
+    /**
+     * One server tab to a playable stream, the way this network allows. Blocking.
+     *
+     * <ul>
+     *   <li>Site blocked here ({@link Relay#active}): the Worker reads the tab and this device
+     *       plays the CDN directly when it can, the Worker's proxy when it cannot.</li>
+     *   <li>Premium tab without an account of our own: the Worker reads it with the shared
+     *       account (this device's pool lease vouches for it).</li>
+     *   <li>Otherwise this device resolves it; a premium tab our session gets no player for is
+     *       retried through the Worker, and a page host this network refuses sends the whole
+     *       tab to the relay.</li>
+     * </ul>
+     */
+    private StreamResolver.Stream resolveServer(StreamResolver.Server s) throws IOException {
+        final boolean viaPool = s.premium && lease.held();
+        if (Relay.active(this)) return Relay.resolve(this, s, viaPool);
+        // No account here: this session cannot open a premium tab at all, so the Worker reads it
+        // with the shared account straight away.
+        if (viaPool && !Account.isSignedIn(this)) return Pool.resolveShared(this, s);
+        StreamResolver.Stream st;
+        try {
+            st = resolver.resolve(s, page);
+        } catch (IOException e) {
+            if (!Relay.looksBlocked(e)) throw e;
+            Log.i(TAG, s.name + ": " + shortError(e) + "; asking the web relay");
+            return Relay.resolve(this, s, viaPool);
+        }
+        // The site does not give every session the same premium player: when ours gets an
+        // embed it cannot read, the Worker resolves the tab with the shared account.
+        if (viaPool && !st.playableNatively() && !"gate".equals(st.state) && !"warming".equals(st.state)) {
+            Log.i(TAG, s.name + ": no player for this session; asking the web player");
+            StreamResolver.Stream shared = Pool.resolveShared(this, s);
+            if (shared.playableNatively() || "warming".equals(shared.state)) st = shared;
+        }
+        return st;
     }
 
     /**
@@ -917,7 +972,7 @@ public class NativePlayerActivity extends Activity {
         io.execute(() -> {
             StreamResolver.Stream st;
             try {
-                st = resolver.resolve(s, page);
+                st = resolveServer(s);
             } catch (Exception e) {
                 return;
             }
@@ -1063,7 +1118,8 @@ public class NativePlayerActivity extends Activity {
         if (channelGroup != null) {
             // The viewer chose this channel: don't zap away on their behalf.
             player.stop();
-            int msg = "warming".equals(why) ? R.string.np_channel_warming : R.string.np_channel_failed;
+            int msg = "warming".equals(why) ? R.string.np_channel_warming
+                    : "blocked".equals(why) ? R.string.np_livetv_blocked : R.string.np_channel_failed;
             showStatusWithActions(getString(msg, s.name), false);
             return;
         }

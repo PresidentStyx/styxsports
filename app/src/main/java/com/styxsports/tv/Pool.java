@@ -206,36 +206,7 @@ final class Pool {
      * @return a stream (hlsUrl null with state "warming" / "gate" / "" when there is nothing to play)
      */
     static StreamResolver.Stream resolveShared(Context ctx, StreamResolver.Server server) {
-        String origin = StreamResolver.originOf(server.pageUrl);
-        try {
-            String q = "?server=" + Uri.encode(server.pageUrl) + "&name=" + Uri.encode(server.name)
-                    + "&premium=1&slot=" + Uri.encode(Presence.id(ctx));
-            JSONObject o = new JSONObject(Http.getText(WEB + "/api/stream" + q, null, 30_000));
-            JSONObject s = o.optJSONObject("stream");
-            if (s == null) {
-                Log.w(TAG, server.name + " via web: " + o.optString("error", "no stream"));
-                return new StreamResolver.Stream(server, null, origin, null, "");
-            }
-            String state = s.optString("state", "");
-            if (s.optBoolean("warming", false)) {
-                Log.i(TAG, server.name + " via web: warming");
-                return new StreamResolver.Stream(server, null, origin, null, "warming");
-            }
-            String direct = s.isNull("direct") ? "" : s.optString("direct", "");
-            String proxy = s.isNull("hls") ? "" : s.optString("hls", "");
-            String url = !direct.isEmpty() ? direct : !proxy.isEmpty() ? WEB + proxy : null;
-            Log.i(TAG, server.name + " via web: state=" + state + " cdn=" + s.optString("cdn", "-")
-                    + (url == null ? " (nothing to play)" : direct.isEmpty() ? " (proxied)" : " (direct)"));
-            if (url == null) return new StreamResolver.Stream(server, null, origin, null, state);
-            // Like every playlist: one look from here for the redirect target and warming.ts.
-            StreamResolver.PlaylistCheck c = StreamResolver.checkPlaylist(url, origin + "/");
-            if (c.ok && c.warming) return new StreamResolver.Stream(server, null, origin, null, "warming");
-            if (!c.ok && c.code >= 400) return new StreamResolver.Stream(server, null, origin, null, "cdn " + c.code);
-            return new StreamResolver.Stream(server, c.ok ? c.url : url, origin, null, state);
-        } catch (Exception e) {
-            Log.w(TAG, server.name + " via web failed: " + e.getMessage());
-            return new StreamResolver.Stream(server, null, origin, null, "");
-        }
+        return Relay.resolve(ctx, server, true);
     }
 
     private static Reply call(Context ctx, String path, JSONObject body) {

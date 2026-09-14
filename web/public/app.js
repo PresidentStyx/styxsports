@@ -913,7 +913,7 @@
         this.embeddable[this.current] = stream;
       }
       const why = !stream ? 'no stream' : stream.state === 'gate' ? 'premium only'
-        : !stream.hls ? 'no playable stream' : stream.warming ? `channel ${stream.cdn} still warming up`
+        : !stream.hls && !stream.direct ? 'no playable stream' : stream.warming ? `channel ${stream.cdn} still warming up`
           : `CDN ${stream.cdn} refused (${stream.cdnStatus})`;
       this.onFailure(why, stream);
     },
@@ -959,7 +959,7 @@
         this.resolved.set(s.pageUrl, stream);
         if (s.premium && account.signedIn) {
           // What the site gave a premium tab tells us whether the account really has premium.
-          if (stream.hls || stream.embed) setAccount({ ...account, premium: true });
+          if (stream.hls || stream.direct || stream.embed) setAccount({ ...account, premium: true });
           else if (stream.state === 'gate') setAccount({ ...account, premium: false });
         }
         return stream;
@@ -978,7 +978,7 @@
       const v = this.video;
       const gen = this.generation;
       const sources = [stream.direct, stream.hls].filter(Boolean);
-      const src = sources[sourceIdx] || stream.hls;
+      const src = sources[sourceIdx] || sources[0];
       const viaDirect = !!stream.direct && sourceIdx === 0;
       let started = false;
       const fail = (why) => {
@@ -1283,7 +1283,8 @@
   };
 
   function playable(stream) {
-    return !!(stream && stream.hls && stream.playable !== false);
+    // A premium-CDN stream comes with `direct` only: the Worker never proxies that CDN.
+    return !!(stream && (stream.hls || stream.direct) && stream.playable !== false);
   }
 
   // Player UI wiring.

@@ -565,8 +565,11 @@ public class HomeActivity extends Activity {
     private void updateStatusText() {
         if (snapshot == null) return;
         int live = snapshot.liveEvents().size();
-        statusText.setText(getResources().getQuantityString(R.plurals.status_updated, live,
-                timeOf(snapshot.fetchedAtMs), live));
+        String text = getResources().getQuantityString(R.plurals.status_updated, live,
+                timeOf(snapshot.fetchedAtMs), live);
+        // This network blocks the site; the app is reading it through the web version.
+        if (Relay.active(this)) text += getString(R.string.status_via_relay);
+        statusText.setText(text);
     }
 
     // ---------------------------------------------------------------------------------------------

@@ -6,6 +6,26 @@ import { DESKTOP_UA } from './site.js';
 const PLAYLIST_TYPES = /mpegurl|x-mpegurl|vnd\.apple/i;
 const SEGMENT_TTL_S = 20;
 
+/**
+ * Hosts whose media is never fetched from here: the premium panel (an XUI/Xtream server behind
+ * tv.steast.io and edge-N.iptv4.net). Its segment tokens only work from the address that opened
+ * the channel, and this Worker's outbound address changes from one request to the next, so
+ * proxying it means playlists from one address and segment requests from others — which the
+ * panel reads as restreaming and answers by banning the whole account (a "You have been banned"
+ * slate on every channel, for every viewer). Premium media plays only from the viewer's own
+ * device; when a network blocks that, premium is simply unavailable there.
+ */
+const NO_PROXY_HOSTS = /(^|\.)(steast\.io|iptv4\.net)$/i;
+
+/** Whether this Worker may fetch media from `url` on a viewer's behalf. */
+export function proxyable(url) {
+  try {
+    return !NO_PROXY_HOSTS.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function b64url(bytes) {
   let s = typeof bytes === 'string' ? bytes : String.fromCharCode(...bytes);
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -27,8 +47,9 @@ async function sign(env, payload) {
   return b64url(new Uint8Array(sig).slice(0, 16));
 }
 
-/** Proxy path for a media URL fetched on behalf of `playerOrigin`. */
+/** Proxy path for a media URL fetched on behalf of `playerOrigin`; null for hosts never proxied. */
 export async function proxyPath(env, url, playerOrigin) {
+  if (!proxyable(url)) return null;
   const payload = b64url(unescape(encodeURIComponent(JSON.stringify({ u: url, o: playerOrigin }))));
   return `/hls/${payload}.${await sign(env, payload)}`;
 }
@@ -65,6 +86,8 @@ function upstreamHeaders(playerOrigin, request) {
 export async function handleHls(request, env, token) {
   const t = await decodeToken(env, token);
   if (!t) return new Response('bad token', { status: 403 });
+  // Tokens minted before a host joined NO_PROXY_HOSTS (or by an older build) stay refused.
+  if (!proxyable(t.u)) return new Response('this CDN plays only from the viewer\'s own address', { status: 403 });
 
   // Live playlists change every few seconds and must never be served stale; segments are
   // immutable and can be shared between viewers for a short while.
@@ -119,7 +142,7 @@ async function rewritePlaylist(env, text, playlistUrl, playerOrigin) {
         let rewritten = line;
         for (const m of line.matchAll(/URI="([^"]+)"/g)) {
           const abs = absolutize(m[1], playlistUrl);
-          rewritten = rewritten.replace(m[0], `URI="${await proxyPath(env, abs, playerOrigin)}"`);
+          rewritten = rewritten.replace(m[0], `URI="${(await proxyPath(env, abs, playerOrigin)) || abs}"`);
         }
         out.push(rewritten);
       } else {
@@ -127,7 +150,9 @@ async function rewritePlaylist(env, text, playlistUrl, playerOrigin) {
       }
       continue;
     }
-    out.push(await proxyPath(env, absolutize(line, playlistUrl), playerOrigin));
+    // A URI on a host never proxied is left for the player to fetch itself.
+    const abs = absolutize(line, playlistUrl);
+    out.push((await proxyPath(env, abs, playerOrigin)) || abs);
   }
   return out.join('\n');
 }

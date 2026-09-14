@@ -242,6 +242,27 @@ Cloudflare Worker from [`web/`](web/):
   page rejects the Worker's next request from a different one. The Worker
   checks each playlist once when resolving a server and flags such servers
   `playable: false`.
+- **The premium panel is never proxied** (`hls.js` `NO_PROXY_HOSTS`:
+  `steast.io`, `iptv4.net`). It is an XUI/Xtream panel whose segment tokens
+  only work from the address that opened the channel; proxying it means the
+  playlist from one Cloudflare address and segments from others, which the
+  panel reads as restreaming - and it answers by **banning the account** (a
+  "You have been banned" slate on every channel, for every viewer, until the
+  provider lifts it). So `/api/stream` and `/api/iptv/token` return `hls: null`
+  plus `direct` (`ownAddressOnly: true`) for it, `/hls/` refuses old tokens for
+  those hosts, and every client plays premium from its own connection or not
+  at all. The APK's Relay (below) therefore only ever proxies *free* streams;
+  on a network that blocks the premium hosts, premium tabs fall through to the
+  free ones and Live TV shows "can't play on this network".
+- **Relay mode (APK 3.9, `Relay.java`).** When the site itself is unreachable
+  by name (an office firewall answering the TLS handshake with a protocol
+  alert: "Unable to parse TLS packet header"), the APK reads the schedule,
+  status, stream pages and server resolutions through the Worker instead,
+  authenticated by its install id (`X-Styx-Device`, the same id that pings
+  `/api/ping`; the Worker only serves ids it has heard from recently). Each
+  resolved stream is tried from the device first (`direct`, then the `hop` the
+  CDN's front door 302s to, asked for with `relay=1`), and the Worker's proxy
+  last - which exists only for the free CDNs.
   Those servers are marked `▣` in the player and play through the site's own
   embed in a sandboxed `<iframe>` instead — that runs from the viewer's IP, so
   it works, but it carries the site's ads and can't be controlled by our HUD

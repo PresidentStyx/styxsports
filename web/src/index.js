@@ -15,11 +15,11 @@
 //   /login, /logout      site password (secret SITE_PASSWORD; see auth.js) — everything below needs it
 //   everything else      static front end (public/)
 import { loadConfig, fetchSchedule, fetchStatus, streamPage, resolveServer, currentBase, request } from './site.js';
-import { handleHls, proxyPath } from './hls.js';
+import { handleHls, proxyPath, proxyable } from './hls.js';
 import { hostOf } from './parser.js';
 import { DESKTOP_UA } from './site.js';
 import { gate, handleLogin, handleLogout } from './auth.js';
-import { handlePing, handleStats } from './presence.js';
+import { handlePing, handleStats, isTvDevice } from './presence.js';
 import { handlePool, poolStub } from './pool.js';
 import {
   loadSession, sessionCookie, clearCookie, publicAccount, requestCode, pollCode, completeSignIn,
@@ -74,7 +74,11 @@ export default {
       // the lease id is a random per-install UUID and the slot cap bounds what it can spend.
       // /hls/ paths are HMAC-signed by this Worker, so they need no password either.
       const leased = LEASED_PATHS.has(path) && await hasLiveLease(env, url.searchParams.get('slot'));
-      const denied = leased || path.startsWith('/hls/') ? null : await gate(request, env, path);
+      // A TV app whose network blocks the site by name reads it through here instead (the
+      // APK's Relay): its install id, the same one that pings /api/ping, is its credential.
+      const device = request.headers.get(DEVICE_HEADER) || '';
+      const app = !!device && APP_PATHS.has(path) && await isTvDevice(env, device);
+      const denied = leased || app || path.startsWith('/hls/') ? null : await gate(request, env, path);
       if (denied) return denied;
       if (path === '/api/stats') {
         const res = await handleStats(env);
@@ -123,6 +127,9 @@ export default {
 };
 
 const LEASED_PATHS = new Set(['/api/stream', '/api/iptv', '/api/iptv/token']);
+/** The TV apps' install id header, and what they may read with it when their network blocks the site. */
+const DEVICE_HEADER = 'X-Styx-Device';
+const APP_PATHS = new Set(['/api/schedule', '/api/status', '/api/stream', '/api/iptv', '/api/iptv/token', '/img']);
 
 async function hasLiveLease(env, slot) {
   if (!slot) return false;
@@ -192,6 +199,11 @@ async function apiStream(request, env, url) {
   const session = await loadSession(request, env);
   const listing = url.searchParams.get('only') === 'servers';
   const wantPremium = url.searchParams.get('premium') === '1';
+  // A TV app plays with its own HTTP client: it gets the CDN URL whatever the CDN's CORS says.
+  const native = !!request.headers.get(DEVICE_HEADER);
+  // ...and one whose network blocks the site by name (the APK's Relay) also wants to know where
+  // the CDN's front door redirects to, in case the edge behind it is not blocked.
+  const relay = native && url.searchParams.get('relay') === '1';
   const borrowed = await borrowShared(env, url.searchParams.get('slot') || '', { listing, wantPremium });
   const jar = session.signedIn ? session.jar : borrowed.jar;
 
@@ -208,7 +220,7 @@ async function apiStream(request, env, url) {
     return withSession(json({
       servers: page.servers,
       activeIndex: page.activeIndex,
-      stream: await publicStream(env, stream, { origin: url.origin }),
+      stream: await publicStream(env, stream, { origin: url.origin, native, relay }),
     }), session, env);
   }
 
@@ -227,7 +239,7 @@ async function apiStream(request, env, url) {
   if (!session.signedIn && borrowed.leased) notePremium(borrowed.session, server, stream);
   await saveBorrowed(borrowed);
   notePremium(session, server, stream);
-  return withSession(json({ stream: await publicStream(env, stream, { origin: url.origin }) }), session, env);
+  return withSession(json({ stream: await publicStream(env, stream, { origin: url.origin, native, relay }) }), session, env);
 }
 
 /**
@@ -405,16 +417,50 @@ async function apiIptv(request, env, ctx, url) {
 }
 
 /**
- * One channel of this viewer's (or the shared) playlist: the raw URL for the browser to play
- * directly (the panel's CDN binds segments to the requesting IP) and a signed /hls/ path as fallback.
+ * One channel of this viewer's (or the shared) playlist: the raw URL for the device to play
+ * directly. The panel's CDN is never proxied (see hls.js), so `hls` is null for it; a TV app
+ * whose network blocks the front door (?relay=1) also gets the edge it redirects to (`hop`),
+ * in case that is reachable — segments only play from the address that opened the edge, which
+ * must be the TV's, not this Worker's.
  */
 async function apiIptvToken(request, env, url) {
   const session = await loadSession(request, env);
   const u = url.searchParams.get('u') || '';
-  if (iptvUrlAllowed(session, u)) return json({ hls: await proxyPath(env, u, null), direct: u });
+  const relay = !!request.headers.get(DEVICE_HEADER) && url.searchParams.get('relay') === '1';
+  const answer = async () => {
+    const hls = await proxyPath(env, u, null);
+    const hop = relay ? await firstHop(u, null) : null;
+    return json({
+      hls,
+      direct: u,
+      hop,
+      ownAddressOnly: !hls,
+      // For the relay: nothing else to try means the message below, not a proxied stream.
+      error: relay && !hls && !hop ? 'this channel plays only from your own network, which blocks it' : undefined,
+    });
+  };
+  if (iptvUrlAllowed(session, u)) return await answer();
   const borrowed = await borrowShared(env, url.searchParams.get('slot') || '', { wantPremium: true });
-  if (borrowed.leased && iptvUrlAllowed(borrowed.session, u)) return json({ hls: await proxyPath(env, u, null), direct: u });
+  if (borrowed.leased && iptvUrlAllowed(borrowed.session, u)) return await answer();
   return json({ error: borrowed.session && !borrowed.leased ? 'no pool slot' : 'not a channel of your playlist' }, 403);
+}
+
+/**
+ * Where a playlist URL redirects to, without following the redirect. The premium CDN's front
+ * door (tv.steast.io) answers each channel with a 302 to an edge (edge-N.iptv4.net/auth/<token>)
+ * whose segment tokens are bound to the IP that opens the edge; a TV that cannot reach the
+ * front door can still open the edge itself if it is told where it is. Null when the URL does
+ * not redirect (or does not answer).
+ */
+async function firstHop(u, playerOrigin) {
+  try {
+    const headers = { 'User-Agent': DESKTOP_UA, Accept: '*/*' };
+    if (playerOrigin) { headers.Referer = playerOrigin + '/'; headers.Origin = playerOrigin; }
+    const res = await fetch(u, { headers, redirect: 'manual', signal: AbortSignal.timeout(8_000) });
+    const loc = res.headers.get('Location');
+    if (res.status >= 300 && res.status < 400 && loc) return new URL(loc, u).toString();
+  } catch { /* unreachable from here */ }
+  return null;
 }
 
 /**
@@ -469,16 +515,23 @@ async function checkPlaylist(s) {
  * playlist, and every Worker subrequest leaves Cloudflare from a different IP, so those streams
  * only play when the browser fetches them itself; the proxy stays as the fallback.
  */
-async function publicStream(env, s, { origin = '' } = {}) {
+async function publicStream(env, s, { origin = '', native = false, relay = false } = {}) {
   const check = s.hlsUrl ? await checkPlaylist(s) : null;
   const cors = check && check.cors;
-  const direct = !!(s.hlsUrl && (cors === '*' || (origin && cors === origin)));
+  // The premium panel is never proxied (see hls.js): its URL goes out as `direct` regardless of
+  // CORS, since the viewer's own device is the only thing that can play it.
+  const hls = s.hlsUrl ? await proxyPath(env, s.hlsUrl, s.playerOrigin) : null;
+  const ownAddressOnly = !!s.hlsUrl && !proxyable(s.hlsUrl);
+  const direct = !!(s.hlsUrl && (native || ownAddressOnly || cors === '*' || (origin && cors === origin)));
   return {
     server: s.server,
     pageUrl: s.pageUrl,
     state: s.state,
-    hls: s.hlsUrl ? await proxyPath(env, s.hlsUrl, s.playerOrigin) : null,
+    hls,
     direct: direct ? s.hlsUrl : null,
+    playerOrigin: s.playerOrigin || null,
+    hop: relay && s.hlsUrl ? await firstHop(s.hlsUrl, s.playerOrigin) : null,
+    ownAddressOnly,
     playable: !!(check && check.ok && !check.warming),
     warming: !!(check && check.warming),
     cdn: s.hlsUrl ? hostOf(s.hlsUrl) : null,

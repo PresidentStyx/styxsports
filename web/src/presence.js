@@ -65,6 +65,12 @@ export class Presence extends DurableObject {
     };
   }
 
+  /** A TV app (APK / Roku) that pinged within the window; browsers do not count. */
+  async isTvDevice(id) {
+    const row = this.ctx.storage.sql.exec('SELECT platform, last_seen FROM clients WHERE id = ?', id).toArray()[0];
+    return !!row && row.platform !== 'web' && Number(row.last_seen) >= Date.now() - ACTIVE_MS;
+  }
+
   async alarm() {
     const cutoff = Date.now() - ACTIVE_MS;
     this.ctx.storage.sql.exec('DELETE FROM clients WHERE last_seen < ?', cutoff);
@@ -148,6 +154,20 @@ export async function handlePing(request, env) {
   return new Response(JSON.stringify({ ok: true }), {
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
   });
+}
+
+/**
+ * Is `id` a TV app that is pinging right now? The apps send their install id as X-Styx-Device;
+ * a device that has announced itself may read the site through the Worker without the site
+ * password (its network may block the site itself - see the APK's Relay).
+ */
+export async function isTvDevice(env, id) {
+  if (!ID_RE.test(id || '')) return false;
+  try {
+    return await stub(env).isTvDevice(id);
+  } catch {
+    return false;
+  }
 }
 
 /** Behind the site password. */

@@ -58,14 +58,8 @@ final class Presence {
     }
 
     private static void send(Context ctx) {
-        final String id = id(ctx);
-        final String device = deviceName(ctx);
         new Thread(() -> {
-            try {
-                Http.postJson(URL, "{\"id\":\"" + id + "\",\"platform\":\"apk\",\"device\":\"" + jsonEscape(device) + "\"}");
-            } catch (Throwable ignored) {
-                // presence is best-effort; never surface to the viewer
-            }
+            announce(ctx);
             // Same beat: is an account shared, does it have Live TV (Pool.sharedAvailable).
             try {
                 Pool.refreshInfo(ctx);
@@ -73,6 +67,24 @@ final class Presence {
                 // keeps the last answer
             }
         }, "presence").start();
+    }
+
+    /**
+     * One ping, now, on this thread. The Worker only serves the site to devices it has heard
+     * from ({@link Relay}), so the relay calls this before its first request. Never throws.
+     *
+     * @return true when the Worker answered
+     */
+    static boolean announce(Context ctx) {
+        final String id = id(ctx);
+        final String device = deviceName(ctx);
+        try {
+            Http.postJson(URL, "{\"id\":\"" + id + "\",\"platform\":\"apk\",\"device\":\"" + jsonEscape(device) + "\"}");
+            return true;
+        } catch (Throwable ignored) {
+            // presence is best-effort; never surface to the viewer
+            return false;
+        }
     }
 
     /**
@@ -116,6 +128,7 @@ final class Presence {
             id = UUID.randomUUID().toString();
             p.edit().putString(KEY_ID, id).apply();
         }
+        Http.deviceId = id;
         return id;
     }
 }

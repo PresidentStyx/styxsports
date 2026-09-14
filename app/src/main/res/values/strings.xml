@@ -18,6 +18,7 @@
     <string name="no_events">Nothing is listed right now.</string>
     <string name="no_events_filtered">Nothing in %1$s right now.</string>
     <string name="status_offline">Offline · showing schedule from %1$s</string>
+    <string name="status_via_relay">" · via web relay"</string>
     <plurals name="status_updated">
         <item quantity="one">Updated %1$s · %2$d live</item>
         <item quantity="other">Updated %1$s · %2$d live</item>
@@ -128,6 +129,7 @@
     <string name="ltv_group_gone">that channel group is no longer in the playlist</string>
     <string name="np_channel_of">Channel %1$d of %2$d  ·  %3$s</string>
     <string name="np_channel_failed">%1$s is not playing right now.\nTry again, or press Left/Right for another channel.</string>
+    <string name="np_livetv_blocked">%1$s can\'t play on this network: it blocks the Live TV servers, and Live TV only plays from your own connection.\nTry another network, or go back for the free game streams.</string>
     <string name="np_channel_warming">%1$s is still starting up on the server (no video yet).\nTry again in a moment, or press Left/Right for another channel.</string>
     <string name="np_sign_in">Sign in for premium</string>
     <string name="np_premium_only_signed_out">This stream is for the site’s premium members only.\nSign in to your premium account to watch it, or pick another game.</string>

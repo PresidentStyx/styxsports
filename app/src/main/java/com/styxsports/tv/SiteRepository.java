@@ -3,6 +3,7 @@ package com.styxsports.tv;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.util.Log;
 
 import org.json.JSONObject;
 
@@ -22,6 +23,7 @@ import java.util.regex.Pattern;
  */
 final class SiteRepository {
 
+    private static final String TAG = "StyxSite";
     private static final String PREFS = "styxsports";
     private static final String KEY_SNAPSHOT = "snapshot_json";
     private static final String KEY_DISCOVERED_BASE = "discovered_base";
@@ -50,8 +52,48 @@ final class SiteRepository {
         }
     }
 
-    /** Full refresh: listing page, then the "load more" batches, then the live-status feed. */
+    /**
+     * Full refresh. From the site when it answers; through the web relay ({@link Relay}) when
+     * this network refuses it. Once on the relay, the site is retried directly now and then.
+     */
     Snapshot fetch(RemoteConfig cfg) throws IOException {
+        boolean relay = Relay.active(ctx);
+        IOException relayFailure = null;
+        if (relay && !Relay.dueForDirectTry(ctx)) {
+            try {
+                Snapshot s = Relay.schedule(ctx);
+                remember(s.sourceBaseUrl.isEmpty() ? cfg.dataBaseUrl : s.sourceBaseUrl, s);
+                return s;
+            } catch (IOException e) {
+                relayFailure = e;
+                Log.w(TAG, "relay failed (" + e.getMessage() + "); trying the site directly");
+            }
+        }
+        if (relay) Relay.notedDirectTry(ctx);
+        IOException direct;
+        try {
+            Snapshot s = fetchDirect(cfg);
+            Relay.set(ctx, false);
+            return s;
+        } catch (IOException e) {
+            direct = e;
+        }
+        if (relayFailure != null) throw direct; // both ways failed this round
+        Log.w(TAG, "site unreachable (" + direct.getMessage() + ")" + (Relay.looksBlocked(direct) ? " - looks like this network blocks it" : "")
+                + "; trying the web relay");
+        try {
+            Snapshot s = Relay.schedule(ctx);
+            Relay.set(ctx, true);
+            remember(s.sourceBaseUrl.isEmpty() ? cfg.dataBaseUrl : s.sourceBaseUrl, s);
+            return s;
+        } catch (IOException e) {
+            Log.w(TAG, "relay failed too: " + e.getMessage());
+            throw direct;
+        }
+    }
+
+    /** Listing page, then the "load more" batches, then the live-status feed, all from the site. */
+    private Snapshot fetchDirect(RemoteConfig cfg) throws IOException {
         List<String> candidates = new ArrayList<>();
         String discovered = prefs().getString(KEY_DISCOVERED_BASE, null);
         if (discovered != null) candidates.add(discovered);
@@ -84,9 +126,12 @@ final class SiteRepository {
 
     /** Cheap refresh of live clocks/scores for an existing snapshot. */
     void refreshStatus(RemoteConfig cfg, Snapshot s) {
-        if (s.sourceBaseUrl.isEmpty()) return;
         try {
-            SiteParser.mergeStatus(cfg.parser, Http.getText(s.sourceBaseUrl + cfg.parser.statusPath), s.events);
+            String text;
+            if (Relay.active(ctx)) text = Relay.status(ctx);
+            else if (s.sourceBaseUrl.isEmpty()) return;
+            else text = Http.getText(s.sourceBaseUrl + cfg.parser.statusPath);
+            SiteParser.mergeStatus(cfg.parser, text, s.events);
         } catch (IOException ignored) {
             // optional
         }

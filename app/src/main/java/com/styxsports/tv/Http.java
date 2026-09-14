@@ -230,6 +230,13 @@ final class Http {
         }
     }
 
+    /**
+     * This install's id ({@link Presence#id}), sent to the web Worker on every call so it knows
+     * the caller is the TV app and lets it read the site through the Worker without the site
+     * password (web/src/index.js APP_PATHS). Set by {@link Presence#id}.
+     */
+    static volatile String deviceId;
+
     private static HttpURLConnection open(String url) throws IOException {
         ensureCookies();
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
@@ -237,6 +244,8 @@ final class Http {
         c.setReadTimeout(TIMEOUT_MS);
         c.setInstanceFollowRedirects(true);
         c.setRequestProperty("User-Agent", DESKTOP_UA);
+        String id = deviceId;
+        if (id != null && url.startsWith(Pool.WEB + "/")) c.setRequestProperty("X-Styx-Device", id);
         c.setRequestProperty("Accept", "text/html,application/json,application/vnd.github+json,*/*");
         c.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
         c.setUseCaches(false);
