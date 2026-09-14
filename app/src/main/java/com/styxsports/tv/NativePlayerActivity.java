@@ -10,6 +10,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -29,14 +30,18 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.Timeline;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.HttpDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.LoadControl;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.upstream.DefaultAllocator;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
@@ -74,11 +79,28 @@ public class NativePlayerActivity extends Activity {
      * tab gets a little longer to show its first frame; once playing, a stall is a stall.
      */
     private static final long PREMIUM_START_TIMEOUT_MS = 35_000L;
+    /**
+     * The premium CDN cuts 10 s segments and opens a fresh viewer's window with a single one,
+     * growing it by a segment every 10 s to a 60 s slide. Left alone, ExoPlayer starts at the
+     * front of that first segment and polls the playlist every target duration (11 s), so it
+     * runs dry just before each new segment lands and stalls every cycle; hls.js and Roku drift
+     * into a two-segment margin and never do. So on that CDN the player waits for two segments
+     * before the first frame, and after a stall for a comfortable runway rather than the stock
+     * 5 s - one longer pause instead of a stutter every twenty seconds.
+     */
+    private static final long RUNWAY_START_MS = 12_000L;
+    private static final long RUNWAY_REBUFFER_MS = 15_000L;
+    /** Where in the live window a premium stream is joined when it has that much to offer. */
+    private static final long PREMIUM_LIVE_OFFSET_MS = 30_000L;
+    /** A rebuffer on the premium CDN may need two new segments (~20 s) before the runway is met. */
+    private static final long PREMIUM_STALL_MS = 30_000L;
     private static final long SCORE_REFRESH_MS = 30_000L;
     /** After this long without an answer, the next server is tried in parallel. */
     private static final long IMPATIENCE_MS = 6_000L;
-    /** Behind-live-window recoveries (seek to the live edge) allowed per server before it is a failure. */
-    private static final int MAX_LIVE_EDGE_RESYNCS = 1;
+    /** Behind-live-window recoveries (seek to the live edge) allowed in a row before the server is a failure. */
+    private static final int MAX_LIVE_EDGE_RESYNCS = 2;
+    /** A resync this long after the previous one starts the count over: the stream was fine in between. */
+    private static final long RESYNC_RESET_MS = 90_000L;
     /** The site's unnamed server tabs ("Server 7"). */
     private static final java.util.regex.Pattern GENERIC_TAB = java.util.regex.Pattern.compile("(?i)^server\\s*\\d+$");
 
@@ -113,6 +135,7 @@ public class NativePlayerActivity extends Activity {
     private float density;
 
     private ExoPlayer player;
+    private RunwayLoadControl loadControl;
     private PlayerView playerView;
     private View hudTop, hudBottom;
     private TextView hudTitle, hudPill, hudScore, hudServer, hudHint;
@@ -148,6 +171,7 @@ public class NativePlayerActivity extends Activity {
     private final Runnable startTimeout = () -> onFailure("no video after " + startTimeoutMs() / 1000 + "s");
     /** Behind-live-window recoveries on the current server (reset on every switch). */
     private int liveEdgeResyncs;
+    private long lastResyncAt;
     private final Runnable scoreTick = new Runnable() {
         @Override
         public void run() {
@@ -469,9 +493,10 @@ public class NativePlayerActivity extends Activity {
     // Resolution and playback
     // ---------------------------------------------------------------------------------------------
 
-    @OptIn(markerClass = UnstableApi.class) // setVideoScalingMode
+    @OptIn(markerClass = UnstableApi.class) // setVideoScalingMode, LoadControl
     private void createPlayer() {
-        player = new ExoPlayer.Builder(this).build();
+        loadControl = new RunwayLoadControl();
+        player = new ExoPlayer.Builder(this).setLoadControl(loadControl).build();
         player.setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
         player.setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT);
@@ -480,9 +505,13 @@ public class NativePlayerActivity extends Activity {
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_BUFFERING) {
                     handler.removeCallbacks(stallCheck);
-                    handler.postDelayed(stallCheck, STALL_MS);
-                    if (everPlayed) showStatus(getString(R.string.np_buffering), true);
+                    handler.postDelayed(stallCheck, onPremiumCdn() ? PREMIUM_STALL_MS : STALL_MS);
+                    if (everPlayed) {
+                        showStatus(getString(R.string.np_buffering), true);
+                        Log.i(TAG, "buffering: " + liveState());
+                    }
                 } else if (state == Player.STATE_READY) {
+                    if (everPlayed) Log.i(TAG, "resumed: " + liveState());
                     handler.removeCallbacks(stallCheck);
                     handler.removeCallbacks(startTimeout);
                     handler.removeCallbacks(impatience);
@@ -504,12 +533,16 @@ public class NativePlayerActivity extends Activity {
 
             @Override
             public void onPlayerError(PlaybackException error) {
-                Log.w(TAG, "player error: " + error.getErrorCodeName() + " " + describe(error.getCause()));
+                Log.w(TAG, "player error: " + error.getErrorCodeName() + " " + describe(error.getCause())
+                        + " | " + liveState());
+                long now = SystemClock.elapsedRealtime();
+                if (liveEdgeResyncs > 0 && now - lastResyncAt > RESYNC_RESET_MS) liveEdgeResyncs = 0;
                 if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
                         && liveEdgeResyncs < MAX_LIVE_EDGE_RESYNCS) {
                     // The live window moved past us (the premium CDN's sequence jumps once a
                     // restarted channel catches up): rejoin at the live edge, same stream.
                     liveEdgeResyncs++;
+                    lastResyncAt = now;
                     Log.i(TAG, "rejoining the live edge (" + liveEdgeResyncs + ")");
                     showStatus(getString(R.string.np_buffering), true);
                     player.seekToDefaultPosition();
@@ -791,6 +824,7 @@ public class NativePlayerActivity extends Activity {
                 StreamResolver.PlaylistCheck c = StreamResolver.checkPlaylist(direct.hlsUrl, direct.playerOrigin + "/");
                 Log.i(TAG, direct.server.name + " playlist check: " + (c.ok ? "ok" : "failed") + " HTTP " + c.code
                         + " at " + StreamResolver.hostOf(c.url) + (c.warming ? " (warming)" : "")
+                        + (c.shape().isEmpty() ? "" : " " + c.shape())
                         + (c.error == null ? "" : " " + c.error));
                 handler.post(() -> {
                     if (gen != loadGeneration || isFinishing()) return;
@@ -852,8 +886,17 @@ public class NativePlayerActivity extends Activity {
      * The chosen server is slow to answer (some embed hosts take 15-20 s): start resolving the
      * next one too and play whichever is ready first. The slow one stays available via Left.
      */
-    private final Runnable impatience = () -> {
+    private final Runnable impatience = new Runnable() {
+        @Override
+        public void run() {
         if (everPlayed || isFinishing() || servers.size() < 2 || current < 0) return;
+        if (player != null && player.getPlaybackState() == Player.STATE_BUFFERING && player.getTotalBufferedDuration() > 0) {
+            // Segments are arriving: the player is filling its runway, not stuck. Look again
+            // later; the start timeout is the real limit.
+            Log.i(TAG, servers.get(current).name + " is loading (" + liveState() + "); not racing yet");
+            handler.postDelayed(this, IMPATIENCE_MS);
+            return;
+        }
         final int gen = loadGeneration;
         final int idx = current;
         // A slow premium tab races a free server, never a second premium one: that would cost
@@ -882,6 +925,10 @@ public class NativePlayerActivity extends Activity {
                 if (isFinishing()) return;
                 resolved.put(s.pageUrl, st);
                 if (gen != loadGeneration || everPlayed || current != idx || !st.playableNatively()) return;
+                if (player.getPlaybackState() == Player.STATE_BUFFERING && player.getTotalBufferedDuration() > 0) {
+                    Log.i(TAG, s.name + " answered, but " + servers.get(idx).name + " is loading (" + liveState() + "); staying");
+                    return;
+                }
                 Log.i(TAG, s.name + " answered first; switching");
                 current = alt;
                 loadGeneration++; // the slow server's answer must not interrupt this one
@@ -889,6 +936,7 @@ public class NativePlayerActivity extends Activity {
                 play(st);
             });
         });
+        }
     };
 
     @OptIn(markerClass = UnstableApi.class) // HlsMediaSource / DefaultHttpDataSource (Media3 version is pinned)
@@ -914,6 +962,15 @@ public class NativePlayerActivity extends Activity {
                 .setReadTimeoutMs(12_000)
                 .setAllowCrossProtocolRedirects(true);
         MediaSource source;
+        final boolean premiumCdn = st.server.premium || channelGroup != null;
+        // Premium tabs and Live TV: wait for a runway before the first frame and after a stall
+        // (see RUNWAY_*), and join the live window 30 s back when it is that deep.
+        loadControl.runway = premiumCdn;
+        MediaItem.Builder item = new MediaItem.Builder().setUri(st.hlsUrl);
+        if (premiumCdn) {
+            item.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()
+                    .setTargetOffsetMs(PREMIUM_LIVE_OFFSET_MS).build());
+        }
         // A channel's final URL (after the CDN's redirect to /auth/<token>) carries no extension;
         // the channel's own URL says whether it is HLS.
         if (st.hlsUrl.contains(".m3u8") || st.server.pageUrl.contains(".m3u8") || channelGroup == null) {
@@ -921,15 +978,15 @@ public class NativePlayerActivity extends Activity {
             // default gives up on an unchanging live playlist after 3 target durations. Allow
             // twice that - the stall timer above is the viewer-facing limit.
             HlsMediaSource.Factory hls = new HlsMediaSource.Factory(http).setAllowChunklessPreparation(true);
-            if (st.server.premium || channelGroup != null) {
+            if (premiumCdn) {
                 hls.setPlaylistTrackerFactory((dsf, policy, parserFactory) ->
                         new DefaultHlsPlaylistTracker(dsf, policy, parserFactory, 6.0));
             }
-            source = hls.createMediaSource(MediaItem.fromUri(st.hlsUrl));
+            source = hls.createMediaSource(item.build());
         } else {
             // IPTV channels without an HLS variant are plain MPEG-TS over HTTP; let the default
             // factory sniff the container.
-            source = new DefaultMediaSourceFactory(http).createMediaSource(MediaItem.fromUri(st.hlsUrl));
+            source = new DefaultMediaSourceFactory(http).createMediaSource(item.build());
         }
         player.setMediaSource(source);
         player.prepare();
@@ -937,6 +994,45 @@ public class NativePlayerActivity extends Activity {
         handler.removeCallbacks(startTimeout);
         handler.postDelayed(startTimeout, startTimeoutMs());
         Log.i(TAG, "playing " + st.server.name + " via " + StreamResolver.hostOf(st.hlsUrl));
+    }
+
+    /** "offset=16s buffered=13s window=60s" - where in the live window the player sits. */
+    private String liveState() {
+        if (player == null) return "no player";
+        long offset = player.getCurrentLiveOffset();
+        Timeline tl = player.getCurrentTimeline();
+        long window = tl.isEmpty() ? C.TIME_UNSET
+                : tl.getWindow(player.getCurrentMediaItemIndex(), new Timeline.Window()).getDurationMs();
+        return "offset=" + (offset == C.TIME_UNSET ? "?" : offset / 1000 + "s")
+                + " buffered=" + player.getTotalBufferedDuration() / 1000 + "s"
+                + " window=" + (window == C.TIME_UNSET ? "?" : window / 1000 + "s");
+    }
+
+    /**
+     * ExoPlayer's load control with a switchable runway: on the premium CDN, playback starts
+     * only with {@link #RUNWAY_START_MS} buffered and resumes after a stall only with
+     * {@link #RUNWAY_REBUFFER_MS}; everywhere else the stock 2.5 s / 5 s apply. The stock rule
+     * also halves the requirement against the target live offset, which is exactly what makes
+     * it start with no margin on a one-segment window - hence the plain comparison here.
+     */
+    @UnstableApi
+    private static final class RunwayLoadControl extends DefaultLoadControl {
+        volatile boolean runway;
+
+        RunwayLoadControl() {
+            super(new DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE),
+                    DEFAULT_MIN_BUFFER_MS, 60_000, DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                    DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS, DEFAULT_TARGET_BUFFER_BYTES,
+                    DEFAULT_PRIORITIZE_TIME_OVER_SIZE_THRESHOLDS, DEFAULT_BACK_BUFFER_DURATION_MS,
+                    DEFAULT_RETAIN_BACK_BUFFER_FROM_KEYFRAME);
+        }
+
+        @Override
+        public boolean shouldStartPlayback(LoadControl.Parameters p) {
+            if (!runway) return super.shouldStartPlayback(p);
+            long needMs = p.rebuffering ? RUNWAY_REBUFFER_MS : RUNWAY_START_MS;
+            return p.bufferedDurationUs >= needMs * 1000L;
+        }
     }
 
     /** Premium tabs and Live TV channels are on the slow-starting premium CDN. */

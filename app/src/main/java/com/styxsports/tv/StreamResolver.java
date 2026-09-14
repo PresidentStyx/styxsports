@@ -224,17 +224,32 @@ final class StreamResolver {
         final boolean warming;
         final int code;
         final String error;
+        /** Media playlists only: how many segments the window holds and the target duration (s). */
+        final int segments, targetSec;
 
         PlaylistCheck(boolean ok, String url, boolean warming, int code, String error) {
+            this(ok, url, warming, code, error, 0, 0);
+        }
+
+        PlaylistCheck(boolean ok, String url, boolean warming, int code, String error, int segments, int targetSec) {
             this.ok = ok;
             this.url = url;
             this.warming = warming;
             this.code = code;
             this.error = error;
+            this.segments = segments;
+            this.targetSec = targetSec;
+        }
+
+        /** "3 x 10s" for the log, or "" when the body was a master playlist. */
+        String shape() {
+            return segments > 0 ? segments + " x " + targetSec + "s" : "";
         }
     }
 
     private static final Pattern WARMING = Pattern.compile("warming\\.ts", Pattern.CASE_INSENSITIVE);
+    private static final Pattern EXTINF = Pattern.compile("^#EXTINF:", Pattern.MULTILINE);
+    private static final Pattern TARGET_DURATION = Pattern.compile("^#EXT-X-TARGETDURATION:(\\d+)", Pattern.MULTILINE);
 
     /**
      * Fetches a playlist once, from this device, the way the player will. The premium CDN answers
@@ -250,7 +265,11 @@ final class StreamResolver {
             String body = f.body.trim();
             if (f.code < 200 || f.code >= 300) return new PlaylistCheck(false, url, false, f.code, "HTTP " + f.code + " from " + hostOf(url));
             if (!body.startsWith("#EXTM3U")) return new PlaylistCheck(false, url, false, f.code, "not a playlist");
-            return new PlaylistCheck(true, f.finalUrl, WARMING.matcher(body).find(), f.code, null);
+            int segments = 0;
+            for (Matcher m = EXTINF.matcher(body); m.find(); ) segments++;
+            Matcher td = TARGET_DURATION.matcher(body);
+            int targetSec = td.find() ? Integer.parseInt(td.group(1)) : 0;
+            return new PlaylistCheck(true, f.finalUrl, WARMING.matcher(body).find(), f.code, null, segments, targetSec);
         } catch (IOException e) {
             return new PlaylistCheck(false, url, false, 0, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
@@ -268,7 +287,8 @@ final class StreamResolver {
                 Log.i(TAG, s.server.name + ": playlist is warming up on " + hostOf(c.url));
                 return new Stream(s.server, null, s.playerOrigin, s.embed, "warming");
             }
-            if (!c.url.equals(s.hlsUrl)) Log.i(TAG, s.server.name + ": playlist redirected to " + hostOf(c.url));
+            Log.i(TAG, s.server.name + ": playlist " + (c.url.equals(s.hlsUrl) ? "at " : "redirected to ") + hostOf(c.url)
+                    + (c.shape().isEmpty() ? "" : " (" + c.shape() + ")"));
             return new Stream(s.server, c.url, s.playerOrigin, s.embed, s.state);
         }
         if (c.code >= 400) {
