@@ -914,7 +914,8 @@
       }
       const why = !stream ? 'no stream' : stream.state === 'gate' ? 'premium only'
         : !stream.hls && !stream.direct ? 'no playable stream' : stream.warming ? `channel ${stream.cdn} still warming up`
-          : `CDN ${stream.cdn} refused (${stream.cdnStatus})`;
+          : stream.cdnStatus === 0 ? `CDN ${stream.cdn} unreachable from this network`
+            : `CDN ${stream.cdn} refused (${stream.cdnStatus})`;
       this.onFailure(why, stream);
     },
 
@@ -954,6 +955,10 @@
         const q = '/api/stream?server=' + encodeURIComponent(s.pageUrl) + '&name=' + encodeURIComponent(s.name) + (s.premium ? '&premium=1' : '') + this.slotQuery();
         const data = await api(q);
         const stream = data.stream || { server: s.name, hls: null };
+        // The Worker never touches the premium CDN (its panel bans the account for requests
+        // from many addresses), so it cannot say whether that playlist is up or still a
+        // warming.ts placeholder; this browser is the only thing that can look.
+        if (stream.ownAddressOnly && stream.direct) await checkDirect(stream);
         // Remember both outcomes; a CDN that refuses us will not change its mind in a minute.
         // Playable results are dropped again when a playing stream dies (see onFailure).
         this.resolved.set(s.pageUrl, stream);
@@ -1285,6 +1290,30 @@
   function playable(stream) {
     // A premium-CDN stream comes with `direct` only: the Worker never proxies that CDN.
     return !!(stream && (stream.hls || stream.direct) && stream.playable !== false);
+  }
+
+  /**
+   * Fetches a direct-only playlist once from this browser, the way hls.js will, and fills in
+   * what the Worker could not: `playable` (the CDN answered with a playlist), `warming` (its
+   * only segment is the CDN's warming.ts placeholder - the channel is still spinning up, try
+   * another server), `cdnStatus`. A CDN this network refuses shows up as status 0.
+   */
+  async function checkDirect(stream) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 10_000);
+      const r = await fetch(stream.direct, { cache: 'no-store', signal: ctl.signal });
+      clearTimeout(t);
+      const text = (await r.text()).slice(0, 4096);
+      stream.cdnStatus = r.status;
+      stream.warming = /warming\.ts/i.test(text);
+      stream.playable = r.ok && text.trimStart().startsWith('#EXTM3U') && !stream.warming;
+    } catch (e) {
+      stream.cdnStatus = 0;
+      stream.playable = false;
+      stream.error = e.message;
+    }
+    return stream;
   }
 
   // Player UI wiring.

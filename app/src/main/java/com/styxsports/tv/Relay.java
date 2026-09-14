@@ -174,6 +174,12 @@ final class Relay {
      */
     static StreamResolver.Stream resolve(Context ctx, StreamResolver.Server server, boolean premium) {
         String origin = StreamResolver.originOf(server.pageUrl);
+        if (premium && premiumBlocked()) {
+            // Every premium tab plays from the same CDN, and this network refused it a moment
+            // ago: don't spend seconds (and a Worker page fetch) finding that out tab by tab.
+            Log.i(TAG, server.name + ": premium CDN is blocked here, skipping");
+            return new StreamResolver.Stream(server, null, origin, null, "blocked");
+        }
         try {
             ensureAnnounced(ctx);
             String q = "?server=" + Uri.encode(server.pageUrl) + "&name=" + Uri.encode(server.name)
@@ -202,6 +208,14 @@ final class Relay {
             // Worker's proxy: each one look from this device (Ways).
             Ways w = tryWays(server.name, origin, direct, hop, proxy.equals(BASE) ? "" : proxy);
             if (w.url != null) return new StreamResolver.Stream(server, w.url, origin, null, state);
+            if (w.cdnUnreachable && s.optBoolean("ownAddressOnly", false)) {
+                // The premium CDN (never proxied) does not answer from here at all: the other
+                // premium tabs would fail the same way for the next while.
+                Log.w(TAG, "premium CDN unreachable from this network; premium tabs skipped for "
+                        + PREMIUM_BLOCKED_MS / 60_000 + " min");
+                premiumBlockedUntil = System.currentTimeMillis() + PREMIUM_BLOCKED_MS;
+                return new StreamResolver.Stream(server, null, origin, null, "blocked");
+            }
             return new StreamResolver.Stream(server, null, origin, null, w.state);
         } catch (Exception e) {
             Log.w(TAG, server.name + " via web failed: " + e.getMessage());
@@ -233,11 +247,27 @@ final class Relay {
     static final class Ways {
         final String url;
         final String state;
+        /** The CDN's own URL got no answer at all from here (connection or TLS failure, not a refusal). */
+        final boolean cdnUnreachable;
 
         Ways(String url, String state) {
+            this(url, state, false);
+        }
+
+        Ways(String url, String state, boolean cdnUnreachable) {
             this.url = url;
             this.state = state;
+            this.cdnUnreachable = cdnUnreachable;
         }
+    }
+
+    /** How long premium tabs are skipped after the premium CDN failed to answer from this network. */
+    private static final long PREMIUM_BLOCKED_MS = 10 * 60_000;
+    private static volatile long premiumBlockedUntil;
+
+    /** Whether the premium CDN was found unreachable from this network within the last while. */
+    static boolean premiumBlocked() {
+        return System.currentTimeMillis() < premiumBlockedUntil;
     }
 
     /**
@@ -249,6 +279,7 @@ final class Relay {
     private static Ways tryWays(String name, String origin, String direct, String hop, String proxy) {
         String[][] ways = { { "CDN", direct }, { "edge", hop }, { "proxy", proxy } };
         String lastState = "";
+        boolean cdnUnreachable = false;
         for (String[] w : ways) {
             if (w[1] == null || w[1].isEmpty()) continue;
             boolean viaProxy = w[0].equals("proxy");
@@ -262,9 +293,10 @@ final class Relay {
                 return new Ways(c.url, "");
             }
             Log.i(TAG, name + ": " + w[0] + " from here: " + (c.code > 0 ? "HTTP " + c.code : c.error));
+            if (w[0].equals("CDN") && c.code == 0) cdnUnreachable = true;
             lastState = c.code > 0 ? "cdn " + c.code : "";
         }
-        return new Ways(null, lastState);
+        return new Ways(null, lastState, cdnUnreachable);
     }
 
     // ---------------------------------------------------------------------------------------------

@@ -281,8 +281,12 @@ function notePremium(session, server, stream) {
   let seen = null;
   if (stream.hlsUrl) seen = true;
   else if (stream.state === 'gate') seen = false;
-  if (seen !== null && session.premium !== seen) {
+  if (seen === null) return;
+  // The time is kept too: a "no premium" verdict expires (storedPremium), so a renewed
+  // subscription is noticed the next time a premium tab is tried.
+  if (session.premium !== seen || (!seen && Date.now() - (session.premiumAt || 0) > 10 * 60 * 1000)) {
     session.premium = seen;
+    session.premiumAt = Date.now();
     session.dirty = true;
   }
 }
@@ -453,6 +457,9 @@ async function apiIptvToken(request, env, url) {
  * not redirect (or does not answer).
  */
 async function firstHop(u, playerOrigin) {
+  // Never for the premium panel: even its front door logs the asking address against the
+  // account, and the edge it names would only be blocked wherever the front door is.
+  if (!proxyable(u)) return null;
   try {
     const headers = { 'User-Agent': DESKTOP_UA, Accept: '*/*' };
     if (playerOrigin) { headers.Referer = playerOrigin + '/'; headers.Origin = playerOrigin; }
@@ -516,12 +523,15 @@ async function checkPlaylist(s) {
  * only play when the browser fetches them itself; the proxy stays as the fallback.
  */
 async function publicStream(env, s, { origin = '', native = false, relay = false } = {}) {
-  const check = s.hlsUrl ? await checkPlaylist(s) : null;
-  const cors = check && check.cors;
-  // The premium panel is never proxied (see hls.js): its URL goes out as `direct` regardless of
-  // CORS, since the viewer's own device is the only thing that can play it.
-  const hls = s.hlsUrl ? await proxyPath(env, s.hlsUrl, s.playerOrigin) : null;
+  // The premium panel is never touched from here (see hls.js): not proxied, not pre-checked -
+  // every Worker request reaches it from another Cloudflare address, which its panel reads as
+  // the account being restreamed. Its URL goes out as `direct` regardless of CORS (the viewer's
+  // own device is the only thing that can play it), and it is reported playable: the device
+  // finds out for itself, and treats a warming.ts placeholder as "try another server".
   const ownAddressOnly = !!s.hlsUrl && !proxyable(s.hlsUrl);
+  const check = s.hlsUrl && !ownAddressOnly ? await checkPlaylist(s) : null;
+  const cors = check && check.cors;
+  const hls = s.hlsUrl ? await proxyPath(env, s.hlsUrl, s.playerOrigin) : null;
   const direct = !!(s.hlsUrl && (native || ownAddressOnly || cors === '*' || (origin && cors === origin)));
   return {
     server: s.server,
@@ -532,7 +542,7 @@ async function publicStream(env, s, { origin = '', native = false, relay = false
     playerOrigin: s.playerOrigin || null,
     hop: relay && s.hlsUrl ? await firstHop(s.hlsUrl, s.playerOrigin) : null,
     ownAddressOnly,
-    playable: !!(check && check.ok && !check.warming),
+    playable: ownAddressOnly || !!(check && check.ok && !check.warming),
     warming: !!(check && check.warming),
     cdn: s.hlsUrl ? hostOf(s.hlsUrl) : null,
     cdnStatus: check ? check.status : null,

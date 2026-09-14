@@ -11,6 +11,7 @@
 // only counts against a shared account when it *is* that account (matched by the IPTV playlist
 // URL, which is unique per account); otherwise it is an "own" lease that takes no slot.
 import { DurableObject } from 'cloudflare:workers';
+import { storedPremium } from './account.js';
 
 /** A lease that misses its heartbeats for this long is gone (the web heartbeat is every 20 s). */
 export const LEASE_TTL_MS = 45_000;
@@ -22,6 +23,11 @@ const PLATFORMS = new Set(['web', 'apk', 'roku']);
 const LABEL_MAX = 40;
 /** Marks a lease that uses the viewer's own account: listed, never counted. */
 const OWN = '';
+
+/** Whether a shared account is known to have premium (true), known not to (false, expiring), or unknown. */
+function premiumOf(a) {
+  return a && a.s ? storedPremium(a.s.p, a.s.pt) : null;
+}
 
 export class Pool extends DurableObject {
   constructor(ctx, env) {
@@ -163,7 +169,7 @@ export class Pool extends DurableObject {
       shared: list.length > 0,
       accounts: list.length,
       sharedIptv: list.some((a) => a.s && a.s.i),
-      sharedPremium: list.some((a) => a.s && a.s.p === 1) ? true : list.length && list.every((a) => a.s && a.s.p === 0) ? false : null,
+      sharedPremium: list.some((a) => premiumOf(a) === true) ? true : list.length && list.every((a) => premiumOf(a) === false) ? false : null,
       used: this.used(),
       max: this.slotsPerAccount() * list.length,
     };
@@ -197,7 +203,7 @@ export class Pool extends DurableObject {
     } else {
       for (const a of list) {
         if (!a.s) continue;
-        if (kind === 'tv' ? !a.s.i : a.s.p === 0) continue;
+        if (kind === 'tv' ? !a.s.i : premiumOf(a) === false) continue;
         if (this.usedBy(a.key) < per) { account = a.key; break; }
       }
       if (account === null) return { ...info, granted: false, used: this.used() };
@@ -264,7 +270,7 @@ export class Pool extends DurableObject {
       label: a.label,
       sharedAt: Number(a.at) || 0,
       iptv: !!(a.s && a.s.i),
-      premium: a.s ? (a.s.p === 1 ? true : a.s.p === 0 ? false : null) : null,
+      premium: premiumOf(a),
       used: leases.filter((l) => l.account === a.key).length,
       max: per,
     }));

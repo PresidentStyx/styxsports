@@ -251,9 +251,28 @@ Cloudflare Worker from [`web/`](web/):
   provider lifts it). So `/api/stream` and `/api/iptv/token` return `hls: null`
   plus `direct` (`ownAddressOnly: true`) for it, `/hls/` refuses old tokens for
   those hosts, and every client plays premium from its own connection or not
-  at all. The APK's Relay (below) therefore only ever proxies *free* streams;
-  on a network that blocks the premium hosts, premium tabs fall through to the
-  free ones and Live TV shows "can't play on this network".
+  at all. The Worker does not *pre-check* those playlists either (the check
+  itself would open the channel from a Cloudflare address) and never asks the
+  front door where it redirects (`hop` is null for them), so a premium stream
+  is reported `playable: true` and the client finds out: the APK and Roku
+  check the playlist from the device as before, the web fetches it once from
+  the browser (`checkDirect` in `app.js`) and treats a `warming.ts`-only
+  playlist or a non-playlist answer as "try another server". The APK's Relay
+  (below) therefore only ever proxies *free* streams; on a network that blocks
+  the premium hosts, premium tabs fall through to the free ones and Live TV
+  shows "can't play on this network" (and gives its pool slot back).
+- **A "no premium" verdict expires** (`account.js` `storedPremium`,
+  `PREMIUM_NO_TTL_MS` = 2 h). Whether an account has premium is learnt from
+  what a premium tab answers (`notePremium`: a playlist means yes, the "gate"
+  means no) and kept in the session cookie and the shared-account record as
+  `p` with the time it was decided, `pt`. Clients stop trying premium tabs on
+  a `false` (`premiumHidden`, `pool.sharedPremium !== false`, the Roku and APK
+  alike), so without an expiry a subscription that lapsed and was renewed
+  would stay "no premium" forever - nothing would ever ask again. An old
+  `false` therefore reads back as "unknown" (`/api/account` `premium: null`,
+  `/api/pool/info` `sharedPremium: null`), the next premium tab re-checks, and
+  the pool's `acquire` stops skipping the account. `true` never expires: a
+  lapse shows up as "gate" on the next resolve anyway.
 - **Relay mode (APK 3.9, `Relay.java`).** When the site itself is unreachable
   by name (an office firewall answering the TLS handshake with a protocol
   alert: "Unable to parse TLS packet header"), the APK reads the schedule,
@@ -261,8 +280,24 @@ Cloudflare Worker from [`web/`](web/):
   authenticated by its install id (`X-Styx-Device`, the same id that pings
   `/api/ping`; the Worker only serves ids it has heard from recently). Each
   resolved stream is tried from the device first (`direct`, then the `hop` the
-  CDN's front door 302s to, asked for with `relay=1`), and the Worker's proxy
-  last - which exists only for the free CDNs.
+  CDN's front door 302s to, asked for with `relay=1` - free CDNs only), and the
+  Worker's proxy last - which exists only for the free CDNs. Verified on the
+  office TV against an MLB game: the site and some `edgestreamN.pro` hosts are
+  blocked there, others are not, so the same game plays from the CDN one time
+  and through the proxy the next. Three things learnt from that run:
+  - Once the premium CDN fails to answer from the device (a TLS/connect
+    failure, not a refusal) the APK remembers it for 10 minutes
+    (`Relay.premiumBlocked`) and skips the remaining premium tabs without
+    asking the Worker or pacing the sweep - seven tabs used to cost 24 s of
+    "Connecting…" before the free ones were reached; now it is instant.
+  - When a *free* server ends up playing while a pool slot is held (premium
+    tabs failed, or the viewer picked it), the slot is released right away;
+    a later premium pick acquires again. Likewise Live TV gives its slot back
+    when it shows "can't play on this network".
+  - A stream played through the proxy makes two trips per segment, and the
+    stock 2.5 s start / 5 s rebuffer runway had it stalling for ~4 s every
+    ~30 s; proxied streams now get the premium runway (12 s / 15 s) and join
+    30 s behind the live edge, after which 3 minutes played without a stall.
   Those servers are marked `▣` in the player and play through the site's own
   embed in a sandboxed `<iframe>` instead — that runs from the viewer's IP, so
   it works, but it carries the site's ads and can't be controlled by our HUD

@@ -37,7 +37,7 @@ const IPTV_CACHE_S = 6 * 3600;
  */
 
 function freshSession() {
-  return { jar: new Jar(), signedIn: false, checkedAt: 0, iptv: null, iptvHosts: [], premium: null, dirty: false };
+  return { jar: new Jar(), signedIn: false, checkedAt: 0, iptv: null, iptvHosts: [], premium: null, premiumAt: 0, dirty: false };
 }
 
 async function aesKey(env) {
@@ -85,6 +85,22 @@ function cookieValue(request) {
   return null;
 }
 
+/**
+ * A "no premium" verdict is only trusted this long. It is learnt from a premium tab answering
+ * "gate", which also happens when the subscription lapses; once it is renewed nothing would ever
+ * ask again (clients stop trying premium tabs on a `false`), so an old `false` reads back as
+ * "unknown" and the next premium tab re-checks. `true` never expires: a lapse shows up as "gate"
+ * on the next resolve anyway.
+ */
+export const PREMIUM_NO_TTL_MS = 2 * 60 * 60 * 1000;
+
+/** premium (true/false/null) from its stored form: `p` 1/0/null and `pt`, when `p` was decided. */
+export function storedPremium(p, pt) {
+  if (p === 1) return true;
+  if (p === 0) return Date.now() - (Number(pt) || 0) < PREMIUM_NO_TTL_MS ? false : null;
+  return null;
+}
+
 /** The viewer's session from the request cookie; a fresh, signed-out one when there is none. */
 export async function loadSession(request, env) {
   const raw = cookieValue(request);
@@ -97,7 +113,8 @@ export async function loadSession(request, env) {
       checkedAt: Number(o.t) || 0,
       iptv: typeof o.i === 'string' && o.i.startsWith('http') ? o.i : null,
       iptvHosts: Array.isArray(o.h) ? o.h.filter((x) => typeof x === 'string') : [],
-      premium: o.p === 1 ? true : o.p === 0 ? false : null,
+      premium: storedPremium(o.p, o.pt),
+      premiumAt: Number(o.pt) || 0,
       dirty: false,
     };
   } catch {
@@ -118,6 +135,7 @@ export async function sessionCookie(session, env, { force = false } = {}) {
     i: session.iptv,
     h: session.iptvHosts,
     p: session.premium === true ? 1 : session.premium === false ? 0 : null,
+    pt: session.premiumAt || 0,
   });
   const value = await encrypt(env, payload);
   if (value.length > MAX_COOKIE_BYTES) {
@@ -147,6 +165,7 @@ export function serializeSession(session) {
     i: session.iptv,
     h: session.iptvHosts,
     p: session.premium === true ? 1 : session.premium === false ? 0 : null,
+    pt: session.premiumAt || 0,
     t: session.checkedAt,
     at: Date.now(),
   };
@@ -161,7 +180,8 @@ export function deserializeSession(o) {
     checkedAt: Number(o.t) || 0,
     iptv: typeof o.i === 'string' && o.i.startsWith('http') ? o.i : null,
     iptvHosts: Array.isArray(o.h) ? o.h.filter((x) => typeof x === 'string') : [],
-    premium: o.p === 1 ? true : o.p === 0 ? false : null,
+    premium: storedPremium(o.p, o.pt),
+    premiumAt: Number(o.pt) || 0,
     dirty: false,
   };
 }

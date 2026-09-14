@@ -517,6 +517,13 @@ public class NativePlayerActivity extends Activity {
                     handler.removeCallbacks(startTimeout);
                     handler.removeCallbacks(impatience);
                     hideStatus();
+                    if (channelGroup == null && lease.held() && current < servers.size() && !servers.get(current).premium) {
+                        // A free server is what plays (the premium tabs failed, or the viewer
+                        // picked it): the shared slot is someone else's to take. A later premium
+                        // pick acquires again.
+                        Log.i(TAG, "free server playing: giving the pool slot back");
+                        lease.release();
+                    }
                     if (!everPlayed) {
                         everPlayed = true;
                         failed.clear();
@@ -1004,7 +1011,9 @@ public class NativePlayerActivity extends Activity {
         if (!st.playableNatively()) {
             Log.i(TAG, st.server.name + " has no HLS (state=" + st.state + ")");
             // "warming": the CDN's warming.ts placeholder - no video on this server yet, try another.
-            onFailure("gate".equals(st.state) ? "premium" : "warming".equals(st.state) ? "warming" : "no player");
+            // "blocked": this network refuses the premium CDN (nothing was fetched for it).
+            onFailure("gate".equals(st.state) ? "premium" : "warming".equals(st.state) ? "warming"
+                    : "blocked".equals(st.state) ? "blocked" : "no player");
             return;
         }
         Map<String, String> headers = new HashMap<>();
@@ -1018,11 +1027,15 @@ public class NativePlayerActivity extends Activity {
                 .setAllowCrossProtocolRedirects(true);
         MediaSource source;
         final boolean premiumCdn = st.server.premium || channelGroup != null;
-        // Premium tabs and Live TV: wait for a runway before the first frame and after a stall
-        // (see RUNWAY_*), and join the live window 30 s back when it is that deep.
-        loadControl.runway = premiumCdn;
+        // A stream relayed through the Worker's proxy: each segment makes two trips (CDN to
+        // Cloudflare, Cloudflare to here), so it arrives later than from the CDN itself.
+        final boolean viaProxy = st.hlsUrl.startsWith(Pool.WEB + "/hls/");
+        // Premium tabs, Live TV and proxied streams: wait for a runway before the first frame
+        // and after a stall (see RUNWAY_*), and join the live window 30 s back when it is that
+        // deep (the free CDNs' windows are 60 s).
+        loadControl.runway = premiumCdn || viaProxy;
         MediaItem.Builder item = new MediaItem.Builder().setUri(st.hlsUrl);
-        if (premiumCdn) {
+        if (premiumCdn || viaProxy) {
             item.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()
                     .setTargetOffsetMs(PREMIUM_LIVE_OFFSET_MS).build());
         }
@@ -1120,6 +1133,9 @@ public class NativePlayerActivity extends Activity {
             player.stop();
             int msg = "warming".equals(why) ? R.string.np_channel_warming
                     : "blocked".equals(why) ? R.string.np_livetv_blocked : R.string.np_channel_failed;
+            // A network that blocks the Live TV hosts blocks every channel: don't sit on a
+            // shared slot while the message is up (Retry takes one again).
+            if ("blocked".equals(why)) lease.release();
             showStatusWithActions(getString(msg, s.name), false);
             return;
         }
@@ -1136,14 +1152,17 @@ public class NativePlayerActivity extends Activity {
                     break;
                 }
             }
-            Toast.makeText(this, getString(R.string.np_trying_next, s.name, servers.get(next).name),
-                    Toast.LENGTH_SHORT).show();
+            if (!"blocked".equals(why)) {
+                Toast.makeText(this, getString(R.string.np_trying_next, s.name, servers.get(next).name),
+                        Toast.LENGTH_SHORT).show();
+            }
             // Servers that die instantly would otherwise be swept in a burst of page fetches,
-            // which the site rate-limits (HTTP 429); pace the sweep.
+            // which the site rate-limits (HTTP 429); pace the sweep. A tab skipped as "blocked"
+            // fetched nothing, so there is nothing to pace.
             long sinceSwitch = System.currentTimeMillis() - switchedAt;
             final int target = next;
             final int gen = ++loadGeneration;
-            if (sinceSwitch < 3_000L) {
+            if (sinceSwitch < 3_000L && !"blocked".equals(why)) {
                 showStatus(getString(R.string.np_connecting_to, servers.get(next).name), true);
                 handler.postDelayed(() -> {
                     if (gen == loadGeneration && !isFinishing()) switchTo(target, false);
