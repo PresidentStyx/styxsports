@@ -117,7 +117,14 @@ public class HomeActivity extends Activity {
     private final Runnable statusTick = new Runnable() {
         @Override
         public void run() {
-            refreshStatusOnly();
+            // Someone may have shared (or stopped sharing) an account since the last paint: the
+            // presence ping keeps Pool's answer fresh, this keeps the chips in step with it.
+            if (snapshot != null && !loading
+                    && (premiumHidden() != renderedPremiumHidden || hasLiveTv() != renderedLiveTv)) {
+                render(snapshot);
+            } else {
+                refreshStatusOnly();
+            }
             handler.postDelayed(this, STATUS_INTERVAL_MS);
         }
     };
@@ -333,7 +340,7 @@ public class HomeActivity extends Activity {
                 handler.post(() -> {
                     bindAccountButton();
                     if (snapshot != null && !loading
-                            && (premiumHidden() != renderedPremiumHidden || Account.hasIptv(this) != renderedLiveTv)) {
+                            && (premiumHidden() != renderedPremiumHidden || hasLiveTv() != renderedLiveTv)) {
                         render(snapshot);
                     }
                 });
@@ -366,7 +373,7 @@ public class HomeActivity extends Activity {
         // Without a premium account the premium-only games live in their own tab.
         if (premiumHidden()) names.add(PREMIUM_FILTER);
         // With one, the account's IPTV channels get a tab of their own (a separate screen).
-        boolean liveTv = Account.hasIptv(this);
+        boolean liveTv = hasLiveTv();
         renderedLiveTv = liveTv;
         if (liveTv) names.add(LIVE_TV_TAB);
         if (filterCategory != null && !names.contains(filterCategory)) filterCategory = null;
@@ -665,9 +672,18 @@ public class HomeActivity extends Activity {
         return out;
     }
 
-    /** No premium account (signed out, or signed in but the account turned out not to have it). */
+    /**
+     * No way to play premium: signed out with nothing shared through the pool, or signed in but
+     * the account turned out not to have it.
+     */
     private boolean premiumHidden() {
-        return !Account.isSignedIn(this) || Boolean.FALSE.equals(Account.premiumKnown(this));
+        boolean own = Account.isSignedIn(this) && !Boolean.FALSE.equals(Account.premiumKnown(this));
+        return !own && !Pool.sharedAvailable(this);
+    }
+
+    /** Live TV: the account's own playlist, or the shared account's through the pool. */
+    private boolean hasLiveTv() {
+        return Account.hasIptv(this) || Pool.sharedIptv(this);
     }
 
     /**
@@ -1137,7 +1153,7 @@ public class HomeActivity extends Activity {
         if (CrashLog.pendingReport(this) == null) updates.checkIfDue();
         if (snapshot != null && !loading) {
             boolean premiumHidden = premiumHidden();
-            if (premiumHidden != renderedPremiumHidden || Account.hasIptv(this) != renderedLiveTv
+            if (premiumHidden != renderedPremiumHidden || hasLiveTv() != renderedLiveTv
                     || !keyOf(premiumPass(continueWatching(snapshot), premiumHidden, false)).equals(recentsKey)) {
                 render(snapshot);
             }

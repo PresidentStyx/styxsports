@@ -575,14 +575,13 @@ public class NativePlayerActivity extends Activity {
 
     private void onPageResolved(StreamResolver.Page p) {
         page = p;
-        // Signed in with premium tabs on the page: this account is the shared premium account,
-        // so take a slot in its 5-connection pool before touching a premium server (like
-        // app.js resolvePage). Denied: the free servers are used and the viewer is told.
-        boolean signedIn = Account.isSignedIn(this);
-        boolean premiumLocked = Boolean.FALSE.equals(Account.premiumKnown(this));
+        // Premium tabs on the page and a way to play them (own account, or an account someone
+        // shared through the pool): take a slot in the connection pool before touching a
+        // premium server (like app.js resolvePage). Denied: the free servers are used and the
+        // viewer is told.
         boolean hasPremium = false;
         for (StreamResolver.Server s : p.servers) if (s.premium) hasPremium = true;
-        if (signedIn && hasPremium && !premiumLocked && !lease.held()) {
+        if (premiumCapable() && hasPremium && !lease.held()) {
             final int gen = loadGeneration;
             lease.acquire("game", event.title(), r -> {
                 if (gen != loadGeneration || isFinishing()) return;
@@ -592,6 +591,15 @@ public class NativePlayerActivity extends Activity {
             return;
         }
         arrangeServers(p);
+    }
+
+    /**
+     * Can this device play premium tabs at all: its own account unless that is known to lack
+     * premium, otherwise an account shared through the pool (played via the Worker).
+     */
+    private boolean premiumCapable() {
+        if (Account.isSignedIn(this)) return !Boolean.FALSE.equals(Account.premiumKnown(this));
+        return Pool.sharedAvailable(this);
     }
 
     /** Remembers a pool answer and, when it was a refusal, says so. */
@@ -606,18 +614,19 @@ public class NativePlayerActivity extends Activity {
 
     private void arrangeServers(StreamResolver.Page p) {
         servers.clear();
-        // Signed in with a pool slot: the account's premium servers go first and are tried first;
-        // a premium tab that turns out to be locked (account without premium) simply fails over
-        // to the free ones like any other dead server. Signed out: premium tabs are skipped
-        // entirely. Pool full: start on free; the premium tabs stay reachable with Left/Right,
-        // which asks the pool again.
+        // With a pool slot (own account or a shared one): the premium servers go first and are
+        // tried first; a premium tab that turns out to be locked (account without premium)
+        // simply fails over to the free ones like any other dead server. Signed out with
+        // nothing shared: premium tabs are skipped entirely. Pool full: start on free; the
+        // premium tabs stay reachable with Left/Right, which asks the pool again.
         boolean signedIn = Account.isSignedIn(this);
-        boolean premiumLocked = Boolean.FALSE.equals(Account.premiumKnown(this)) || (signedIn && !lease.held());
+        boolean capable = premiumCapable();
+        boolean premiumLocked = (signedIn && Boolean.FALSE.equals(Account.premiumKnown(this))) || (capable && !lease.held());
         List<StreamResolver.Server> premium = new ArrayList<>();
         List<StreamResolver.Server> free = new ArrayList<>();
         for (StreamResolver.Server s : p.servers) {
             if (!s.premium) free.add(s);
-            else if (signedIn) premium.add(s);
+            else if (signedIn || capable) premium.add(s);
         }
         // Named premium tabs ("Redzone 1", "Raiders") are the site's own players and resolve;
         // its generic "Server N" premium tabs are third-party embeds (embed.st) that no native
@@ -686,9 +695,9 @@ public class NativePlayerActivity extends Activity {
         }
         if (start < 0 || start >= servers.size()) start = 0;
         Log.i(TAG, "live tv: " + servers.size() + " channels in " + channelGroup + ", starting at " + start);
-        // Live TV counts toward the shared account's 5 connections: the Live TV screen took the
-        // slot; renew it under this channel's name (a fresh acquire when it lapsed).
-        if (Account.isSignedIn(this) && !lease.held()) {
+        // Live TV counts toward the account's 5 connections: the Live TV screen took the slot;
+        // renew it under this channel's name (a fresh acquire when it lapsed).
+        if ((Account.isSignedIn(this) || Pool.sharedIptv(this)) && !lease.held()) {
             final int gen = loadGeneration;
             final int first = start;
             lease.acquire("tv", servers.get(first).name, r -> {
@@ -709,7 +718,7 @@ public class NativePlayerActivity extends Activity {
 
     /** Every server is premium and none is available to us. */
     private void showPremiumOnly() {
-        if (Account.isSignedIn(this)) {
+        if (Account.isSignedIn(this) || Pool.sharedAvailable(this)) {
             showStatusWithActions(getString(R.string.np_premium_only), false);
             return;
         }
@@ -751,7 +760,7 @@ public class NativePlayerActivity extends Activity {
         showHud();
 
         // A premium tab picked by hand (or after the lease lapsed): (re)acquire a pool slot first.
-        if (channelGroup == null && s.premium && Account.isSignedIn(this) && !lease.held()) {
+        if (channelGroup == null && s.premium && premiumCapable() && !lease.held()) {
             final int gen = ++loadGeneration;
             handler.removeCallbacks(impatience);
             lease.acquire("game", event.title(), r -> {
@@ -804,15 +813,23 @@ public class NativePlayerActivity extends Activity {
         handler.removeCallbacks(impatience);
         if (!manual && servers.size() > 1) handler.postDelayed(impatience, IMPATIENCE_MS);
         final boolean viaPool = s.premium && lease.held();
+        // No account here: this session cannot open a premium tab at all, so the Worker reads it
+        // with the shared account straight away.
+        final boolean sharedOnly = viaPool && !Account.isSignedIn(this);
         io.execute(() -> {
             try {
-                StreamResolver.Stream st = resolver.resolve(s, page);
-                // The site does not give every session the same premium player: when ours gets
-                // an embed it cannot read, the Worker resolves the tab with the shared account.
-                if (viaPool && !st.playableNatively() && !"gate".equals(st.state) && !"warming".equals(st.state)) {
-                    Log.i(TAG, s.name + ": no player for this session; asking the web player");
-                    StreamResolver.Stream shared = Pool.resolveShared(this, s);
-                    if (shared.playableNatively() || "warming".equals(shared.state)) st = shared;
+                StreamResolver.Stream st;
+                if (sharedOnly) {
+                    st = Pool.resolveShared(this, s);
+                } else {
+                    st = resolver.resolve(s, page);
+                    // The site does not give every session the same premium player: when ours
+                    // gets an embed it cannot read, the Worker resolves the tab with the shared account.
+                    if (viaPool && !st.playableNatively() && !"gate".equals(st.state) && !"warming".equals(st.state)) {
+                        Log.i(TAG, s.name + ": no player for this session; asking the web player");
+                        StreamResolver.Stream shared = Pool.resolveShared(this, s);
+                        if (shared.playableNatively() || "warming".equals(shared.state)) st = shared;
+                    }
                 }
                 final StreamResolver.Stream got = st;
                 handler.post(() -> {
@@ -1008,7 +1025,7 @@ public class NativePlayerActivity extends Activity {
         retried.clear();
         // Live TV without a pool slot (the pool was full): go through the channel list again,
         // which asks the pool first.
-        if (channelGroup != null && !servers.isEmpty() && (lease.held() || !Account.isSignedIn(this))) {
+        if (channelGroup != null && !servers.isEmpty() && (lease.held() || !(Account.isSignedIn(this) || Pool.sharedIptv(this)))) {
             switchTo(Math.max(current, 0), true);
             return;
         }

@@ -63,7 +63,9 @@ export default {
       // Lease bookkeeping is open like /api/ping so the APK and Roku can count toward the 5 slots
       // (no cookies pass through it). State, /share and /clear stay behind the site password.
       if (path === '/api/pool/acquire' || path === '/api/pool/heartbeat' || path === '/api/pool/release' || path === '/api/pool/info') {
-        return await handlePool(request, env, path, null, serializeSession);
+        // A browser's own-account cookie tells acquire the lease is on the viewer's account.
+        const session = path === '/api/pool/acquire' ? await loadSession(request, env) : null;
+        return await handlePool(request, env, path, session, serializeSession);
       }
       if (path === '/login') return await handleLogin(request, env);
       if (path === '/logout') return handleLogout(request);
@@ -86,7 +88,7 @@ export default {
             const byId = new Map(pool.leases.map((l) => [l.id, l]));
             for (const d of data.devices || []) {
               const l = byId.get(d.id);
-              if (l) d.watching = { kind: l.kind, label: l.label };
+              if (l) d.watching = { kind: l.kind, label: l.label, account: l.account ? l.accountLabel : '' };
             }
             for (const l of pool.leases) { l.device = names.get(l.id) || ''; delete l.id; }
             data.pool = pool;
@@ -236,30 +238,28 @@ async function borrowShared(env, slot, { listing = false, wantPremium = false } 
   const out = { stub: poolStub(env), shared: null, session: null, jar: undefined, leased: false };
   if (!out.stub) return out;
   try {
-    out.shared = await out.stub.getShared();
+    // A lease names the shared account it borrows; a plain page listing may use any of them.
+    const key = slot ? await out.stub.leaseAccount(slot) : null;
+    if (key) out.leased = true;
+    else if (!(listing && !wantPremium)) return out;
+    out.shared = await out.stub.getShared(key);
   } catch {
     return out;
   }
   out.session = deserializeSession(out.shared);
-  if (!out.session) return out;
-  if (listing && !wantPremium) {
-    out.jar = out.session.jar;
+  if (!out.session) {
+    out.leased = false;
     return out;
   }
-  if (slot && await out.stub.hasLease(slot)) {
-    out.leased = true;
-    out.jar = out.session.jar;
-  }
+  out.jar = out.session.jar;
   return out;
 }
 
 async function saveBorrowed(borrowed) {
-  if (!borrowed || !borrowed.stub || !borrowed.session) return;
+  if (!borrowed || !borrowed.stub || !borrowed.session || !borrowed.shared) return;
   if (!borrowed.session.dirty && !borrowed.session.jar.dirty) return;
   try {
-    const next = serializeSession(borrowed.session);
-    if (borrowed.shared && borrowed.shared.at) next.at = borrowed.shared.at;
-    await borrowed.stub.setShared(next);
+    await borrowed.stub.setShared(borrowed.shared.key, serializeSession(borrowed.session));
   } catch { /* next request will reuse the last stored cookies */ }
 }
 

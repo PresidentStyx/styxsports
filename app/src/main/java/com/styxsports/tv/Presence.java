@@ -66,6 +66,12 @@ final class Presence {
             } catch (Throwable ignored) {
                 // presence is best-effort; never surface to the viewer
             }
+            // Same beat: is an account shared, does it have Live TV (Pool.sharedAvailable).
+            try {
+                Pool.refreshInfo(ctx);
+            } catch (Throwable ignored) {
+                // keeps the last answer
+            }
         }, "presence").start();
     }
 

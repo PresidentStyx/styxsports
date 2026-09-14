@@ -1381,7 +1381,7 @@
       }
       $('acct-title').textContent = 'Sign in to your premium account';
       if (pool.shared && pool.sharedPremium !== false) {
-        body.appendChild(el('p', 'acct-line ok', `★  A shared premium account is already active for everyone: ${pool.used} of ${pool.max} connections in use. You only need to sign in here to use your own account instead.`));
+        body.appendChild(el('p', 'acct-line ok', `★  Shared premium is already active for everyone: ${pool.used} of ${pool.max} connections in use. Sign in here to use your own account instead — or to share it on the stats page and add 5 more connections for everyone.`));
       }
       body.appendChild(el('p', 'acct-lead', 'Sign in to your StreamEast account and Styx Sports will use its premium servers automatically. Without an account it keeps using the free ones.'));
       const steps = el('ol', 'acct-steps');
@@ -1548,7 +1548,7 @@
       if (pool.shared) {
         const got = await player.takeSlot('tv', 'Live TV');
         if (!got) {
-          this.message(`All ${pool.max} shared premium connections are in use.\nLive TV counts toward the same 5 as games.`, false);
+          this.message(`All ${pool.max} shared premium connections are in use.\nLive TV counts toward the same connections as games.`, false);
           return;
         }
       }

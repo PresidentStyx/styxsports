@@ -127,6 +127,11 @@ final class Iptv {
 
     /** Downloads the account's playlist, caches it and returns the parsed result. Blocking. */
     static Iptv fetch(Context ctx) throws IOException {
+        if (!Account.isSignedIn(ctx)) {
+            // No account here: the shared account's list, through the Worker, with our pool lease.
+            if (!Pool.sharedIptv(ctx)) throw new IOException("This account has no IPTV playlist");
+            return store(ctx, Pool.fetchIptvM3u(ctx));
+        }
         String plus = Account.playlistUrl(ctx);
         if (plus == null) throw new IOException("This account has no IPTV playlist");
         String hls = plus + (plus.contains("?") ? "&" : "?") + "output=hls";
@@ -144,6 +149,11 @@ final class Iptv {
             Log.w(TAG, "hls variant failed: " + e.getMessage());
         }
         if (text == null) text = download(plus);
+        return store(ctx, text);
+    }
+
+    /** Parses a playlist, keeps it as the disk cache and the loaded list. */
+    private static Iptv store(Context ctx, String text) throws IOException {
         Iptv parsed = parse(text, System.currentTimeMillis());
         if (parsed.channelCount == 0) throw new IOException("Playlist is empty");
         File f = cacheFile(ctx);

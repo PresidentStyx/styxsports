@@ -143,23 +143,30 @@ Cloudflare Worker from [`web/`](web/):
   proxied path if the direct attempt dies before the first frame. A playlist
   whose only segment is `warming.ts` (the CDN spinning a channel up) is reported
   as `warming` and not playable, so the player moves on instead of looping it.
-- **Shared premium account** (`web/src/pool.js`, the `Pool` Durable Object): the
+- **Shared premium accounts** (`web/src/pool.js`, the `Pool` Durable Object): the
   site sells premium per account with a hard cap of 5 simultaneous connections
-  (Live TV tabs and IPTV apps count together). One account can be lent to every
-  viewer: sign in with it on the home page, then press **Share** on `/stats`;
-  the Worker copies that session into the Durable Object (the cookies never
-  reach a browser). A viewer without their own account takes a *lease* on one
-  of the 5 slots before a premium server or Live TV is resolved
+  (Live TV tabs and IPTV apps count together). Any number of accounts can be
+  lent to every viewer: sign in with one on the home page, then press **Share**
+  on `/stats` (give it a name); the Worker copies that session into the Durable
+  Object (the cookies never reach a browser). Each shared account adds 5
+  connections; leases name the account they borrow and accounts fill in the
+  order they were shared (`/api/pool/remove` drops one). Re-sharing from the
+  same browser, or an account with the same playlist URL, updates its entry
+  instead of adding one. A viewer without their own account takes a *lease* on
+  one slot before a premium server or Live TV is resolved
   (`/api/pool/acquire`), renews it every 20 s while the player is open
   (`/api/pool/heartbeat`) and drops it on close or `pagehide`
   (`/api/pool/release`; a missed lease expires after 45 s). Premium resolves
   and `/api/iptv` only borrow the shared cookies when the request carries a
   live lease id (`slot=`); when all slots are taken the player uses the free
   servers and says so. `/stats` shows the slots in use, who holds them, and
-  has **Stop sharing**. `POOL_SLOTS` overrides the cap. Viewers signed in with
-  their own account take a lease too (the shared account usually *is* that
-  account, so its connection counts against the same 5 and shows on `/stats`),
-  but a full pool never keeps them off premium. `/api/pool/acquire`,
+  has **Remove** per account. `POOL_SLOTS` overrides the per-account cap.
+  Viewers signed in with their own account register a lease too so `/stats`
+  shows them, but it only takes a slot when that account is one of the shared
+  ones — matched by a SHA-256 fingerprint of the IPTV playlist URL (the web
+  derives it from the session, the APK and Roku send `own` + `acct`); an
+  "own" lease never unlocks the shared-account endpoints, and a full pool
+  never keeps an own-account viewer off premium. `/api/pool/acquire`,
   `/heartbeat`, `/release` and `/api/pool/info` (`{ shared, sharedIptv,
   sharedPremium, used, max }`, no cookies) are outside the password gate like
   `/api/ping`, so the Android and Roku apps can join the same pool.
@@ -174,8 +181,10 @@ Cloudflare Worker from [`web/`](web/):
   devices with their platform, last ping, and — since the ping id is also the
   pool lease id — what premium stream each one holds; the ids themselves
   never leave the Worker.
-- **Devices without their own sign-in use the shared account through the
-  Worker.** A live lease id is also accepted in place of the site password on
+- **Devices without their own sign-in use a shared account through the
+  Worker** (Roku since 3.6, APK since 3.8: `Pool.sharedAvailable`, refreshed
+  with every presence ping, lets the player list premium tabs and the home
+  screen show the Live TV chip). A live lease id is also accepted in place of the site password on
   `/api/stream`, `/api/iptv` and `/api/iptv/token` (`slot=`), and `/hls/` paths
   are open because they are HMAC-signed by the Worker. So a Roku (or APK) that
   is not signed in learns from `/api/pool/info` that an account is shared,

@@ -39,7 +39,28 @@ end function
 
 ' kind: "game" | "tv". label: game title or channel name (shown on /stats).
 function Pool_acquire(kind as string, label as string) as object
-    return Pool_call("/acquire", { id: Pool_clientId(), kind: kind, label: Left(label, 80), platform: "roku" })
+    body = { id: Pool_clientId(), kind: kind, label: Left(label, 80), platform: "roku" }
+    ' Signed in here: the lease is on this device's own account. It only takes a shared slot when
+    ' that account is one of the shared ones, which the Worker tells from the playlist URL's
+    ' fingerprint (never the URL itself).
+    if Account_isSignedIn()
+        body.own = true
+        fp = Pool_fingerprint(Account_playlistUrl())
+        if fp <> "" then body.acct = fp
+    end if
+    return Pool_call("/acquire", body)
+end function
+
+' First 8 bytes of SHA-256 as hex, like the Worker's fingerprint(); "" without a URL.
+function Pool_fingerprint(iptvUrl as string) as string
+    u = iptvUrl.Trim()
+    if u = "" then return ""
+    ba = CreateObject("roByteArray")
+    ba.FromAsciiString(u)
+    digest = CreateObject("roEVPDigest")
+    if digest.Setup("sha256") <> 0 then return ""
+    hex = digest.Process(ba)
+    return LCase(Left(hex, 16))
 end function
 
 function Pool_heartbeat(label as string) as object

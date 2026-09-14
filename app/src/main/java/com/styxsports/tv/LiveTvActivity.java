@@ -102,7 +102,7 @@ public class LiveTvActivity extends Activity {
         openingPlayer = false;
         // Take (or, back from the player, renew) the pool slot before the channel list shows
         // (app.js: takeSlot('tv')). Denied -> say so and offer Retry.
-        if (Account.isSignedIn(this) && !lease.held()) {
+        if ((Account.isSignedIn(this) || Pool.sharedIptv(this)) && !lease.held()) {
             leaseDenied = false;
             if (playlist == null) showStatus(getString(R.string.np_connecting), true);
             lease.acquire("tv", getString(R.string.ltv_title), r -> {

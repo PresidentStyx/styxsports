@@ -27,9 +27,19 @@
     .pool-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
     .pool-head b { font-size: 44px; line-height: 1; }
     .pool-head span { color: var(--muted); font-size: 14px; }
-    .slots { display: flex; gap: 8px; margin: 16px 0 6px; }
-    .slot { flex: 1; height: 12px; border-radius: 6px; background: var(--outline-strong); }
+    .accounts { display: flex; flex-direction: column; gap: 10px; margin: 16px 0 6px; }
+    .acct { background: var(--bg); border: 1px solid var(--outline); border-radius: 12px; padding: 12px 14px; }
+    .acct-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .acct-name { font-weight: 700; }
+    .acct-meta { color: var(--muted); font-size: 12px; flex: 1; }
+    .acct-meta .warn { color: #f87171; }
+    .acct-n { font-size: 13px; font-weight: 600; white-space: nowrap; }
+    .acct-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 12px; padding: 4px 6px; border-radius: 6px; }
+    .acct-x:hover { color: #f87171; background: var(--surface); }
+    .slots { display: flex; gap: 6px; margin-top: 10px; }
+    .slot { flex: 1; height: 10px; border-radius: 5px; background: var(--outline-strong); }
     .slot.on { background: var(--gold); }
+    .mine { color: var(--gold); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
     .leases { list-style: none; margin: 14px 0 0; padding: 0; font-size: 14px; }
     .leases li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--outline); }
     .leases li span:last-child { color: var(--muted); white-space: nowrap; }
@@ -81,14 +91,14 @@
       <p class="empty hidden" id="devices-empty">Nobody is watching right now.</p>
     </div>
 
-    <h2>Shared premium account</h2>
+    <h2>Shared premium accounts</h2>
     <div class="pool">
       <div class="pool-head">
         <b id="pool-used">—</b>
-        <span id="pool-max">of 5 connections in use</span>
+        <span id="pool-max">of 0 connections in use</span>
         <span id="pool-shared"></span>
       </div>
-      <div class="slots" id="slots"></div>
+      <div class="accounts" id="accounts"></div>
       <ul class="leases" id="leases"></ul>
       <p class="pool-note" id="pool-note"></p>
       <div class="pool-actions" id="pool-actions"></div>
@@ -99,6 +109,7 @@
     const $ = (id) => document.getElementById(id);
     let me = { signedIn: false };
     let poolState = null;
+    let mineKey = null; // the shared account this browser added, if any (cookie on the Worker)
 
     async function refresh() {
       try {
@@ -125,6 +136,10 @@
       try {
         const res = await fetch('/api/account', { cache: 'no-store' });
         if (res.ok) me = await res.json();
+      } catch { /* leave as is */ }
+      try {
+        const res = await fetch('/api/pool', { cache: 'no-store' });
+        if (res.ok) mineKey = (await res.json()).mine || null;
       } catch { /* leave as is */ }
       renderPool();
     }
@@ -159,7 +174,8 @@
           w.textContent = ' · ★ ' + (lease.kind === 'tv' ? '📺 ' : '') + (lease.label || (lease.kind === 'tv' ? 'Live TV' : 'a game'));
           name.appendChild(w);
         }
-        const pl = document.createElement('span'); pl.className = 'dev-plat' + (lease ? ' premium' : ''); pl.textContent = lease ? plat + ' · premium' : plat;
+        const pl = document.createElement('span'); pl.className = 'dev-plat' + (lease ? ' premium' : '');
+        pl.textContent = lease ? plat + ' · ' + (lease.account || 'own account') : plat;
         const ago_ = document.createElement('span'); ago_.className = 'dev-ago'; ago_.textContent = ago(d.lastSeen);
         li.append(ic, name, pl, ago_);
         ul.appendChild(li);
@@ -169,39 +185,62 @@
     function renderPool() {
       const p = poolState;
       if (!p) return;
+      const accounts = p.accounts || [];
       $('pool-used').textContent = p.used;
       $('pool-max').textContent = 'of ' + p.max + ' connections in use';
-      $('pool-shared').textContent = p.shared
-        ? '· shared ' + ago(p.sharedAt) + ' ago' + (p.sharedPremium === false ? ' · premium locked on this account' : p.sharedIptv ? ' · Live TV available' : '')
+      $('pool-shared').textContent = accounts.length
+        ? '· ' + accounts.length + (accounts.length === 1 ? ' account shared' : ' accounts shared') + (p.sharedIptv ? ' · Live TV available' : '')
         : '· no account shared yet';
-      $('pool-shared').className = p.shared ? 'ok' : '';
-      const slots = $('slots');
-      slots.replaceChildren();
-      for (let i = 0; i < p.max; i++) {
-        const s = document.createElement('div');
-        s.className = 'slot' + (i < p.used ? ' on' : '');
-        slots.appendChild(s);
+      $('pool-shared').className = accounts.length ? 'ok' : '';
+
+      // One card per shared account: who it is, what it offers, its 5 slots, and Remove.
+      const box = $('accounts');
+      box.replaceChildren();
+      for (const a of accounts) {
+        const card = document.createElement('div');
+        card.className = 'acct';
+        const head = document.createElement('div');
+        head.className = 'acct-head';
+        const name = document.createElement('span'); name.className = 'acct-name'; name.textContent = a.label;
+        head.appendChild(name);
+        if (a.key === mineKey) { const m = document.createElement('span'); m.className = 'mine'; m.textContent = 'yours'; head.appendChild(m); }
+        const meta = document.createElement('span'); meta.className = 'acct-meta';
+        meta.textContent = 'shared ' + ago(a.sharedAt) + ' ago' + (a.iptv ? ' · Live TV' : ' · no Live TV');
+        if (a.premium === false) { const w = document.createElement('span'); w.className = 'warn'; w.textContent = ' · premium locked'; meta.appendChild(w); }
+        const n = document.createElement('span'); n.className = 'acct-n'; n.textContent = a.used + ' / ' + a.max;
+        const x = document.createElement('button'); x.className = 'acct-x'; x.textContent = 'Remove';
+        x.onclick = () => {
+          if (confirm('Stop sharing "' + a.label + '"? Anyone borrowing it drops to free servers.')) poolAction('remove', { key: a.key });
+        };
+        head.append(meta, n, x);
+        const slots = document.createElement('div'); slots.className = 'slots';
+        for (let i = 0; i < a.max; i++) {
+          const s = document.createElement('div');
+          s.className = 'slot' + (i < a.used ? ' on' : '');
+          slots.appendChild(s);
+        }
+        card.append(head, slots);
+        box.appendChild(card);
       }
+
       const ul = $('leases');
       ul.replaceChildren();
       for (const l of p.leases) {
         const li = document.createElement('li');
         const a = document.createElement('span');
         a.textContent = (l.kind === 'tv' ? '📺 ' : '') + (l.label || (l.kind === 'tv' ? 'Live TV' : 'a game'));
-        if (l.device) {
-          const dev = document.createElement('span');
-          dev.className = 'lease-dev';
-          dev.textContent = ' · ' + l.device;
-          a.appendChild(dev);
-        }
+        const dev = document.createElement('span');
+        dev.className = 'lease-dev';
+        dev.textContent = (l.device ? ' · ' + l.device : '') + ' · ' + (l.account ? l.accountLabel : 'own account');
+        a.appendChild(dev);
         const b = document.createElement('span');
         b.textContent = (PLATFORM[l.platform] ? PLATFORM[l.platform][1] : l.platform) + ' · ' + ago(l.since);
         li.append(a, b);
         ul.appendChild(li);
       }
-      $('pool-note').textContent = p.shared
-        ? 'Viewers without their own account borrow one of these connections while a premium stream or Live TV plays; a lease is dropped ' + p.ttlSec + ' s after the player closes. When all ' + p.max + ' are taken, everyone else gets the free servers.'
-        : 'Sign in with your StreamEast account on the home page (Sign in button), come back here and press Share. Everyone using the app then gets its premium servers and Live TV, up to ' + p.max + ' at a time; the rest fall back to free streams.';
+      $('pool-note').textContent = accounts.length
+        ? 'Every shared account adds ' + (accounts[0].max) + ' connections. Viewers without their own account borrow one while a premium stream or Live TV plays (accounts fill in the order they were shared); a lease is dropped ' + p.ttlSec + ' s after the player closes. When all ' + p.max + ' are taken, everyone else gets the free servers. Viewers signed in with their own account are listed too but only take a slot when it is one of these accounts.'
+        : 'Sign in with a StreamEast premium account on the home page (Sign in button), come back here and press Share. Everyone using the app then gets its premium servers and Live TV, 5 at a time per shared account; the rest fall back to free streams. Share more accounts to add capacity.';
       const actions = $('pool-actions');
       actions.replaceChildren();
       const btn = (label, primary, fn) => {
@@ -213,25 +252,38 @@
         return b;
       };
       if (me.signedIn) {
-        btn(p.shared ? 'Re-share my session' : 'Share my account with everyone', true, () => poolAction('share'));
+        const already = mineKey && accounts.some((a) => a.key === mineKey);
+        btn(already ? 'Update my shared session' : accounts.length ? 'Share my account too' : 'Share my account with everyone', true, () => {
+          let label = '';
+          if (!already) {
+            label = prompt('Name for this account on the stats page (whose it is):', 'Account ' + (accounts.length + 1));
+            if (label === null) return;
+          }
+          poolAction('share', { label });
+        });
       } else {
         const a = document.createElement('a');
         a.className = 'btn primary';
         a.href = '/';
-        a.textContent = 'Sign in on the home page first';
+        a.textContent = 'Sign in on the home page to share an account';
         actions.appendChild(a);
       }
-      if (p.shared) btn('Stop sharing', false, () => {
-        if (confirm('Stop sharing the premium account? Everyone drops to free servers immediately.')) poolAction('clear');
+      if (accounts.length > 1) btn('Stop sharing all', false, () => {
+        if (confirm('Stop sharing every account? Everyone drops to free servers immediately.')) poolAction('clear');
       });
     }
 
-    async function poolAction(what) {
+    async function poolAction(what, body) {
       $('pool-err').textContent = '';
       try {
-        const res = await fetch('/api/pool/' + what, { method: 'POST', cache: 'no-store' });
+        const res = await fetch('/api/pool/' + what, {
+          method: 'POST', cache: 'no-store',
+          headers: body ? { 'Content-Type': 'application/json' } : {},
+          body: body ? JSON.stringify(body) : undefined,
+        });
         const d = await res.json();
         if (!res.ok) throw new Error(d.error || ('HTTP ' + res.status));
+        if (d.mine !== undefined) mineKey = d.mine;
         poolState = d;
         renderPool();
       } catch (e) {
