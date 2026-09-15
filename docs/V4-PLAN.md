@@ -301,7 +301,39 @@ Phases 4 and 5 can interleave with 3.
 ## Progress
 
 ### Phase 0
-- [ ] 0.1 Updater path documented
-- [ ] 0.1 Test matrix run and results recorded
+- [x] 0.1 Updater path documented (below)
+- [x] 0.1 Test matrix run on DM Theater (Google TV Streamer, Android 14); results below
 - [ ] 0.2 Mobile audit run and defects listed
-- [ ] Blocking fixes shipped
+- [x] 0.1 Blocking fixes shipped (permission dialogs, CLEAR_TASK, truthful copy, release notes)
+
+#### 0.1 Updater as of 3.9 (`UpdateFlow.java`, `AppUpdater.java`)
+- Runs: at launch (`checkInBackground`), on the Refresh button, on Home's resume and on
+  its 5-minute tick - the latter two gated to once per 30 min (`RECHECK_MS`). Nothing runs
+  while the player is open (so an update never interrupts a game) and nothing runs in the
+  background when the app is not on screen (Phase 5 adds the 6 h WorkManager job).
+- Source: GitHub `releases/latest` API, asset `StyxSports.apk`; version = tag without `v`,
+  compared numerically to `versionName` (equal or newer installed → no prompt, cache
+  cleaned). No Worker fallback yet (Phase 5).
+- A newer release is downloaded *before* the prompt (`downloadIfNeeded`, to
+  `cache/updates/StyxSports-<v>.apk`, `.part` while in flight, deleted on failure); the
+  prompt is then "Update ready to install → Install now". If the download failed the classic
+  "Install" prompt downloads on request. "Later" snoozes that version 4 h (in memory only:
+  a relaunch asks again).
+- Integrity: size > 10 KB only. SHA-256 is Phase 5.
+- Install: `ACTION_VIEW` on a FileProvider URI → the system installer's "Do you want to
+  update this app?" (its default focus is **Cancel**; can't be changed from our side) →
+  "App installed · Done / Open". The app does not relaunch itself (Phase 5 may, via a
+  `PackageInstaller` session with a result `IntentSender`).
+
+#### 0.1 Test results (DM Theater, 3.8.9 test build → 3.9 release)
+| Case | Result |
+|---|---|
+| Launch with a newer release | Prompt in ~2 s (APK already cached from a previous check); first-ever check needs the ~5 MB download first |
+| Already open when a release publishes | Covered by the resume/tick path, ≤ 30 min; not re-timed |
+| Install permission not yet granted | **Was**: a toast, then the OS opened the *list* of apps with focus on another app; nothing told the viewer what to do. **Now**: an explanatory dialog before the settings screen, a "still switched off - Try again" dialog when they come back without granting, and the installer opens by itself when they did grant |
+| Stale "App installed" screen left from a previous update | **Was**: it came to the front instead of the new confirmation; the update silently didn't happen. **Now**: `FLAG_ACTIVITY_CLEAR_TASK` on the install intent |
+| Downgrade / equal version installed | No prompt, cache cleaned |
+| Release notes in the prompt | **Was**: the tagged commit's message, including `Co-authored-by` trailers. **Now**: the tag's annotation, trailers stripped; v3.9's notes rewritten by hand |
+| Interrupted download | Code path reviewed: `.part` deleted, retried on the next check; not induced on hardware |
+| GitHub blocked (office) | Not testable tonight (owner left the office); Phase 5 adds the Worker fallback regardless |
+| Cosmetic | The installer's success screen shows `com.styxsports.tv.StyxApp` with a stock icon on this Google TV build - a platform quirk (label/icon are set on `<application>`), not ours to fix |

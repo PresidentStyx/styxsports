@@ -88,14 +88,22 @@ jobs:
           name: StyxSports-apk
           path: out/StyxSports.apk
 
-      # The tagged commit's message becomes the release notes, which the in-app
-      # update dialog shows under "Update available".
+      # The release notes are what the in-app update dialog shows, so they are written for
+      # viewers: the tag's annotation (`git tag -a vX.Y -m "..."`) when there is one, else the
+      # tagged commit's message; git trailers (Co-authored-by, Signed-off-by) are dropped.
       - name: Collect release notes
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
+          if [ "$(git cat-file -t "$TAG" 2>/dev/null)" = "tag" ]; then
+            RAW="$(git for-each-ref "refs/tags/$TAG" --format='%(contents)')"
+          else
+            RAW="$(git log -1 --format=%B "$GITHUB_SHA")"
+          fi
           {
             echo 'NOTES<<EOF'
-            git log -1 --format=%B "$GITHUB_SHA"
+            printf '%s\n' "$RAW" | grep -viE '^(Co-authored-by|Signed-off-by|Reviewed-by):' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
             echo 'EOF'
           } >> "$GITHUB_ENV"
 

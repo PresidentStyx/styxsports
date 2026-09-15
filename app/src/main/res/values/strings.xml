@@ -78,13 +78,18 @@
     <string name="update_title">Update available</string>
     <string name="update_ready_title">Update ready to install</string>
     <string name="update_message">Styx Sports %1$s is available (you have %2$s).</string>
-    <string name="update_ready_message">Styx Sports %1$s has been downloaded (you have %2$s). Install takes a few seconds; the app reopens itself.</string>
+    <string name="update_ready_message">Styx Sports %1$s has been downloaded (you have %2$s). Android will ask you to confirm; choose Update, then Open when it says “App installed”.</string>
     <string name="update_install">Install</string>
     <string name="update_install_now">Install now</string>
     <string name="update_later">Later</string>
     <string name="update_downloading">Downloading update…</string>
     <string name="update_failed">Update failed: %1$s</string>
     <string name="update_allow_source">Allow Styx Sports to install apps, then press Back to continue.</string>
+    <string name="update_permission_title">One-time permission</string>
+    <string name="update_permission_message">Android needs your OK before Styx Sports can install its own updates.\n\nOn the next screen, find Styx Sports in the list, switch it on, then press Back. The update continues by itself.</string>
+    <string name="update_permission_retry_message">Styx Sports is still switched off in “Install unknown apps”.\n\nOpen the list again, find Styx Sports, switch it on, then press Back.</string>
+    <string name="update_permission_open">Open settings</string>
+    <string name="update_permission_try_again">Try again</string>
     <!-- Premium account (site sign-in) -->
     <string name="action_sign_in">Sign in</string>
     <string name="action_account_premium">Premium</string>

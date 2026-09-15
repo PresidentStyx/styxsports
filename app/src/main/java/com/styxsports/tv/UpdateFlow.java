@@ -29,7 +29,8 @@ final class UpdateFlow {
     private File pendingInstall;
     private long lastCheckAt;
     private boolean checking;
-    private boolean offering;
+    /** The dialog on screen, if any: one at a time, and pressing a button on it may open the next. */
+    private AlertDialog dialog;
     private String snoozedVersion;
     private long snoozedAt;
 
@@ -53,7 +54,7 @@ final class UpdateFlow {
     }
 
     private void check(boolean force) {
-        if (checking || offering) return;
+        if (checking || offering()) return;
         checking = true;
         lastCheckAt = System.currentTimeMillis();
         io.execute(() -> {
@@ -86,42 +87,42 @@ final class UpdateFlow {
         });
     }
 
+    private boolean offering() {
+        return dialog != null && dialog.isShowing();
+    }
+
     private boolean gone() {
         return activity.isFinishing() || activity.isDestroyed();
     }
 
     /** The APK is already on disk: one button installs it. */
     private void offerReady(AppUpdater.Release release, File apk) {
-        if (gone() || offering) return;
+        if (gone() || offering()) return;
         String message = activity.getString(R.string.update_ready_message,
                 release.version, AppUpdater.installedVersion(activity));
         if (!release.notes.isEmpty()) message += "\n\n" + release.notes;
 
-        offering = true;
-        new AlertDialog.Builder(activity)
+        dialog = new AlertDialog.Builder(activity)
                 .setTitle(R.string.update_ready_title)
                 .setMessage(message)
                 .setPositiveButton(R.string.update_install_now, (d, w) -> install(apk))
                 .setNegativeButton(R.string.update_later, (d, w) -> snooze(release))
                 .setOnCancelListener(d -> snooze(release))
-                .setOnDismissListener(d -> offering = false)
                 .show();
     }
 
     private void offer(AppUpdater.Release release) {
-        if (gone() || offering) return;
+        if (gone() || offering()) return;
         String message = activity.getString(R.string.update_message,
                 release.version, AppUpdater.installedVersion(activity));
         if (!release.notes.isEmpty()) message += "\n\n" + release.notes;
 
-        offering = true;
-        new AlertDialog.Builder(activity)
+        dialog = new AlertDialog.Builder(activity)
                 .setTitle(R.string.update_title)
                 .setMessage(message)
                 .setPositiveButton(R.string.update_install, (d, w) -> downloadAndInstall(release))
                 .setNegativeButton(R.string.update_later, (d, w) -> snooze(release))
                 .setOnCancelListener(d -> snooze(release))
-                .setOnDismissListener(d -> offering = false)
                 .show();
     }
 
@@ -147,15 +148,11 @@ final class UpdateFlow {
     private void install(File apk) {
         if (gone()) return;
         if (!AppUpdater.canInstall(activity)) {
-            // One-time: the OS needs "Install unknown apps" enabled for this app.
-            pendingInstall = apk;
-            Toast.makeText(activity, R.string.update_allow_source, Toast.LENGTH_LONG).show();
-            try {
-                activity.startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        Uri.parse("package:" + activity.getPackageName())), REQ_INSTALL_PERMISSION);
-            } catch (ActivityNotFoundException e) {
-                Toast.makeText(activity, R.string.update_allow_source_manual, Toast.LENGTH_LONG).show();
-            }
+            // One-time: the OS needs "Install unknown apps" enabled for this app. Google TV
+            // opens the *list* of apps (focus on some other app) rather than our own toggle, so
+            // the viewer is told what to look for before the screen appears - a toast is gone by
+            // the time they get there.
+            askPermission(apk, false);
             return;
         }
         try {
@@ -166,12 +163,38 @@ final class UpdateFlow {
         }
     }
 
+    /** Reached from a button of the offer dialog (still dismissing) or from the settings round-trip. */
+    private void askPermission(File apk, boolean again) {
+        if (gone()) return;
+        dialog = new AlertDialog.Builder(activity)
+                .setTitle(R.string.update_permission_title)
+                .setMessage(again ? R.string.update_permission_retry_message : R.string.update_permission_message)
+                .setPositiveButton(again ? R.string.update_permission_try_again : R.string.update_permission_open,
+                        (d, w) -> openPermissionSettings(apk))
+                .setNegativeButton(R.string.update_later, (d, w) -> { })
+                .show();
+    }
+
+    private void openPermissionSettings(File apk) {
+        pendingInstall = apk;
+        try {
+            activity.startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + activity.getPackageName())), REQ_INSTALL_PERMISSION);
+        } catch (ActivityNotFoundException e) {
+            pendingInstall = null;
+            Toast.makeText(activity, R.string.update_allow_source_manual, Toast.LENGTH_LONG).show();
+        }
+    }
+
     /** Forward from {@link Activity#onActivityResult}. */
     void onActivityResult(int requestCode) {
         if (requestCode == REQ_INSTALL_PERMISSION && pendingInstall != null) {
             File apk = pendingInstall;
             pendingInstall = null;
+            // Granted: straight on to the installer, no second "Install now". Not granted (the
+            // viewer toggled the wrong row, or none): say so and offer the list again.
             if (AppUpdater.canInstall(activity)) install(apk);
+            else handler.post(() -> askPermission(apk, true));
         }
     }
 }

@@ -423,9 +423,21 @@ last resort flip `nativePlayer` / `nativeHome` to `false`.
 
 1. Bump `versionCode` and `versionName` in `app/build.gradle`
    (`versionName` must equal the git tag without the `v`).
-2. Commit, then tag and push: `git tag v1.3 && git push origin master v1.3`.
+2. Commit, then tag **with a message written for viewers** and push:
+   `git tag -a v1.3 -m "What changed, in plain words" && git push origin master v1.3`.
+   The tag's annotation becomes the release notes, and the release notes are what
+   the in-app update prompt shows (git trailers are stripped; a bare tag falls back
+   to the commit message).
 3. GitHub Actions builds, signs and attaches `StyxSports.apk` to the release.
-   Installed apps see the new tag on next launch and offer to update.
+   Installed apps see the new tag at launch, on Refresh, and every 30 min while
+   Home is open, pre-download it, and offer "Install now".
+
+Release checklist (audited for 4.0 - see `docs/V4-PLAN.md`, Phase 0): after the
+release is published, take one TV that still has the old build, open the app and
+confirm the prompt appears with readable notes; press Install now; if the TV has
+never let the app install updates, the one-time permission dialog explains the
+"Install unknown apps" list; the installer's own dialog defaults to **Cancel**, so
+pick Update; the app does not relaunch itself - choose Open.
 
 The release must be signed with the **same key** as the build already on the TV,
 otherwise Android refuses the update. CI reads that key from the repository

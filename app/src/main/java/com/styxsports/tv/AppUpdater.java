@@ -133,7 +133,10 @@ final class AppUpdater {
             uri = Uri.fromFile(apk);
         }
         i.setDataAndType(uri, "application/vnd.android.package-archive");
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        // CLEAR_TASK: the installer's "App installed" screen from the *previous* update stays in
+        // its task when the viewer pressed Home instead of Done, and would come to the front
+        // instead of this install's confirmation (seen on a Google TV Streamer).
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         return i;
     }
 
