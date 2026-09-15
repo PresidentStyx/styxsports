@@ -1420,7 +1420,9 @@
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       const s1 = el('li');
-      s1.append('On your phone (or in a new tab), go to ', link, ' — or scan the code.');
+      // The QR code is hidden on phones (they *are* the phone), so the words about it go too.
+      s1.append(el('span', 'phone-hide', 'On your phone (or in a new tab), go to '), el('span', 'phone-only', 'In a new tab, go to '),
+        link, el('span', 'phone-hide', ' — or scan the code.'), el('span', 'phone-only', '.'));
       steps.append(s1, el('li', null, 'Sign in to your StreamEast account.'), el('li', null, 'Under QR Sign In, enter the code shown here.'));
       body.appendChild(steps);
       const row = el('div', 'acct-row');

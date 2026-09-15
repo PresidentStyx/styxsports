@@ -26,6 +26,7 @@ body {
 }
 button { font: inherit; color: inherit; }
 .hidden { display: none !important; }
+.phone-only { display: none; } /* shown, and .phone-hide hidden, in the phone block below */
 
 /* ---------------------------------------------------------------- top bar */
 .top {
@@ -277,6 +278,7 @@ button.apk { cursor: pointer; }
   .wordmark { height: 16px; }
   .top-right { gap: 6px; }
   .top #refresh, .phone-hide { display: none; } /* reloading the page refreshes; "Get the TV app" -> "TV app" */
+  .phone-only { display: inline; }
   .icon-btn { width: 32px; height: 32px; font-size: 15px; }
   .apk { font-size: 12px; padding: 6px 10px; white-space: nowrap; }
   .chips { order: 3; flex-basis: 100%; padding: 2px 0 4px; }
@@ -305,17 +307,6 @@ button.apk { cursor: pointer; }
   .foot { padding: 0 12px 28px; gap: 14px; }
   .foot span { display: none; } /* keyboard / mouse hints */
 
-  /* player: the server chips must stay reachable by thumb */
-  .hud-top { padding: 10px 10px; gap: 8px; }
-  .hud-bottom { padding: 10px 0 14px; }
-  .p-title { font-size: 14px; }
-  .p-score { display: none; }
-  /* a game can list a dozen servers: one sideways-scrolling line instead of a stack over the video */
-  .servers { flex-wrap: nowrap; overflow-x: auto; width: 100%; padding: 4px 10px; scrollbar-width: none; }
-  .servers::-webkit-scrollbar { display: none; }
-  .server { flex: none; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
-  .embed-note { bottom: 76px; font-size: 11px; white-space: normal; text-align: center; max-width: 90vw; }
-
   /* Live TV: groups become a strip across the top, channels a three-column grid */
   .lt-head { padding: 10px 12px 8px; gap: 8px; flex-wrap: wrap; }
   .lt-title { font-size: 16px; }
@@ -332,4 +323,58 @@ button.apk { cursor: pointer; }
   .lt-channel { padding: 10px 6px 8px; min-height: 96px; }
   .lt-logo { width: 44px; height: 32px; }
   .lt-name { font-size: 11.5px; }
+}
+
+/* ---------------------------------------------------------------- phone player (either way up) */
+/* A phone held sideways is 956px wide, so the width rule above misses it and the TV HUD came
+   back: a dozen server chips stacked three rows deep over the video. Anything short and
+   touch-only is a phone. The server chips must stay reachable by thumb. */
+@media (max-width: 600px), ((max-height: 500px) and (hover: none)) {
+  .hud-top { padding: 10px 10px; gap: 8px; }
+  .hud-bottom { padding: 10px 0 14px; }
+  .p-title { font-size: 14px; }
+  .p-score { display: none; }
+  /* a game can list a dozen servers: one sideways-scrolling line instead of a stack over the video */
+  .servers { flex-wrap: nowrap; overflow-x: auto; width: 100%; padding: 4px 10px; scrollbar-width: none; }
+  .servers::-webkit-scrollbar { display: none; }
+  .server { flex: none; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+  .embed-note { bottom: 76px; font-size: 11px; white-space: normal; text-align: center; max-width: 90vw; }
+}
+
+/* ---------------------------------------------------------------- touch screens */
+@media (hover: none) and (pointer: coarse) {
+  .hint { display: none; } /* "← → switch server · Space pause · Esc back" means nothing to a thumb */
+  /* Fingers: nothing interactive under ~36px tall (Apple asks for 44pt; these sit in dense rows). */
+  .chip, .server, .lt-group { min-height: 36px; }
+  .icon-btn { min-width: 36px; min-height: 36px; }
+  .apk { min-height: 36px; }
+}
+
+/* ---------------------------------------------------------------- notch / home indicator */
+/* viewport-fit=cover lets the page run under the iPhone's Dynamic Island (left edge when the
+   phone is sideways) and behind the home indicator; keep controls out from under them. */
+.acct { padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); }
+@media (min-width: 721px) and (min-height: 501px) {
+  .top { padding-left: max(40px, env(safe-area-inset-left)); padding-right: max(40px, env(safe-area-inset-right)); }
+  .hud-top {
+    padding-top: max(18px, env(safe-area-inset-top));
+    padding-left: max(28px, env(safe-area-inset-left)); padding-right: max(28px, env(safe-area-inset-right));
+  }
+  .hud-bottom {
+    padding-bottom: max(18px, env(safe-area-inset-bottom));
+    padding-left: max(28px, env(safe-area-inset-left)); padding-right: max(28px, env(safe-area-inset-right));
+  }
+  .lt-head { padding-left: max(24px, env(safe-area-inset-left)); padding-right: max(24px, env(safe-area-inset-right)); }
+}
+@media (max-width: 600px), ((max-height: 500px) and (hover: none)) {
+  .top { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .hud-top {
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right));
+  }
+  .hud-bottom { padding-bottom: max(14px, env(safe-area-inset-bottom)); padding-left: 0; padding-right: 0; }
+  .servers { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+  .lt-head { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .lt-channels { padding-bottom: max(40px, env(safe-area-inset-bottom)); }
+  .foot { padding-bottom: max(28px, env(safe-area-inset-bottom)); }
 }

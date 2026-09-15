@@ -303,8 +303,23 @@ Phases 4 and 5 can interleave with 3.
 ### Phase 0
 - [x] 0.1 Updater path documented (below)
 - [x] 0.1 Test matrix run on DM Theater (Google TV Streamer, Android 14); results below
-- [ ] 0.2 Mobile audit run and defects listed
+- [x] 0.2 Mobile audit run (iPhone 17 Pro Max geometry, 440×956 @3x, iOS 26 Safari UA, touch,
+  emulated in Chromium) and defects listed below
 - [x] 0.1 Blocking fixes shipped (permission dialogs, CLEAR_TASK, truthful copy, release notes)
+- [x] 0.2 Fixes shipped (phone player rules in landscape, safe areas, touch targets, hints, copy)
+- [ ] 0.2 Confirmed on the real iPhone (WebKit-only behaviour: MMS playback, autoplay with
+  sound after the tap, fullscreen button, Dynamic Island insets in landscape)
+
+#### 0.2 Mobile audit results
+| Screen | Portrait | Landscape | Notes |
+|---|---|---|---|
+| Home | OK: two-column cards, chips fit, no horizontal overflow, 1.5 screens of content | n/a | |
+| Password gate | OK: 18px input (no iOS focus zoom), `current-password` autofill | OK | `100dvh` added so Safari's toolbars don't leave a scroll gap |
+| Game player | OK: plays in ~9 s from tap (hls.js 1.5 → ManagedMediaSource on iOS 17.1+, native HLS fallback); letterboxed 16:9 (portrait-first layout is Phase 4) | **Fixed**: the phone rules keyed off `max-width: 600px` only, so a sideways phone (956px wide) got the TV HUD - a dozen server chips three rows deep over the video, plus "← → switch server · Space pause · Esc back". Now `(max-height: 500px) and (hover: none)` is a phone too; hints hidden on touch |
+| Live TV | OK: group strip + 3-column channel grid | OK | |
+| Premium sign-in | OK: fits, QR hidden, 36px code | OK | **Fixed** copy: "On your phone … or scan the code" made no sense *on* the phone |
+| Notch / home indicator | **Fixed**: `viewport-fit=cover` was set but nothing used `env(safe-area-inset-*)`; the LIVE pill sat under the Dynamic Island in landscape and the server strip behind the home indicator | | |
+| Touch targets | **Fixed**: chips/servers/groups were 29–31px tall; now ≥36px on coarse pointers (dense rows; Apple's 44pt stays a Phase 4 goal with the portrait layout) | | |
 
 #### 0.1 Updater as of 3.9 (`UpdateFlow.java`, `AppUpdater.java`)
 - Runs: at launch (`checkInBackground`), on the Refresh button, on Home's resume and on

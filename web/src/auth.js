@@ -129,7 +129,7 @@ function page(next, error, status = 200) {
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0a0a0a; color: #f5f5f5;
+  body { margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: #0a0a0a; color: #f5f5f5;
          font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   form { width: min(420px, 92vw); padding: 36px 32px; background: #171717; border: 1px solid #2a2a2a; border-radius: 16px; text-align: center; }
   img { width: 240px; max-width: 80%; height: auto; margin-bottom: 26px; }
