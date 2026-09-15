@@ -85,11 +85,18 @@ public class NativePlayerActivity extends Activity {
      * growing it by a segment every 10 s to a 60 s slide. Left alone, ExoPlayer starts at the
      * front of that first segment and polls the playlist every target duration (11 s), so it
      * runs dry just before each new segment lands and stalls every cycle; hls.js and Roku drift
-     * into a two-segment margin and never do. So on that CDN the player waits for two segments
-     * before the first frame, and after a stall for a comfortable runway rather than the stock
-     * 5 s - one longer pause instead of a stutter every twenty seconds.
+     * into a two-segment margin and never do. So on that CDN the player waits for a runway
+     * before the first frame, and after a stall for a comfortable one rather than the stock 5 s
+     * - one longer pause instead of a stutter every twenty seconds.
+     *
+     * <p>The runway steps up (4.0): the first frame comes at {@link #RUNWAY_START_MS} (most
+     * streams then settle behind the live edge on their own and never stall); a stream that does
+     * stall once starts and resumes with {@link #RUNWAY_STEADY_MS} / {@link #RUNWAY_REBUFFER_MS}
+     * from then on. Two-segment starts for everyone cost 6 s on every game for a stutter only
+     * some streams have.
      */
-    private static final long RUNWAY_START_MS = 12_000L;
+    private static final long RUNWAY_START_MS = 6_000L;
+    private static final long RUNWAY_STEADY_MS = 12_000L;
     private static final long RUNWAY_REBUFFER_MS = 15_000L;
     /** Where in the live window a premium stream is joined when it has that much to offer. */
     private static final long PREMIUM_LIVE_OFFSET_MS = 30_000L;
@@ -160,6 +167,8 @@ public class NativePlayerActivity extends Activity {
     /** Servers that failed in this auto-fallback sweep. */
     private final List<String> failed = new ArrayList<>();
     private int loadGeneration;
+    /** The server whose stream the load control's runway state belongs to (see RUNWAY_STEADY_MS). */
+    private String runwayFor = "";
     /** When the current server was selected; used to pace automatic fail-over. */
     private long switchedAt;
     private boolean everPlayed;
@@ -523,6 +532,12 @@ public class NativePlayerActivity extends Activity {
                     if (everPlayed) {
                         showStatus(getString(R.string.np_buffering), true);
                         Log.i(TAG, "buffering: " + liveState());
+                        // This stream ran dry once: from here on it starts and resumes with the
+                        // longer runway (see RUNWAY_STEADY_MS) instead of stuttering every cycle.
+                        if (loadControl.runway && !loadControl.stalled) {
+                            loadControl.stalled = true;
+                            Log.i(TAG, "runway: stepping up to " + RUNWAY_STEADY_MS / 1000 + " s for this stream");
+                        }
                     }
                 } else if (state == Player.STATE_READY) {
                     Log.i(TAG, (everPlayed ? "resumed: " : "ready: ") + liveState());
@@ -1027,6 +1042,10 @@ public class NativePlayerActivity extends Activity {
         // and after a stall (see RUNWAY_*), and join the live window 30 s back when it is that
         // deep (the free CDNs' windows are 60 s).
         loadControl.runway = premiumCdn || viaProxy || viaTs;
+        // A different stream starts on the short runway again; the same one re-opened after a
+        // stall (reconnect, live-edge resync) keeps the steady runway it earned.
+        if (!st.server.pageUrl.equals(runwayFor)) loadControl.stalled = false;
+        runwayFor = st.server.pageUrl;
         // Relayed streams carry the CDN inside a signed token; the player origin names its family.
         attempt = new Telemetry.Attempt(channelGroup != null ? "tv" : event.id, st.server.name,
                 viaProxy || viaTs ? StreamResolver.hostOf(st.playerOrigin) : StreamResolver.hostOf(st.hlsUrl),
@@ -1078,14 +1097,17 @@ public class NativePlayerActivity extends Activity {
 
     /**
      * ExoPlayer's load control with a switchable runway: on the premium CDN, playback starts
-     * only with {@link #RUNWAY_START_MS} buffered and resumes after a stall only with
-     * {@link #RUNWAY_REBUFFER_MS}; everywhere else the stock 2.5 s / 5 s apply. The stock rule
-     * also halves the requirement against the target live offset, which is exactly what makes
-     * it start with no margin on a one-segment window - hence the plain comparison here.
+     * only with {@link #RUNWAY_START_MS} buffered ({@link #RUNWAY_STEADY_MS} once the stream has
+     * stalled) and resumes after a stall only with {@link #RUNWAY_REBUFFER_MS}; everywhere else
+     * the stock 2.5 s / 5 s apply. The stock rule also halves the requirement against the target
+     * live offset, which is exactly what makes it start with no margin on a one-segment window -
+     * hence the plain comparison here.
      */
     @UnstableApi
     private static final class RunwayLoadControl extends DefaultLoadControl {
         volatile boolean runway;
+        /** This stream has stalled after playing: starts on it now wait for the steady runway. */
+        volatile boolean stalled;
 
         RunwayLoadControl() {
             super(new DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE),
@@ -1098,7 +1120,7 @@ public class NativePlayerActivity extends Activity {
         @Override
         public boolean shouldStartPlayback(LoadControl.Parameters p) {
             if (!runway) return super.shouldStartPlayback(p);
-            long needMs = p.rebuffering ? RUNWAY_REBUFFER_MS : RUNWAY_START_MS;
+            long needMs = p.rebuffering ? RUNWAY_REBUFFER_MS : stalled ? RUNWAY_STEADY_MS : RUNWAY_START_MS;
             return p.bufferedDurationUs >= needMs * 1000L;
         }
     }
@@ -1125,9 +1147,12 @@ public class NativePlayerActivity extends Activity {
         }
 
         boolean premium = "premium".equals(why);
-        if (!premium && !retried.contains(s.pageUrl) && everPlayed) {
-            // It was playing: the playlist token probably expired. Re-resolve the same server.
+        if (!premium && !retried.contains(s.pageUrl) && (everPlayed || preResolved.contains(s.pageUrl))) {
+            // It was playing (the playlist token probably expired), or it was resolved while the
+            // card had focus and the signed URL went stale before the press: re-resolve the same
+            // server once before writing it off.
             retried.add(s.pageUrl);
+            preResolved.remove(s.pageUrl);
             Toast.makeText(this, getString(R.string.np_reconnecting, s.name), Toast.LENGTH_SHORT).show();
             switchTo(current, false);
             return;
@@ -1206,6 +1231,8 @@ public class NativePlayerActivity extends Activity {
             return;
         }
         resolved.clear();
+        preResolved.clear();
+        if (event != null) Prefetch.forget(event.id); // Retry means fresh: nothing resolved ahead is reused
         hideStatus();
         showStatus(getString(R.string.np_connecting), true);
         resolvePage();

@@ -349,17 +349,29 @@ Phases 4 and 5 can interleave with 3.
   Verified on DM Theater: press → `play()` in ~100 ms (was ~2.5 s of page + playlist
   resolving); first frame 3.8 s after the press, nearly all of it the 12 s premium start
   runway (`RUNWAY_START_MS`). Web verified in a browser (hover → page + free resolve in
-  1.3 s; no live premium game was on to exercise the pre-warm). Roku compiles; no Roku awake.
+  1.3 s; no live premium game was on to exercise the pre-warm). Roku verified on the
+  Hisense: card focus → pre-warm lease + named premium tab resolved via the Worker in
+  ~2 s; OK → `VODStartComplete` in 2.8-3.1 s, three runs. The premium pass reuses the
+  free pass's server tabs (`input.page`) instead of reading the stream page again.
   Also: Roku `resolvePage` no longer walks the active free server's embed chain when a
   named premium tab will be tried first (`preferPremium`).
+- [x] 2.1 Stale pre-resolve: one Roku run played a pre-resolved URL that the CDN then
+  refused (HTTP error before the first frame), and with a single server that went straight
+  to "None of the servers are playing" - a fresh resolve of the same tab played at once.
+  All three players now re-resolve a pre-resolved server once before writing it off (APK
+  `retried` + `preResolved`, web `pre`, Roku `m.preIndex`), and Retry drops the prefetch
+  cache (`Prefetch.forget`, `m.global.prefetch = {}`, `pre.clear()`). Roku also ignores
+  the video node's "finished" echo after an "error" (it used to count as a second failure).
+- [x] 2.1 Stepped start runway (APK): the premium-CDN runway starts at 6 s
+  (`RUNWAY_START_MS`) and steps up to 12 s / 15 s (`RUNWAY_STEADY_MS` / `RUNWAY_REBUFFER_MS`)
+  after the first stall on that stream (`RunwayLoadControl.stalled`, reset when a different
+  server plays). The 12 s runway needed a second segment on a fresh one-segment window
+  (10 s cut), i.e. a 10 s wait on many starts; 6 s is met by the first segment. DM Theater,
+  pre-resolved premium tab: press → first frame 5.1 s with 6 s buffered, no stall in the
+  first 3 minutes (the stream settled behind the live edge on its own).
 - [ ] 2.1 Cold launch from cache: APK already paints `repo.cached()`; web/PWA and Roku to
   confirm/measure once the PWA shell (Phase 5) exists.
 - [ ] 2.2 Self-healing stream.
-
-*Note on the 2.1 target ("< 3 s premium when pre-resolved"): with resolving out of the
-way, the remaining wait on the APK is the deliberate 12 s start runway on the premium CDN
-(the buffering fix). Reaching < 3 s means a smaller start runway that grows only after the
-first stall - to be decided together with 2.2, not by weakening the fix on its own.*
 
 #### 0.2 Mobile audit results
 | Screen | Portrait | Landscape | Notes |

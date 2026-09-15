@@ -143,6 +143,13 @@ final class Prefetch {
         return p;
     }
 
+    /** Retry means fresh: what was resolved ahead for this game is dropped (page and streams). */
+    static void forget(String eventId) {
+        synchronized (cache) {
+            cache.remove(eventId);
+        }
+    }
+
     /** Streams resolved ahead for this game (empty when none or stale). */
     static Map<String, StreamResolver.Stream> streams(String eventId) {
         synchronized (cache) {

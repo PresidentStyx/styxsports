@@ -1240,10 +1240,13 @@
       this.clearTimers();
       const wasPlaying = this.everPlayed && this.video.currentTime > 0;
       if (wasPlaying && this.teleCurrent) telemetry.push({ kind: 'error', code: why, cdn: this.teleCurrent.cdn, premium: this.teleCurrent.premium, relay: this.teleCurrent.relay });
-      if (wasPlaying && !this.retried) {
-        // A playing stream that died: the playlist probably expired; fetch a fresh one once.
+      const wasPre = s && this.pre && this.pre.has(s.pageUrl);
+      if ((wasPlaying || wasPre) && !this.retried) {
+        // A playing stream that died (the playlist probably expired), or one resolved while the
+        // card had focus whose signed URL went stale before the click: fetch a fresh one once.
         this.retried = true;
         this.resolved.delete(s.pageUrl);
+        if (wasPre) this.pre.delete(s.pageUrl);
         this.status('Reconnecting…', true);
         const gen = ++this.generation;
         this.stopPlayback();
@@ -1294,7 +1297,7 @@
         return b;
       };
       let first = null;
-      if (showRetry) first = btn('Retry', () => { this.failed.clear(); this.resolved.clear(); this.switchTo(this.current < 0 ? 0 : this.current, true); }, true);
+      if (showRetry) first = btn('Retry', () => { this.failed.clear(); this.resolved.clear(); if (this.pre) this.pre.clear(); this.switchTo(this.current < 0 ? 0 : this.current, true); }, true);
       if (this.event && this.event.url) {
         const a = el('a', 'btn', 'Open on the site');
         a.href = this.event.url; a.target = '_blank'; a.rel = 'noopener noreferrer';

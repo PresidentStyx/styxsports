@@ -917,7 +917,10 @@ sub prefetchRun(premium as boolean)
         pf.premiumTried = true
         m.global.prefetch = pf
     end if
-    Ui_task("prefetch", { event: e, premium: premium, preferred: "" }, "onPrefetched")
+    input = { event: e, premium: premium, preferred: "" }
+    ' The free pass already read the server tabs: the premium pass need not fetch them again.
+    if pf <> invalid and pf.id = e.id and pf.page <> invalid and prefetchFresh(pf) then input.page = pf.page
+    Ui_task("prefetch", input, "onPrefetched")
 end sub
 
 function prefetchFresh(pf as object) as boolean

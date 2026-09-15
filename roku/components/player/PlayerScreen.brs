@@ -473,18 +473,38 @@ sub onVideoState()
     else if st = "paused"
         m.paused = true
         bindServerLabel()
-    else if st = "error"
-        onFailure("error", strOr(m.video.errorMsg, "playback error") + " (" + m.video.errorCode.ToStr() + ")")
-    else if st = "finished"
-        onFailure("ended", "The stream ended")
+    else if st = "error" or st = "finished"
+        ' A stopped video still reports "finished" after its "error": while a resolve is already
+        ' under way for the next attempt, that echo is not a second failure.
+        if m.pendingIndex >= 0 then return
+        if st = "finished"
+            onFailure("ended", "The stream ended")
+        else
+            ' errorInfo names the URL and the HTTP status behind the generic message (debug console only).
+            if type(m.video.errorInfo) = "roAssociativeArray" then logi("Player", "errorInfo " + FormatJson(m.video.errorInfo))
+            onFailure("error", strOr(m.video.errorMsg, "playback error") + " (" + m.video.errorCode.ToStr() + ")")
+        end if
     end if
 end sub
 
 sub onFailure(kind as string, detail as string)
     if m.index < 0 then return
-    logi("Player", "server " + m.index.ToStr() + " failed: " + kind + " - " + detail)
-    m.failed[m.index.ToStr()] = true
+    key = m.index.ToStr()
+    ' The video node's "finished" after an "error" (or the other way round) is the same failure.
+    if m.failed[key] = true and (kind = "error" or kind = "ended") then return
+    logi("Player", "server " + key + " failed: " + kind + " - " + detail)
     m.video.control = "stop"
+    ' A stream Home resolved while the card had focus can go stale before the press (signed,
+    ' IP-bound URLs): resolve the same server afresh once before writing it off.
+    if not m.channelMode and m.preIndex <> invalid and m.preIndex[key] = true and (kind = "error" or kind = "ended" or kind = "cdn" or kind = "timeout")
+        m.preIndex.Delete(key)
+        m.streams.Delete(key)
+        logi("Player", "server " + key + " was pre-resolved; resolving it again")
+        showStatus("Reconnecting to " + m.servers[m.index].name + "…", true)
+        switchTo(m.index)
+        return
+    end if
+    m.failed[key] = true
     ' Gated / pool-refused tabs reached no CDN; everything else is a playback failure.
     if kind <> "pool" and kind <> "premium" and kind <> "gated"
         if m.attempt = invalid
@@ -566,6 +586,7 @@ sub retryAll()
     if m.channelMode
         switchTo(m.index)
     else
+        m.global.prefetch = {} ' Retry means fresh: what Home resolved ahead is not reused
         startGame()
     end if
 end sub

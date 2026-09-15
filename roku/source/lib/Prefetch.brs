@@ -47,14 +47,20 @@ function Prefetch_resolveServer(cfg as object, server as object, page as dynamic
 end function
 
 ' The prefetch itself. `preferred`: the server name remembered for this game ("" when none).
+' `known`: { servers, activeIndex } from an earlier pass, so the tabs are not fetched again
+' (without the HTML, the active server's page is re-read if it is the one resolved).
 ' -> { ok, id, page: { servers, activeIndex }, key (server pageUrl), stream, prewarm, tookMs }
-function Prefetch_run(cfg as object, e as object, premium as boolean, preferred = "" as string) as object
+function Prefetch_run(cfg as object, e as object, premium as boolean, preferred = "" as string, known = invalid as dynamic) as object
     out = { ok: false, id: e.id, prewarm: false }
     clock = CreateObject("roTimespan")
-    page = Resolver_page(cfg.parser, e.url)
-    if page.error <> invalid
-        out.error = page.error
-        return out
+    if type(known) = "roAssociativeArray" and type(known.servers) = "roArray" and known.servers.Count() > 0
+        page = { servers: known.servers, activeIndex: known.activeIndex, html: invalid }
+    else
+        page = Resolver_page(cfg.parser, e.url)
+        if page.error <> invalid
+            out.error = page.error
+            return out
+        end if
     end if
     out.page = { servers: page.servers, activeIndex: page.activeIndex }
     out.ok = true

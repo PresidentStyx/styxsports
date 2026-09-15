@@ -66,7 +66,7 @@ sub runJob()
         ' Zero-wait start (Prefetch.java): input.event, input.premium. The stream page, then one
         ' server resolved ahead of the press - a free one, or (premium pass) the first named
         ' premium tab under a pre-warm pool lease. -> { ok, id, page, key, stream, prewarm }
-        out = Prefetch_run(cfg, input.event, input.premium = true, input.preferred)
+        out = Prefetch_run(cfg, input.event, input.premium = true, input.preferred, input.page)
 
     else if op = "accountStatus"
         signedIn = Account_refreshStatus(cfg)
