@@ -54,6 +54,7 @@ sub init()
     m.servers = []          ' game: [{name, pageUrl, active, premium}]  channel: [{name, logo, url, ...}]
     m.streams = {}          ' server index -> resolved stream (game mode)
     m.failed = {}           ' server index -> true
+    m.retried = {}          ' server index -> true: re-resolved once after it died or went stale
     m.index = -1
     m.pendingIndex = -1
     m.started = false
@@ -156,6 +157,7 @@ sub applyPage(r as object)
     m.servers = r.servers
     m.streams = {}
     m.failed = {}
+    m.retried = {}
     m.degraded = {}
     m.migrating = invalid
     if r.stream <> invalid then m.streams[r.activeIndex.ToStr()] = r.stream
@@ -522,12 +524,18 @@ sub onFailure(kind as string, detail as string)
     if m.failed[key] = true and (kind = "error" or kind = "ended") then return
     logi("Player", "server " + key + " failed: " + kind + " - " + detail)
     m.video.control = "stop"
-    ' A stream Home resolved while the card had focus can go stale before the press (signed,
-    ' IP-bound URLs): resolve the same server afresh once before writing it off.
-    if not m.channelMode and m.preIndex <> invalid and m.preIndex[key] = true and (kind = "error" or kind = "ended" or kind = "cdn" or kind = "timeout")
-        m.preIndex.Delete(key)
+    ' A stream that was playing (its playlist token probably expired), or one Home resolved
+    ' while the card had focus that went stale before the press (signed, IP-bound URLs): resolve
+    ' the same server afresh once before writing it off (NativePlayerActivity `retried`).
+    playbackKind = (kind = "error" or kind = "ended" or kind = "cdn" or kind = "timeout")
+    wasPre = (m.preIndex <> invalid and m.preIndex[key] = true)
+    hadPlayed = (m.attempt <> invalid and m.attempt.firstFrameAt > 0)
+    if not m.channelMode and playbackKind and m.retried[key] = invalid and (wasPre or hadPlayed)
+        m.retried[key] = true
+        if wasPre then m.preIndex.Delete(key)
         m.streams.Delete(key)
-        logi("Player", "server " + key + " was pre-resolved; resolving it again")
+        Telemetry_error(m.attempt, kind)
+        logi("Player", "server " + key + " was playing or pre-resolved; resolving it again")
         showStatus("Reconnecting to " + m.servers[m.index].name + "…", true)
         switchTo(m.index)
         return
@@ -690,6 +698,7 @@ end sub
 
 sub retryAll()
     m.failed = {}
+    m.retried = {}
     m.streams = {}
     hideStatus()
     if m.channelMode
@@ -1031,6 +1040,7 @@ sub manualSwitch(dir as integer)
         end while
         m.failed = {}
     end if
+    m.retried = {}
     Telemetry_switched(serverName(m.index), serverName(i), "manual")
     m.askedAt = Telemetry_now() ' the wait the viewer feels starts with this press
     switchTo(i)
@@ -1088,6 +1098,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if key = "options"
         ' MENU: retry the current server
         m.failed = {}
+        m.retried = {}
         m.streams = {}
         switchTo(m.index)
         return true
