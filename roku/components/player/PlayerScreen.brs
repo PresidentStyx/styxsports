@@ -115,14 +115,32 @@ sub startGame()
     bindHud()
     showHud()
     showStatus("Connecting…", true)
-    m.resolveSeq += 1
-    Ui_task("resolvePage", { url: e.url, seq: m.resolveSeq }, "onPage")
+    m.askedAt = Telemetry_now()
     if e.live then m.scoreTimer.control = "start"
+    ' What Home resolved while the card had focus (Prefetch.brs): the server tabs, and streams
+    ' that play straight away. Anything older than 90 s is not trusted (signed, IP-bound URLs).
+    pf = m.global.prefetch
+    if pf <> invalid and pf.id = e.id and pf.page <> invalid and pf.at <> invalid and nowSeconds() - pf.at < 90
+        logi("Player", "stream page from prefetch")
+        m.pre = pf.streams
+        if m.pre = invalid then m.pre = {}
+        applyPage({ ok: true, servers: pf.page.servers, activeIndex: pf.page.activeIndex, stream: invalid })
+        return
+    end if
+    m.pre = {}
+    m.resolveSeq += 1
+    ' preferPremium: the active free server's embed chain is skipped when a premium tab will be
+    ' tried first anyway (up to 20 s on a slow embed host).
+    Ui_task("resolvePage", { url: e.url, seq: m.resolveSeq, preferPremium: premiumCapable() }, "onPage")
 end sub
 
 sub onPage(ev as object)
     r = ev.getData()
     if r = invalid then return
+    applyPage(r)
+end sub
+
+sub applyPage(r as object)
     if r.ok <> true
         showStatusWithActions("Couldn’t open this game." + Chr(10) + strOr(r.error, "unknown error"), retryBackButtons())
         return
@@ -130,8 +148,20 @@ sub onPage(ev as object)
     m.servers = r.servers
     m.streams = {}
     m.failed = {}
-    m.streams[r.activeIndex.ToStr()] = r.stream
+    if r.stream <> invalid then m.streams[r.activeIndex.ToStr()] = r.stream
     m.activeIndex = r.activeIndex
+    ' Pre-resolved streams sit under their server's index; their start is reported as "pre".
+    m.preIndex = {}
+    if m.pre <> invalid
+        for i = 0 to m.servers.Count() - 1
+            st = m.pre[m.servers[i].pageUrl]
+            if st <> invalid and st.hlsUrl <> invalid
+                m.streams[i.ToStr()] = st
+                m.preIndex[i.ToStr()] = true
+            end if
+        end for
+        if m.preIndex.Count() > 0 then logi("Player", m.preIndex.Count().ToStr() + " server(s) pre-resolved")
+    end if
 
     ' Signed in with premium tabs on the page: this device's session is the shared premium
     ' account, so take a slot in its 5-connection pool before touching a premium server (like
@@ -376,6 +406,10 @@ sub playUrl(url as string, origin as string, title as string)
     game = "tv"
     if not m.channelMode and m.top.event <> invalid then game = strOr(m.top.event.id, "")
     m.attempt = Telemetry_attempt(game, serverName(m.index), cdn, premium, relay)
+    ' Time to first frame counts from the press (or the Left/Right switch), not from here:
+    ' resolving is part of the wait. A stream Home resolved ahead is a "pre" start.
+    if m.askedAt <> invalid then m.attempt.startedAt = m.askedAt
+    if m.preIndex <> invalid and m.preIndex[m.index.ToStr()] = true then m.attempt.pre = true
     m.video.setCertificatesFile("common:/certs/ca-bundle.crt")
     m.video.initClientCertificates()
     m.video.addHeader("User-Agent", Http_UA())
@@ -398,6 +432,7 @@ end sub
 
 sub startChannels()
     m.channelMode = true
+    m.askedAt = Telemetry_now()
     g = m.top.channelGroup
     m.servers = g.channels
     m.hudPillBg.visible = false
@@ -867,6 +902,7 @@ sub manualSwitch(dir as integer)
         m.failed = {}
     end if
     Telemetry_switched(serverName(m.index), serverName(i), "manual")
+    m.askedAt = Telemetry_now() ' the wait the viewer feels starts with this press
     switchTo(i)
 end sub
 

@@ -218,7 +218,8 @@
           td(c.cdn + (c.premium ? ' ★' : '')),
           td(String(c.starts)),
           td(rate == null ? '—' : rate + '%', rate == null ? '' : rate >= 95 ? 'good' : rate < 80 ? 'bad' : ''),
-          td(fmtMs(c.medianTtffMs)),
+          // cold start time, then the pre-resolved one when there were any ("2.9 s · 0.8 s pre")
+          td(fmtMs(c.medianTtffMs) + (c.preStarts ? ' · ' + fmtMs(c.medianTtffPreMs) + ' pre' : '')),
           td(c.stallsPerViewerHour == null ? (c.stalls ? c.stalls + ' total' : '—') : String(c.stallsPerViewerHour), c.stallsPerViewerHour > 3 ? 'bad' : ''),
           td(c.viewerHours ? c.viewerHours + ' h' : '—'),
         );
@@ -288,7 +289,8 @@
         a.textContent = (l.kind === 'tv' ? '📺 ' : '') + (l.label || (l.kind === 'tv' ? 'Live TV' : 'a game'));
         const dev = document.createElement('span');
         dev.className = 'lease-dev';
-        dev.textContent = (l.device ? ' · ' + l.device : '') + ' · ' + (l.account ? l.accountLabel : 'own account');
+        // pre-warm: the card has focus and the stream is resolved ahead of OK; dropped within a minute unless played
+        dev.textContent = (l.prewarm ? ' · pre-warm' : '') + (l.device ? ' · ' + l.device : '') + ' · ' + (l.account ? l.accountLabel : 'own account');
         a.appendChild(dev);
         const b = document.createElement('span');
         b.textContent = (PLATFORM[l.platform] ? PLATFORM[l.platform][1] : l.platform) + ' · ' + ago(l.since);

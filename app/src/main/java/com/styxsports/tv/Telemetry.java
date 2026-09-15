@@ -42,7 +42,10 @@ final class Telemetry {
     static final class Attempt {
         final String game, server, cdn;
         final boolean premium, relay;
-        final long startedAt = SystemClock.elapsedRealtime();
+        /** When the viewer asked for this stream (the press, or the Left/Right switch); ttff counts from here. */
+        long startedAt = SystemClock.elapsedRealtime();
+        /** The stream was resolved before the press (Prefetch): its start is reported as "pre". */
+        boolean pre;
         long firstFrameAt, stallAt;
 
         Attempt(String game, String server, String cdn, boolean premium, boolean relay) {
@@ -82,7 +85,9 @@ final class Telemetry {
     static void start(Context ctx, Attempt a) {
         a.firstFrameAt = SystemClock.elapsedRealtime();
         a.stallAt = 0;
-        push(ctx, stamp(a, "start").put("game", a.game).put("server", a.server).put("ttff", a.firstFrameAt - a.startedAt));
+        Json ev = stamp(a, "start").put("game", a.game).put("server", a.server).put("ttff", a.firstFrameAt - a.startedAt);
+        if (a.pre) ev.put("pre", true);
+        push(ctx, ev);
     }
 
     /** Buffering began after the first frame. */

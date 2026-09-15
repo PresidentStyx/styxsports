@@ -47,12 +47,22 @@ final class Pool {
 
     /** kind: "game" | "tv"; label: game title or channel name (shown on /stats). */
     static Reply acquire(Context ctx, String kind, String label) {
+        return acquire(ctx, kind, label, false);
+    }
+
+    /**
+     * @param prewarm the viewer has only focused the game (Prefetch): the Worker grants this only
+     *                while two slots stay free and drops it after 60 s unless the player acquires
+     *                for real; shown as "pre-warm" on /stats
+     */
+    static Reply acquire(Context ctx, String kind, String label, boolean prewarm) {
         JSONObject body = new JSONObject();
         try {
             body.put("id", Presence.id(ctx));
             body.put("kind", kind);
             body.put("label", clip(label));
             body.put("platform", "apk");
+            if (prewarm) body.put("prewarm", true);
             // Signed in here: the lease is on this device's own account. It only takes a shared
             // slot when that account is one of the shared ones, which the Worker tells from the
             // playlist URL's fingerprint (never the URL itself).

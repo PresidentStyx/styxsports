@@ -112,6 +112,14 @@ sub init()
     m.fullTimer.observeField("fire", "onFullTick")
     m.layoutTimer.observeField("fire", "onLayoutTick")
 
+    ' Zero-wait start (Prefetch.brs): the focused game's stream is resolved ahead of OK.
+    m.prefetchFreeTimer = m.top.findNode("prefetchFreeTimer")
+    m.prefetchPremiumTimer = m.top.findNode("prefetchPremiumTimer")
+    m.prefetchFreeTimer.observeField("fire", "onPrefetchFree")
+    m.prefetchPremiumTimer.observeField("fire", "onPrefetchPremium")
+    m.prefetchFor = ""   ' the game the timers are armed for
+    m.handedOff = ""     ' the game last handed to the player (its pool slot is the player's)
+
     buildTopButtons()
     m.snapshot = Site_cached()
     if m.snapshot <> invalid
@@ -139,6 +147,11 @@ sub onResumed()
     if not m.top.resumed then return
     m.top.setFocus(true)
     m.fav = Fav_load()
+    ' Back from the player: its slot is released; what it played is stale for a fresh prefetch.
+    m.handedOff = ""
+    m.prefetchFor = ""
+    m.global.prefetch = {}
+    if m.focusArea = "rows" then prefetchFocus(focusedEvent())
     if Account_isSignedIn() <> m.renderedSignedIn or hasLiveTv() <> m.renderedLiveTv or premiumHidden() <> m.renderedPremiumHidden
         if m.filter = m.premiumFilter and not premiumHidden() then m.filter = ""
         if m.snapshot <> invalid then render(true) else buildTopButtons()
@@ -854,7 +867,93 @@ sub applyRowFocus(animate as boolean)
         m.focusedEventId = m.rowDefs[m.rowIndex].events[m.colIndex].id
         alignCard(m.rowIndex, animate)
         alignRow(m.rowIndex, animate)
+        prefetchFocus(m.rowDefs[m.rowIndex].events[m.colIndex])
+    else
+        prefetchBlur()
     end if
+end sub
+
+' ---------------------------------------------------------------------------------------------
+' Zero-wait start (Prefetch.brs; Prefetch.java on the APK): a focused card's stream is resolved
+' before OK. Free pass at 0.6 s, premium pass (pre-warm pool lease) at 2 s. Results go to
+' m.global.prefetch for PlayerScreen; the player's own acquire converts a pre-warm into its
+' lease, so a game handed to the player must never be followed by a release from here.
+' ---------------------------------------------------------------------------------------------
+
+sub prefetchFocus(e as object)
+    if e = invalid or e.id = m.prefetchFor then return
+    prefetchBlur()
+    if isEmpty(e.url) or e.ended = true then return
+    m.prefetchFor = e.id
+    m.handedOff = ""
+    ' Browsing on: a pre-warm taken for another game goes back right away (never the player's slot).
+    if m.global.prewarmFor <> "" and m.global.prewarmFor <> e.id and not m.global.leaseHeld then prefetchReleasePrewarm()
+    m.prefetchFreeTimer.control = "start"
+    m.prefetchPremiumTimer.control = "start"
+end sub
+
+sub prefetchBlur()
+    m.prefetchFor = ""
+    m.prefetchFreeTimer.control = "stop"
+    m.prefetchPremiumTimer.control = "stop"
+end sub
+
+sub onPrefetchFree()
+    prefetchRun(false)
+end sub
+
+sub onPrefetchPremium()
+    prefetchRun(true)
+end sub
+
+sub prefetchRun(premium as boolean)
+    e = focusedEvent()
+    if e = invalid or e.id <> m.prefetchFor or m.focusArea <> "rows" then return
+    pf = m.global.prefetch
+    if premium and pf <> invalid and pf.id = e.id and pf.premiumTried = true and prefetchFresh(pf) then return
+    if premium
+        ' One pre-warm attempt per game per TTL, granted or not.
+        if pf = invalid or pf.id <> e.id or not prefetchFresh(pf) then pf = { id: e.id, at: nowSeconds(), streams: {} }
+        pf.premiumTried = true
+        m.global.prefetch = pf
+    end if
+    Ui_task("prefetch", { event: e, premium: premium, preferred: "" }, "onPrefetched")
+end sub
+
+function prefetchFresh(pf as object) as boolean
+    return pf <> invalid and pf.at <> invalid and nowSeconds() - pf.at < 90
+end function
+
+sub onPrefetched(ev as object)
+    r = ev.getData()
+    if r = invalid or r.ok <> true or r.id = invalid then return
+    pf = m.global.prefetch
+    if pf = invalid or pf.id <> r.id or not prefetchFresh(pf) then pf = { id: r.id, at: nowSeconds(), streams: {} }
+    if pf.streams = invalid then pf.streams = {}
+    if r.page <> invalid then pf.page = r.page
+    if r.key <> invalid and r.stream <> invalid then pf.streams[r.key] = r.stream
+    m.global.prefetch = pf
+    if r.prewarm = true
+        if m.handedOff = r.id or m.global.leaseHeld
+            ' OK was pressed while the pool answered: the player's acquire owns the slot now.
+            logi("Prefetch", r.id + ": pre-warm answered after the press; the player has it")
+        else if r.key = invalid or m.focusedEventId <> r.id or m.focusArea <> "rows"
+            ' Nothing playable to hold the slot for, or the viewer moved on.
+            m.global.prewarmFor = r.id
+            prefetchReleasePrewarm()
+        else
+            m.global.prewarmFor = r.id
+        end if
+    end if
+end sub
+
+sub prefetchReleasePrewarm()
+    if m.global.prewarmFor = "" then return
+    m.global.prewarmFor = ""
+    Ui_task("poolRelease", {}, "onPrefetchReleased")
+end sub
+
+sub onPrefetchReleased(ev as object)
 end sub
 
 ' ---------------------------------------------------------------------------------------------
@@ -1062,6 +1161,10 @@ sub openFocusedEvent()
     e = focusedEvent()
     if e = invalid then return
     Recent_record(e)
+    ' The player's own pool acquire takes over any pre-warm lease for this game (same id).
+    prefetchBlur()
+    m.handedOff = e.id
+    if m.global.prewarmFor = e.id then m.global.prewarmFor = ""
     m.top.navigate = { screen: "PlayerScreen", event: e, base: strOr(m.snapshot.base, "") }
 end sub
 

@@ -76,21 +76,26 @@ export class Telemetry extends DurableObject {
     const sql = this.ctx.storage.sql;
     const since = Date.now() - hours * HOUR_MS;
     const byCdn = new Map();
-    const row = (cdn) => byCdn.get(cdn) || byCdn.set(cdn, { cdn, starts: 0, ttff: [], stalls: 0, stallMs: 0, errors: 0, watchedMs: 0, premium: 0 }).get(cdn);
-    for (const r of sql.exec('SELECT kind, cdn, premium, ttff, duration FROM events WHERE at >= ?', since).toArray()) {
+    const row = (cdn) => byCdn.get(cdn) || byCdn.set(cdn, { cdn, starts: 0, ttff: [], ttffPre: [], stalls: 0, stallMs: 0, errors: 0, watchedMs: 0, premium: 0 }).get(cdn);
+    for (const r of sql.exec('SELECT kind, cdn, premium, ttff, duration, code FROM events WHERE at >= ?', since).toArray()) {
       const c = row(r.cdn || 'unknown');
-      if (r.kind === 'start') { c.starts++; if (r.ttff != null) c.ttff.push(Number(r.ttff)); if (r.premium) c.premium++; }
+      if (r.kind === 'start') {
+        c.starts++;
+        if (r.ttff != null) (r.code === 'pre' ? c.ttffPre : c.ttff).push(Number(r.ttff));
+        if (r.premium) c.premium++;
+      }
       else if (r.kind === 'stall') { c.stalls++; c.stallMs += Number(r.duration || 0); }
       else if (r.kind === 'error') c.errors++;
       else if (r.kind === 'stop') c.watchedMs += Number(r.duration || 0);
     }
+    const median = (xs) => (xs.length ? xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)] : null);
     const cdns = [...byCdn.values()].map((c) => {
-      c.ttff.sort((a, b) => a - b);
       const viewerHours = c.watchedMs / HOUR_MS;
       return {
         cdn: c.cdn, starts: c.starts, errors: c.errors, premium: c.premium,
         successRate: c.starts + c.errors ? Math.round((100 * c.starts) / (c.starts + c.errors)) : null,
-        medianTtffMs: c.ttff.length ? c.ttff[Math.floor(c.ttff.length / 2)] : null,
+        // Cold starts (resolved after OK) and pre-resolved starts (resolved while the card had focus).
+        medianTtffMs: median(c.ttff), preStarts: c.ttffPre.length, medianTtffPreMs: median(c.ttffPre),
         stalls: c.stalls, stallsPerViewerHour: viewerHours >= 0.1 ? Math.round((c.stalls / viewerHours) * 10) / 10 : null,
         viewerHours: Math.round(viewerHours * 10) / 10,
       };
@@ -181,7 +186,8 @@ export async function handleTelemetry(request, env) {
       at, kind: e.kind, cdn, premium: e.premium === true,
       ttff: e.kind === 'start' ? num(e.ttff, 600_000) : null,
       duration: e.kind === 'stall' || e.kind === 'stop' ? num(e.duration) : null,
-      code: e.kind === 'error' || e.kind === 'update' ? str(e.code || e.outcome, 40) : null,
+      // start: "pre" when the stream was resolved before the viewer pressed OK (zero-wait start)
+      code: e.kind === 'error' || e.kind === 'update' ? str(e.code || e.outcome, 40) : e.kind === 'start' && e.pre === true ? 'pre' : null,
       detail,
     });
   }

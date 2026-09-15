@@ -103,7 +103,7 @@ public class NativePlayerActivity extends Activity {
     /** A resync this long after the previous one starts the count over: the stream was fine in between. */
     private static final long RESYNC_RESET_MS = 90_000L;
     /** The site's unnamed server tabs ("Server 7"). */
-    private static final java.util.regex.Pattern GENERIC_TAB = java.util.regex.Pattern.compile("(?i)^server\\s*\\d+$");
+    private static final java.util.regex.Pattern GENERIC_TAB = Prefetch.GENERIC_TAB;
 
     static Intent intent(Context ctx, Event e) {
         Intent i = new Intent(ctx, NativePlayerActivity.class);
@@ -148,6 +148,10 @@ public class NativePlayerActivity extends Activity {
     /** Servers in try order: the account's premium tabs first (when signed in), then the free ones. */
     private final List<StreamResolver.Server> servers = new ArrayList<>();
     private final Map<String, StreamResolver.Stream> resolved = new HashMap<>();
+    /** Servers whose stream Home resolved before OK was pressed (telemetry marks their start "pre"). */
+    private final java.util.Set<String> preResolved = new java.util.HashSet<>();
+    /** When the viewer asked for what is loading now: the press that opened this screen, then each switch. */
+    private long askedAt;
     /** The stream page as fetched; its HTML already embeds the active server. */
     private StreamResolver.Page page;
     private int current = -1;
@@ -193,6 +197,7 @@ public class NativePlayerActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        askedAt = SystemClock.elapsedRealtime();
         config = RemoteConfig.load(this);
         resolver = new StreamResolver(config.parser);
         density = getResources().getDisplayMetrics().density;
@@ -626,24 +631,21 @@ public class NativePlayerActivity extends Activity {
         });
     }
 
-    /** The stream page's server tabs: from the site, or through the web relay when this network refuses it. Blocking. */
+    /** The stream page's server tabs: what Home pre-fetched while the card had focus, else read now. Blocking. */
     private StreamResolver.Page fetchPage() throws IOException {
-        if (Relay.active(this)) return Relay.page(this, event.url);
-        try {
-            return resolver.page(event.url);
-        } catch (IOException e) {
-            if (!Relay.looksBlocked(e)) throw e;
-            // The site stopped answering since the schedule loaded (or the schedule came from
-            // the launch cache): read the page through the relay instead.
-            Log.w(TAG, "stream page: " + shortError(e) + "; asking the web relay");
-            StreamResolver.Page p = Relay.page(this, event.url);
-            Relay.set(this, true);
-            return p;
-        }
+        return Prefetch.page(this, resolver, event);
     }
 
     private void onPageResolved(StreamResolver.Page p) {
         page = p;
+        // Streams Home resolved while the card had focus play straight away (loadServer finds
+        // them in `resolved`); the pool lease below turns Home's pre-warm into ours.
+        Map<String, StreamResolver.Stream> ahead = Prefetch.streams(event.id);
+        if (!ahead.isEmpty()) {
+            resolved.putAll(ahead);
+            preResolved.addAll(ahead.keySet());
+            Log.i(TAG, ahead.size() + " server(s) pre-resolved");
+        }
         // Premium tabs on the page and a way to play them (own account, or an account someone
         // shared through the pool): take a slot in the connection pool before touching a
         // premium server (like app.js resolvePage). Denied: the free servers are used and the
@@ -667,8 +669,7 @@ public class NativePlayerActivity extends Activity {
      * premium, otherwise an account shared through the pool (played via the Worker).
      */
     private boolean premiumCapable() {
-        if (Account.isSignedIn(this)) return !Boolean.FALSE.equals(Account.premiumKnown(this));
-        return Pool.sharedAvailable(this);
+        return Prefetch.premiumCapable(this);
     }
 
     /** Remembers a pool answer and, when it was a refusal, says so. */
@@ -811,6 +812,9 @@ public class NativePlayerActivity extends Activity {
         if (manual) {
             failed.clear();
             retried.clear();
+            // Left/Right: the wait the viewer feels starts now (the automatic sweep keeps the
+            // original press so a fail-over's start time counts the failed server too).
+            askedAt = SystemClock.elapsedRealtime();
         }
         everPlayed = false;
         liveEdgeResyncs = 0;
@@ -921,41 +925,9 @@ public class NativePlayerActivity extends Activity {
         });
     }
 
-    /**
-     * One server tab to a playable stream, the way this network allows. Blocking.
-     *
-     * <ul>
-     *   <li>Site blocked here ({@link Relay#active}): the Worker reads the tab and this device
-     *       plays the CDN directly when it can, the Worker's proxy when it cannot.</li>
-     *   <li>Premium tab without an account of our own: the Worker reads it with the shared
-     *       account (this device's pool lease vouches for it).</li>
-     *   <li>Otherwise this device resolves it; a premium tab our session gets no player for is
-     *       retried through the Worker, and a page host this network refuses sends the whole
-     *       tab to the relay.</li>
-     * </ul>
-     */
+    /** One server tab to a playable stream, the way this network allows (see {@link Prefetch#resolveServer}). Blocking. */
     private StreamResolver.Stream resolveServer(StreamResolver.Server s) throws IOException {
-        final boolean viaPool = s.premium && lease.held();
-        if (Relay.active(this)) return Relay.resolve(this, s, viaPool);
-        // No account here: this session cannot open a premium tab at all, so the Worker reads it
-        // with the shared account straight away.
-        if (viaPool && !Account.isSignedIn(this)) return Pool.resolveShared(this, s);
-        StreamResolver.Stream st;
-        try {
-            st = resolver.resolve(s, page);
-        } catch (IOException e) {
-            if (!Relay.looksBlocked(e)) throw e;
-            Log.i(TAG, s.name + ": " + shortError(e) + "; asking the web relay");
-            return Relay.resolve(this, s, viaPool);
-        }
-        // The site does not give every session the same premium player: when ours gets an
-        // embed it cannot read, the Worker resolves the tab with the shared account.
-        if (viaPool && !st.playableNatively() && !"gate".equals(st.state) && !"warming".equals(st.state)) {
-            Log.i(TAG, s.name + ": no player for this session; asking the web player");
-            StreamResolver.Stream shared = Pool.resolveShared(this, s);
-            if (shared.playableNatively() || "warming".equals(shared.state)) st = shared;
-        }
-        return st;
+        return Prefetch.resolveServer(this, resolver, s, page, lease.held());
     }
 
     /**
@@ -1059,6 +1031,9 @@ public class NativePlayerActivity extends Activity {
         attempt = new Telemetry.Attempt(channelGroup != null ? "tv" : event.id, st.server.name,
                 viaProxy || viaTs ? StreamResolver.hostOf(st.playerOrigin) : StreamResolver.hostOf(st.hlsUrl),
                 premiumCdn, viaProxy || viaTs);
+        // Time to first frame counts from the press, not from here: resolving is part of the wait.
+        attempt.startedAt = askedAt;
+        attempt.pre = preResolved.contains(st.server.pageUrl);
         MediaItem.Builder item = new MediaItem.Builder().setUri(st.hlsUrl);
         if ((premiumCdn || viaProxy) && !viaTs) {
             item.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()

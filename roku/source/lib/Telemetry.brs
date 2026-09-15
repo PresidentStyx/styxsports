@@ -12,15 +12,19 @@ end function
 
 ' Starts a playback attempt: what is playing and from where. `cdn` is the stream host (or the
 ' player origin for relayed streams), `relay` whether the bytes come through the Worker.
+' `startedAt` may be moved back to when the viewer asked (the press or the switch) so ttff counts
+' the resolve too; `pre` marks a stream resolved before the press (HomeScreen prefetch).
 function Telemetry_attempt(game as string, server as string, cdn as string, premium as boolean, relay as boolean) as object
-    return { game: game, server: server, cdn: cdn, premium: premium, relay: relay, startedAt: Telemetry_now(), firstFrameAt: 0, stallAt: 0 }
+    return { game: game, server: server, cdn: cdn, premium: premium, relay: relay, startedAt: Telemetry_now(), firstFrameAt: 0, stallAt: 0, pre: false }
 end function
 
 sub Telemetry_start(a as object)
     if a = invalid then return
     a.firstFrameAt = Telemetry_now()
     a.stallAt = 0
-    Telemetry_push({ kind: "start", game: a.game, server: a.server, cdn: a.cdn, premium: a.premium, relay: a.relay, ttff: a.firstFrameAt - a.startedAt })
+    ev = { kind: "start", game: a.game, server: a.server, cdn: a.cdn, premium: a.premium, relay: a.relay, ttff: a.firstFrameAt - a.startedAt }
+    if a.pre = true then ev.pre = true
+    Telemetry_push(ev)
 end sub
 
 sub Telemetry_stallBegan(a as object)

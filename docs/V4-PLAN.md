@@ -336,6 +336,31 @@ Phases 4 and 5 can interleave with 3.
 - [ ] 1.1 Spike: a full day of status-feed shapes per league (`/api/games/coverage` is
   collecting them now; review after the first weekend to settle `situation` per league).
 
+### Phase 2
+- [x] 2.1 Zero-wait start (pre-resolve): APK `Prefetch.java` (Home card focus → page at
+  0.6 s, first named premium tab under a pre-warm lease at 2 s; player reads the cache, its
+  own `acquire` converts the pre-warm), web `prefetch` in `app.js` (focus + mouse hover;
+  phones start cold), Roku `Prefetch.brs` + `NetTask` `prefetch` op + `m.global.prefetch`.
+  Pool: `acquire { prewarm: true }` granted only while 2 slots stay free, dropped at 60 s
+  unless converted, shown as "pre-warm" on `/stats`. Telemetry: `start` events carry `pre`,
+  and TTFF now counts from the **press** (was: from `play()`), so old and new medians are
+  not comparable; `/stats` shows "cold · pre" start times per CDN. Flag `prewarm` (default
+  on) gates the premium pass on all three clients.
+  Verified on DM Theater: press → `play()` in ~100 ms (was ~2.5 s of page + playlist
+  resolving); first frame 3.8 s after the press, nearly all of it the 12 s premium start
+  runway (`RUNWAY_START_MS`). Web verified in a browser (hover → page + free resolve in
+  1.3 s; no live premium game was on to exercise the pre-warm). Roku compiles; no Roku awake.
+  Also: Roku `resolvePage` no longer walks the active free server's embed chain when a
+  named premium tab will be tried first (`preferPremium`).
+- [ ] 2.1 Cold launch from cache: APK already paints `repo.cached()`; web/PWA and Roku to
+  confirm/measure once the PWA shell (Phase 5) exists.
+- [ ] 2.2 Self-healing stream.
+
+*Note on the 2.1 target ("< 3 s premium when pre-resolved"): with resolving out of the
+way, the remaining wait on the APK is the deliberate 12 s start runway on the premium CDN
+(the buffering fix). Reaching < 3 s means a smaller start runway that grows only after the
+first stall - to be decided together with 2.2, not by weakening the fix on its own.*
+
 #### 0.2 Mobile audit results
 | Screen | Portrait | Landscape | Notes |
 |---|---|---|---|

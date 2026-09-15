@@ -20,10 +20,11 @@ sub Main(args as dynamic)
         msg = wait(0, port)
         if type(msg) = "roSGScreenEvent"
             if msg.isScreenClosed()
-                ' Home key / exit while a premium stream or Live TV was open: give the shared
-                ' premium slot back now instead of letting the lease time out (45 s).
+                ' Home key / exit while a premium stream or Live TV was open (or a game card had
+                ' a pre-warm slot): give the shared premium slot back now instead of letting the
+                ' lease time out (45 s / 60 s).
                 g = screen.getGlobalNode()
-                if g <> invalid and g.leaseHeld = true then Pool_release()
+                if g <> invalid and (g.leaseHeld = true or (isStr(g.prewarmFor) and g.prewarmFor <> "")) then Pool_release()
                 return
             end if
         else if type(msg) = "roInputEvent"

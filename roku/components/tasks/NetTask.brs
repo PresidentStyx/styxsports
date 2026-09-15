@@ -43,26 +43,30 @@ sub runJob()
         end if
 
     else if op = "resolvePage"
-        ' input.url: the stream page's servers plus its active server resolved.
+        ' input.url: the stream page's servers plus its active server resolved. input.preferPremium:
+        ' the player will start on a named premium tab when there is one, so the active (free)
+        ' server's embed chain - up to 20 s on a slow host - is not walked ahead of it.
         page = Resolver_page(cfg.parser, input.url)
         if page.error <> invalid
             out = { error: page.error }
         else
-            stream = Resolver_resolve(cfg.parser, page.servers[page.activeIndex], page)
+            stream = invalid
+            if not (input.preferPremium = true and Prefetch_namedPremium(page.servers) <> invalid)
+                stream = Resolver_resolve(cfg.parser, page.servers[page.activeIndex], page)
+            end if
             out = { ok: true, servers: page.servers, activeIndex: page.activeIndex, stream: stream }
         end if
 
     else if op = "resolveServer"
-        ' input.server; input.viaPool: we hold a lease, so a premium tab our own session gets no
-        ' player for (the site does not hand every session the same premium player) is resolved
-        ' through the Worker with the shared account instead.
-        out = Resolver_resolve(cfg.parser, input.server, invalid)
-        if out.hlsUrl = invalid and input.server.premium = true and input.viaPool = true and out.state <> "gate" and out.state <> "warming"
-            logi("Resolver", input.server.name + ": no player for this session; asking the web player")
-            shared = Resolver_checked(Pool_resolveShared(input.server))
-            if shared.hlsUrl <> invalid or shared.state = "warming" then out = shared
-        end if
+        ' input.server; input.viaPool: we hold a lease (see Prefetch_resolveServer).
+        out = Prefetch_resolveServer(cfg, input.server, invalid, input.viaPool = true)
         out.ok = (out.hlsUrl <> invalid)
+
+    else if op = "prefetch"
+        ' Zero-wait start (Prefetch.java): input.event, input.premium. The stream page, then one
+        ' server resolved ahead of the press - a free one, or (premium pass) the first named
+        ' premium tab under a pre-warm pool lease. -> { ok, id, page, key, stream, prewarm }
+        out = Prefetch_run(cfg, input.event, input.premium = true, input.preferred)
 
     else if op = "accountStatus"
         signedIn = Account_refreshStatus(cfg)

@@ -66,5 +66,8 @@
     <Timer id="statusTimer" repeat="true" duration="30" />
     <Timer id="fullTimer" repeat="true" duration="600" />
     <Timer id="layoutTimer" repeat="false" duration="0.05" />
+    <!-- zero-wait start: resolve the focused game's stream ahead of OK (Prefetch.brs) -->
+    <Timer id="prefetchFreeTimer" repeat="false" duration="0.6" />
+    <Timer id="prefetchPremiumTimer" repeat="false" duration="2" />
   </children>
 </component>

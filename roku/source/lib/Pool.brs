@@ -37,9 +37,12 @@ function Pool_deviceName() as string
     return given + " · " + model
 end function
 
-' kind: "game" | "tv". label: game title or channel name (shown on /stats).
-function Pool_acquire(kind as string, label as string) as object
+' kind: "game" | "tv". label: game title or channel name (shown on /stats). prewarm: the viewer
+' has only focused the game (HomeScreen prefetch) - the Worker grants this only while two slots
+' stay free and drops it after 60 s unless the player acquires for real (same id, same slot).
+function Pool_acquire(kind as string, label as string, prewarm = false as boolean) as object
     body = { id: Pool_clientId(), kind: kind, label: Left(label, 80), platform: "roku" }
+    if prewarm then body.prewarm = true
     ' Signed in here: the lease is on this device's own account. It only takes a shared slot when
     ' that account is one of the shared ones, which the Worker tells from the playlist URL's
     ' fingerprint (never the URL itself).

@@ -15,6 +15,14 @@ import { storedPremium } from './account.js';
 
 /** A lease that misses its heartbeats for this long is gone (the web heartbeat is every 20 s). */
 export const LEASE_TTL_MS = 45_000;
+/**
+ * A pre-warm lease (taken while a game card merely has focus, so the premium stream is resolved
+ * before OK is pressed) is never heartbeated and is dropped this long after it was taken unless
+ * the player converts it into a real lease by acquiring again. It is only granted while at least
+ * PREWARM_MIN_FREE shared slots are free, so browsing never takes the last seats from viewers.
+ */
+export const PREWARM_HOLD_MS = 60_000;
+const PREWARM_MIN_FREE = 2;
 const DEFAULT_SLOTS = 5;
 const ID_RE = /^[a-zA-Z0-9_-]{8,64}$/;
 const KEY_RE = /^[a-z0-9]{6,16}$/;
@@ -45,6 +53,7 @@ export class Pool extends DurableObject {
       `);
       const cols = this.ctx.storage.sql.exec('PRAGMA table_info(leases)').toArray().map((c) => c.name);
       if (!cols.includes('account')) this.ctx.storage.sql.exec("ALTER TABLE leases ADD COLUMN account TEXT NOT NULL DEFAULT ''");
+      if (!cols.includes('prewarm')) this.ctx.storage.sql.exec('ALTER TABLE leases ADD COLUMN prewarm INTEGER NOT NULL DEFAULT 0');
       // Before several accounts could be shared there was one, under the key "shared".
       const legacy = await this.ctx.storage.get('shared');
       if (legacy) {
@@ -142,6 +151,7 @@ export class Pool extends DurableObject {
 
   prune(now) {
     this.ctx.storage.sql.exec('DELETE FROM leases WHERE last_seen < ?', now - LEASE_TTL_MS);
+    this.ctx.storage.sql.exec('DELETE FROM leases WHERE prewarm = 1 AND since < ?', now - PREWARM_HOLD_MS);
   }
 
   /** Leases on shared accounts (own-account leases are listed but take no slot). */
@@ -181,8 +191,13 @@ export class Pool extends DurableObject {
    * With `own` the viewer plays on their own account: always granted, and it only takes a slot
    * when `fp` (fingerprint of their playlist URL) identifies one of the shared accounts.
    * Denied when every usable slot is held by others.
+   *
+   * `prewarm`: the viewer has not pressed OK yet (see PREWARM_HOLD_MS). A pre-warm that would
+   * take a shared slot is only granted while PREWARM_MIN_FREE slots stay free after it; acquiring
+   * again without `prewarm` turns it into a normal lease (same id, same slot). A normal lease is
+   * never demoted by a later pre-warm request.
    */
-  async acquire(id, kind, label, platform, own = false, fp = '') {
+  async acquire(id, kind, label, platform, own = false, fp = '', prewarm = false) {
     if (!ID_RE.test(id) || !KINDS.has(kind) || !PLATFORMS.has(platform)) return { granted: false, error: 'bad lease request' };
     const now = Date.now();
     this.prune(now);
@@ -190,11 +205,13 @@ export class Pool extends DurableObject {
     const list = await this.accounts();
     const text = String(label || '').slice(0, 80);
     const info = await this.info();
-    const mine = this.ctx.storage.sql.exec('SELECT account FROM leases WHERE id = ?', id).toArray()[0];
+    const mine = this.ctx.storage.sql.exec('SELECT account, prewarm FROM leases WHERE id = ?', id).toArray()[0];
     if (mine) {
-      this.ctx.storage.sql.exec('UPDATE leases SET kind = ?, label = ?, platform = ?, last_seen = ? WHERE id = ?', kind, text, platform, now, id);
+      const keepWarm = prewarm && Number(mine.prewarm) === 1 ? 1 : 0;
+      // A pre-warm re-armed by another focus keeps its original `since`: the hold is not extended.
+      this.ctx.storage.sql.exec('UPDATE leases SET kind = ?, label = ?, platform = ?, last_seen = ?, prewarm = ? WHERE id = ?', kind, text, platform, now, keepWarm, id);
       await this.armAlarm(now);
-      return { ...info, granted: true, own: mine.account === OWN, used: this.used() };
+      return { ...info, granted: true, own: mine.account === OWN, prewarm: keepWarm === 1, used: this.used() };
     }
     let account = null;
     if (own) {
@@ -208,12 +225,15 @@ export class Pool extends DurableObject {
       }
       if (account === null) return { ...info, granted: false, used: this.used() };
     }
+    if (prewarm && account !== OWN && info.max - info.used - 1 < PREWARM_MIN_FREE) {
+      return { ...info, granted: false, prewarm: true, error: 'pool too full to pre-warm', used: this.used() };
+    }
     this.ctx.storage.sql.exec(
-      'INSERT INTO leases (id, kind, label, platform, since, last_seen, account) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      id, kind, text, platform, now, now, account
+      'INSERT INTO leases (id, kind, label, platform, since, last_seen, account, prewarm) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      id, kind, text, platform, now, now, account, prewarm ? 1 : 0
     );
     await this.armAlarm(now);
-    return { ...info, granted: true, own: account === OWN, used: this.used() };
+    return { ...info, granted: true, own: account === OWN, prewarm: !!prewarm, used: this.used() };
   }
 
   /** Renews the slot; `granted: false` means it expired and someone else may hold it now. */
@@ -258,10 +278,11 @@ export class Pool extends DurableObject {
     const list = await this.accounts();
     const per = this.slotsPerAccount();
     const labels = new Map(list.map((a) => [a.key, a.label]));
-    const leases = this.ctx.storage.sql.exec('SELECT id, kind, label, platform, since, last_seen, account FROM leases ORDER BY since').toArray()
+    const leases = this.ctx.storage.sql.exec('SELECT id, kind, label, platform, since, last_seen, account, prewarm FROM leases ORDER BY since').toArray()
       .map((r) => ({
         ...(withIds ? { id: r.id } : {}),
         kind: r.kind, label: r.label, platform: r.platform, since: Number(r.since), lastSeen: Number(r.last_seen),
+        prewarm: Number(r.prewarm) === 1,
         account: r.account === OWN ? null : r.account,
         accountLabel: r.account === OWN ? '' : labels.get(r.account) || '?',
       }));
@@ -353,7 +374,7 @@ function shareKeyCookie(request) {
  * /api/pool/share    POST { label? }: add (or update) the caller's StreamEast session as a shared account
  * /api/pool/remove   POST { key }: forget one shared account
  * /api/pool/clear    POST: forget every shared account and drop their leases
- * /api/pool/acquire  POST: { id, kind, label, platform, own?, acct? }  (web: own/acct come from the session)
+ * /api/pool/acquire  POST: { id, kind, label, platform, own?, acct?, prewarm? }  (web: own/acct come from the session)
  * /api/pool/heartbeat POST: { id, label? }
  * /api/pool/release  POST: { id }
  */
@@ -406,7 +427,7 @@ export async function handlePool(request, env, path, session, serialize) {
       own = true;
       fp = await fingerprint(session.iptv);
     }
-    return poolJson(await stub.acquire(String(b.id || ''), String(b.kind || 'game'), String(b.label || ''), String(b.platform || 'web'), own, fp));
+    return poolJson(await stub.acquire(String(b.id || ''), String(b.kind || 'game'), String(b.label || ''), String(b.platform || 'web'), own, fp, b.prewarm === true));
   }
 
   if (sub === '/heartbeat') {

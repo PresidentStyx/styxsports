@@ -911,6 +911,10 @@ public class HomeActivity extends Activity {
                 focusedEventId = e.id;
                 alignCard(hsv, v);
                 alignRow(row);
+                // Zero-wait start: resolve the stream while the card is looked at, so OK plays at once.
+                Prefetch.focus(this, handler, e);
+            } else if (e.id.equals(focusedEventId)) {
+                Prefetch.blur(handler);
             }
         });
 
@@ -1012,6 +1016,8 @@ public class HomeActivity extends Activity {
     private void openEvent(Event e) {
         if (e.url.isEmpty()) return;
         Recents.record(this, e);
+        Prefetch.blur(handler);
+        Prefetch.handOff(e.id); // the player's own pool acquire takes over any pre-warm lease
         if (config.nativePlayer) {
             startActivity(NativePlayerActivity.intent(this, e));
         } else {
@@ -1181,6 +1187,10 @@ public class HomeActivity extends Activity {
         super.onPause();
         handler.removeCallbacks(statusTick);
         handler.removeCallbacks(fullTick);
+        // Leaving Home without opening a game (openEvent hands a pre-warm to the player first):
+        // a pool slot taken for browsing goes back now rather than after the Worker's minute.
+        Prefetch.blur(handler);
+        Prefetch.releasePrewarm(this);
     }
 
     @Override

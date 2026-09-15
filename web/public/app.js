@@ -481,7 +481,12 @@
     card.addEventListener('focus', () => {
       focusedId = e.id;
       card.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+      prefetch.focus(card._event || e);
     });
+    card.addEventListener('blur', () => { if (prefetch.wanted === e.id) prefetch.blur(); });
+    // A mouse resting on a card counts like focus (touch screens have no hover; they start cold).
+    card.addEventListener('pointerenter', (ev) => { if (ev.pointerType === 'mouse') prefetch.focus(card._event || e); });
+    card.addEventListener('pointerleave', (ev) => { if (ev.pointerType === 'mouse' && prefetch.wanted === e.id && document.activeElement !== card) prefetch.blur(); });
 
     let list = cardsById.get(e.id);
     if (!list) cardsById.set(e.id, (list = []));
@@ -719,7 +724,12 @@
       this.servers = [];
       this.current = -1;
       this.failed = new Set();
-      this.resolved = new Map();
+      // What was resolved while the card had focus plays straight away (resolve() finds it).
+      const ahead = prefetch.fresh(e.id);
+      this.resolved = new Map(ahead ? ahead.streams : []);
+      this.pre = new Set(this.resolved.keys());
+      this.pagePre = ahead && ahead.page ? ahead.page : null;
+      this.askedAt = performance.now();
       this.everPlayed = false;
       this.retried = false;
       this.manual = false;
@@ -814,6 +824,8 @@
       idx = (idx + n) % n;
       this.current = idx;
       this.retried = isRetry;
+      if (!isRetry) this.askedAt = performance.now();
+      this.pre = null;
       const gen = ++this.generation;
       this.clearTimers();
       this.stopPlayback();
@@ -858,9 +870,10 @@
 
     async resolvePage() {
       const gen = this.generation;
-      let data;
+      let data = this.pagePre; // the server tabs, when the card's focus already fetched them
+      this.pagePre = null;
       try {
-        data = await api('/api/stream?only=servers&page=' + encodeURIComponent(this.event.url));
+        if (!data) data = await api('/api/stream?only=servers&page=' + encodeURIComponent(this.event.url));
       } catch (e) {
         if (gen !== this.generation) return;
         return this.allFailed('Could not open this game.\n' + e.message, false);
@@ -946,6 +959,9 @@
       this.current = index;
       this.manual = manual;
       this.retried = false;
+      // A hand-picked server: the wait the viewer feels starts now (an automatic fail-over keeps
+      // the original press, so its start time counts the failed server too).
+      if (manual) this.askedAt = performance.now();
       const gen = ++this.generation;
       this.clearTimers();
       this.stopPlayback();
@@ -1045,8 +1061,9 @@
       const src = sources[sourceIdx] || sources[0];
       const viaDirect = !!stream.direct && sourceIdx === 0;
       let started = false;
-      // Telemetry: what this attempt is, when it began, and whether we are inside a stall.
-      const t0 = performance.now();
+      // Telemetry: what this attempt is, when the viewer asked for it (the press or the switch,
+      // not this call: resolving is part of the wait), and whether we are inside a stall.
+      const t0 = this.askedAt || performance.now();
       const server = this.channelMode ? null : this.servers[this.current];
       const tele = {
         game: this.channelMode ? 'tv' : String(this.event ? this.event.id : ''),
@@ -1055,6 +1072,8 @@
         premium: !!(server && server.premium),
         relay: !viaDirect,
       };
+      // Resolved before the press (prefetch): reported as a "pre" start.
+      if (server && this.pre && this.pre.has(server.pageUrl)) tele.pre = true;
       this.teleCurrent = tele;
       let stallAt = 0;
       const fail = (why) => {
@@ -1405,6 +1424,131 @@
     return stream;
   }
 
+  /**
+   * Zero-wait start (4.0 phase 2.1, see Prefetch.java): resolve a game's stream while its card
+   * has focus (or the mouse rests on it) so opening it plays instead of spinning. After 600 ms
+   * the server tabs and the best free server are resolved; after 2 s, when this browser can
+   * play premium tabs and the `prewarm` flag is on, a *pre-warm* pool lease is taken
+   * (`acquire { prewarm: true }`: granted only while two slots stay free, dropped by the Worker
+   * after 60 s unless the player converts it) and the first named premium tab is resolved too.
+   * The player's own acquire for the same game converts the pre-warm (same client id), so a
+   * hand-off must never be followed by a release. Results older than 90 s are not trusted.
+   */
+  const prefetch = {
+    FREE_MS: 600, PREMIUM_MS: 2_000, TTL_MS: 90_000,
+    GENERIC: /^server\s*\d+$/i,
+    entries: new Map(), wanted: '', timers: [], prewarmFor: null, handedOff: '',
+
+    entry(id) {
+      let en = this.entries.get(id);
+      if (en && performance.now() - en.at > this.TTL_MS) { this.entries.delete(id); en = null; }
+      if (!en) {
+        en = { id, page: null, streams: new Map(), at: performance.now(), premiumTried: false };
+        this.entries.set(id, en);
+        while (this.entries.size > 8) this.entries.delete(this.entries.keys().next().value);
+      }
+      return en;
+    },
+    fresh(id) {
+      const en = this.entries.get(id);
+      return en && performance.now() - en.at <= this.TTL_MS ? en : null;
+    },
+
+    /** A card gained focus / the pointer rests on it. */
+    focus(e) {
+      this.blur();
+      if (!e || !e.url || e.ended || player.open) return;
+      this.wanted = e.id;
+      this.handedOff = '';
+      if (this.prewarmFor && this.prewarmFor !== e.id) this.release();
+      this.timers = [
+        setTimeout(() => this.warm(e, false), this.FREE_MS),
+        setTimeout(() => this.warm(e, true), this.PREMIUM_MS),
+      ];
+    },
+    blur() {
+      this.wanted = '';
+      for (const t of this.timers) clearTimeout(t);
+      this.timers = [];
+    },
+    /** The player is opening this game: its acquire takes over any pre-warm lease. */
+    handOff(id) {
+      this.handedOff = id;
+      if (this.prewarmFor === id) this.prewarmFor = null;
+    },
+    /** Gives a pre-warm lease back (left the page or moved to another game before playing). */
+    release() {
+      if (!this.prewarmFor) return;
+      this.prewarmFor = null;
+      fetch('/api/pool/release', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: clientId() }), cache: 'no-store', keepalive: true,
+      }).catch(() => {});
+    },
+
+    async warm(e, premium) {
+      if (this.wanted !== e.id) return;
+      try {
+        const en = this.entry(e.id);
+        if (!en.page) {
+          en.page = await api('/api/stream?only=servers&pre=1&page=' + encodeURIComponent(e.url));
+          if (this.wanted !== e.id) return;
+        }
+        if (!e.live) return; // tabs known; no stream worth a slot or an embed chain yet
+        const all = en.page.servers || [];
+        const own = usesOwnAccount();
+        const poolOk = !account.signedIn && pool.shared && pool.sharedPremium !== false;
+        const canPremium = own || poolOk;
+        const named = all.filter((s) => s.premium && !this.GENERIC.test(s.name));
+        const remembered = store.get('server_' + e.id, null);
+        let pick = null;
+        let slot = '';
+        if (!premium) {
+          // A browser that will start on a premium tab gains nothing from a free resolve.
+          if (canPremium && named.length) return;
+          const free = all.filter((s) => !s.premium);
+          pick = free.find((s) => s.name === remembered) || (all[en.page.activeIndex] && !all[en.page.activeIndex].premium ? all[en.page.activeIndex] : null) || free[0] || null;
+        } else {
+          if (en.premiumTried || !canPremium || !flags.on('prewarm', true)) return;
+          pick = named.find((s) => s.name === remembered) || named[0] || null;
+          if (!pick) return;
+          en.premiumTried = true;
+          if (pool.shared) {
+            const r = await api('/api/pool/acquire', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: clientId(), kind: 'game', label: (e.away ? `${e.home} vs ${e.away}` : e.home).slice(0, 80), platform: 'web', prewarm: true }),
+            });
+            if (r.used != null) pool.used = r.used;
+            if (!r.granted) { console.info(`[styx] no pre-warm for ${e.id} (${r.used}/${r.max})`); return; }
+            if (this.handedOff === e.id) return; // opened while the pool answered: the player owns the slot
+            this.prewarmFor = e.id;
+            if (this.wanted !== e.id) return this.release(); // moved on while the pool answered
+            slot = '&slot=' + encodeURIComponent(clientId());
+          } else if (!own) {
+            return;
+          }
+        }
+        if (!pick || en.streams.has(pick.pageUrl)) return;
+        const t0 = performance.now();
+        const data = await api('/api/stream?pre=1&server=' + encodeURIComponent(pick.pageUrl) + '&name=' + encodeURIComponent(pick.name) + (pick.premium ? '&premium=1' : '') + slot);
+        const stream = data.stream || null;
+        if (stream && stream.ownAddressOnly && stream.direct) await checkDirect(stream);
+        if (playable(stream)) {
+          en.streams.set(pick.pageUrl, stream);
+          console.info(`[styx] ${e.id}: ${pick.name}${pick.premium ? ' (premium)' : ''} ready ahead in ${Math.round(performance.now() - t0)} ms`);
+        } else {
+          console.info(`[styx] ${e.id}: ${pick.name} not playable ahead`, stream && (stream.state || stream.error));
+          if (premium && this.prewarmFor === e.id) this.release(); // nothing to hold the slot for
+        }
+      } catch (err) {
+        console.warn(`[styx] prefetch ${e.id} failed: ${err.message}`);
+      }
+    },
+  };
+  // Leaving the page (or backgrounding the tab) before a game opened: the slot goes back now.
+  document.addEventListener('visibilitychange', () => { if (document.hidden && !player.open) prefetch.release(); });
+  window.addEventListener('pagehide', () => { if (!player.open) prefetch.release(); });
+
   // Player UI wiring.
   $('p-close').onclick = () => player.close();
   $('p-fs').onclick = () => player.toggleFullscreen();
@@ -1442,6 +1586,8 @@
   function openEvent(e) {
     if (!e.url) return;
     recents.record(e);
+    prefetch.blur();
+    prefetch.handOff(e.id); // the player's own acquire takes over any pre-warm lease
     player.openFor(e);
   }
 

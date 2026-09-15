@@ -10,7 +10,9 @@ sub init()
     ' slot granted sets leaseHeld = true (the scene then heartbeats it); whoever owns it sets it
     ' back to false when playback stops, which releases the slot. main.brs releases on exit.
     ' poolInfoAt: bumped after each presence ping refreshed what the shared account offers.
-    m.global.addFields({ config: Config_load(), dumpTick: 0, leaseHeld: false, leaseLabel: "", poolInfoAt: 0 })
+    ' prefetch: what HomeScreen resolved for the focused game ahead of OK ({ id, at, page,
+    ' streams }); prewarmFor: the game HomeScreen holds a pre-warm pool lease for ("" = none).
+    m.global.addFields({ config: Config_load(), dumpTick: 0, leaseHeld: false, leaseLabel: "", poolInfoAt: 0, prefetch: {}, prewarmFor: "" })
     m.configTask = Ui_task("config", {}, "onConfigRefreshed")
 
     m.presenceTimer = m.top.findNode("presenceTimer")
