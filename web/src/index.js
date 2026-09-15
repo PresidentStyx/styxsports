@@ -13,6 +13,7 @@
 //   /apk                 latest Android TV build (GitHub Releases)
 //   /install             how to install the Android TV / Fire TV and Roku apps (public/install.html)
 //   /api/ping            public heartbeat from web / APK / Roku (see presence.js)
+//   /api/flags           public: config.json feature flags resolved for ?platform=&device=&version= (flags.js)
 //   /api/pool            shared premium account: 5 connection slots (see pool.js);
 //                        /acquire /heartbeat /release are public so the APK and Roku can join
 //   /stats, /api/stats   who is watching right now + pool usage (site password)
@@ -32,6 +33,7 @@ import {
 } from './account.js';
 
 import { normalizeGames, sortGames, liveSummary, gamesStub } from './games.js';
+import { resolveFlags } from './flags.js';
 
 export { Presence } from './presence.js';
 export { Pool } from './pool.js';
@@ -68,6 +70,17 @@ export default {
         return out;
       }
       if (path === '/api/ping') return await handlePing(request, env);
+      // Feature flags carry nothing private, and a client that is gated or on a blocking network
+      // still needs them, so they are open like /api/ping.
+      if (path === '/api/flags') {
+        const cfg = await loadConfig();
+        const out = resolveFlags(cfg, {
+          platform: url.searchParams.get('platform') || 'web',
+          deviceId: url.searchParams.get('device') || request.headers.get(DEVICE_HEADER) || '',
+          version: url.searchParams.get('version') || '',
+        });
+        return json(out, 200, { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+      }
       // Lease bookkeeping is open like /api/ping so the APK and Roku can count toward the 5 slots
       // (no cookies pass through it). State, /share and /clear stay behind the site password.
       if (path === '/api/pool/acquire' || path === '/api/pool/heartbeat' || path === '/api/pool/release' || path === '/api/pool/info') {

@@ -56,6 +56,17 @@
   "_nativePlayer": "true = play streams with the built-in player (ExoPlayer: server switching with Left/Right, HUD, automatic fallback). false = the WebView player (v2.x behaviour). The native player falls back to the WebView by itself when it cannot extract a playlist.",
   "nativePlayer": true,
 
+  "_features": "4.0 feature flags, read by every client at launch and every 6 h (web/src/flags.js, Flags.java, Flags.brs share the rules). A flag is true/false, or per platform {\"apk\": true, \"roku\": false, \"web\": true}, or a rollout {\"rollout\": 25} = on for 25% of devices (stable per device id; add \"platforms\": [\"apk\"] and/or \"minVersion\": \"4.0\" to narrow it). Names: hero, gameCenter, scoreBug, gameSwitcher, prewarm, selfHeal, telemetry, statusFooter, pwa, push, cast.",
+  "features": {
+    "telemetry": true
+  },
+
+  "_minVersion": "Per platform. A client older than this shows 'update required' before Home (empty = no floor).",
+  "minVersion": { "apk": "", "roku": "", "web": "" },
+
+  "_pinned": "Rollbacks: device-id prefix -> APK version that device should install instead of the latest release, e.g. {\"a1b2\": \"3.9\"}. Device ids are on /stats.",
+  "pinned": {},
+
   "_parser": "Site markup rules. Every key is optional and overrides the app's built-in default (see ParserRules.java for the full list and defaults). Regexes use Java syntax with group 1 as the value. Use this when the site changes its HTML and the home screen or player stop working. Example: {\"cardStart\": \"<(?:div|a)\\\\s+class=\\\"m-card\\\\b([^\\\"]*)\\\"([^>]*)>\", \"statusPath\": \"/data/espn_status_batch.json\", \"serverItem\": \"...\", \"hlsUrl\": \"...\"}",
   "parser": {}
 }

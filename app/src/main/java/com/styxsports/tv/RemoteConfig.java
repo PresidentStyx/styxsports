@@ -82,13 +82,18 @@ final class RemoteConfig {
     final boolean nativePlayer;
     /** Site markup rules; overridable from config so parsing can be fixed without an APK. */
     final ParserRules parser;
+    /** 4.0 feature flags, per-platform minimum versions and device version pins (see Flags). */
+    final JSONObject features;
+    final JSONObject minVersion;
+    final JSONObject pinned;
     final String rawJson;
 
     private RemoteConfig(String homeUrl, String dataBaseUrl, String authBaseUrl, boolean nativeHome,
                          List<String> allowed, List<String> blocked, String userAgent,
                          String pageScript, String playerCss, String playerScript,
                          int playerViewportWidth, boolean directPlayer, boolean nativePlayer,
-                         ParserRules parser, String rawJson) {
+                         ParserRules parser, JSONObject features, JSONObject minVersion, JSONObject pinned,
+                         String rawJson) {
         this.homeUrl = homeUrl;
         this.dataBaseUrl = stripTrailingSlash(dataBaseUrl);
         this.authBaseUrl = stripTrailingSlash(authBaseUrl);
@@ -103,13 +108,21 @@ final class RemoteConfig {
         this.directPlayer = directPlayer;
         this.nativePlayer = nativePlayer;
         this.parser = parser;
+        this.features = features == null ? new JSONObject() : features;
+        this.minVersion = minVersion == null ? new JSONObject() : minVersion;
+        this.pinned = pinned == null ? new JSONObject() : pinned;
         this.rawJson = rawJson;
     }
 
     static RemoteConfig defaults() {
         return new RemoteConfig(DEFAULT_HOME_URL, DEFAULT_DATA_BASE_URL, DEFAULT_AUTH_BASE_URL, true,
                 DEFAULT_ALLOWED, DEFAULT_BLOCKED, "", "", DEFAULT_PLAYER_CSS, "",
-                DEFAULT_PLAYER_VIEWPORT_WIDTH, true, true, ParserRules.defaults(), "");
+                DEFAULT_PLAYER_VIEWPORT_WIDTH, true, true, ParserRules.defaults(), null, null, null, "");
+    }
+
+    /** Feature flags resolved for this install. */
+    Flags flags(Context ctx) {
+        return new Flags(this, ctx);
     }
 
     static RemoteConfig parse(String json) throws JSONException {
@@ -136,6 +149,9 @@ final class RemoteConfig {
                 o.optBoolean("directPlayer", true),
                 o.optBoolean("nativePlayer", true),
                 ParserRules.from(o.optJSONObject("parser")),
+                o.optJSONObject("features"),
+                o.optJSONObject("minVersion"),
+                o.optJSONObject("pinned"),
                 json);
     }
 

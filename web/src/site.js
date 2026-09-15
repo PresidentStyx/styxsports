@@ -14,6 +14,10 @@ const DEFAULT_CONFIG = {
   authBaseUrl: 'https://auth.streamea.st',
   allowedHostFragments: ['streameast', 'streamea.st'],
   parser: {},
+  // 4.0 feature flags, per-platform minimum versions and APK version pins (flags.js).
+  features: {},
+  minVersion: {},
+  pinned: {},
 };
 
 export const DESKTOP_UA =
@@ -197,6 +201,9 @@ export async function loadConfig() {
         cfg.allowedHostFragments = o.allowedHostFragments.filter((s) => typeof s === 'string');
       }
       if (o.parser && typeof o.parser === 'object') cfg.parser = o.parser;
+      for (const k of ['features', 'minVersion', 'pinned']) {
+        if (o[k] && typeof o[k] === 'object' && !Array.isArray(o[k])) cfg[k] = o[k];
+      }
     }
   } catch {
     // defaults

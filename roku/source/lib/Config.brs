@@ -15,6 +15,9 @@ function Config_defaults() as object
         authBaseUrl: "https://auth.streamea.st"
         allowedHostFragments: ["streameast", "streamea.st"]
         parser: Parser_defaults()
+        ' 4.0 feature flags and per-platform minimum versions (Flags.brs).
+        features: {}
+        minVersion: {}
     }
 end function
 
@@ -89,6 +92,8 @@ sub Config_apply(cfg as object, o as object)
             if isStr(v) and Len(v.Trim()) > 0 and cfg.parser[k] <> invalid then cfg.parser[k] = v.Trim()
         end for
     end if
+    if type(o.features) = "roAssociativeArray" then cfg.features = o.features
+    if type(o.minVersion) = "roAssociativeArray" then cfg.minVersion = o.minVersion
 end sub
 
 ' Fetches config.json and caches it. Returns true when something new was stored.

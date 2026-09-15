@@ -505,6 +505,9 @@ public class HomeActivity extends Activity {
         overlayButtons.getChildAt(0).requestFocus();
     }
 
+    /** config.json is read at launch and then every 6 h while Home stays open (feature flags). */
+    private static final long CONFIG_REFRESH_MS = 6 * 3600_000L;
+
     private void refreshConfig() {
         io.execute(() -> {
             try {
@@ -518,7 +521,11 @@ public class HomeActivity extends Activity {
                 // Offline or GitHub unreachable: keep using the cached copy.
             }
         });
+        handler.removeCallbacks(configTick);
+        handler.postDelayed(configTick, CONFIG_REFRESH_MS);
     }
+
+    private final Runnable configTick = this::refreshConfig;
 
     private void fullRefresh(boolean userVisible) {
         if (loading) return;

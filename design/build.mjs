@@ -123,7 +123,7 @@ const check = process.argv.includes('--check');
 let stale = 0;
 for (const [rel, text] of outputs) {
   const file = join(root, rel);
-  const current = existsSync(file) ? readFileSync(file, 'utf8') : null;
+  const current = existsSync(file) ? readFileSync(file, 'utf8').replace(/\r\n/g, '\n') : null; // Windows checkouts
   if (current === text) continue;
   if (check) { console.error('stale: ' + rel); stale++; continue; }
   writeFileSync(file, text);

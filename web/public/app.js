@@ -11,6 +11,9 @@
   const STALL_MS = 15_000;
   const START_TIMEOUT_MS = 25_000;
   const IMPATIENCE_MS = 6_000;
+  /** Shown to the flag service and telemetry; bump with the 4.0 release train. */
+  const WEB_VERSION = '3.9';
+  const FLAGS_MS = 6 * 3600_000;
 
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => {
@@ -1806,6 +1809,25 @@
   }
   ping();
   setInterval(ping, PING_MS);
+
+  // Remote feature flags (config.json `features`, resolved by the Worker for this client id).
+  // The last answer is kept so a flag-gated feature does not flicker on a slow start.
+  const flags = {
+    values: store.get('flags', {}),
+    on(name) { return this.values[name] === true; },
+    async load() {
+      try {
+        const r = await fetch(`/api/flags?platform=web&device=${encodeURIComponent(clientId())}&version=${WEB_VERSION}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d && d.flags) { this.values = d.flags; store.set('flags', d.flags); }
+        document.documentElement.dataset.flags = Object.keys(this.values).filter((k) => this.values[k]).join(' ');
+      } catch { /* keep the last answer */ }
+    },
+  };
+  flags.load();
+  setInterval(() => { if (!document.hidden) flags.load(); }, FLAGS_MS);
+  window.styxFlags = flags;
   // Free the shared premium slot the moment the tab goes away (the lease would expire anyway).
   window.addEventListener('pagehide', () => player.dropSlot());
 
