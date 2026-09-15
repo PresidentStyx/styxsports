@@ -1,6 +1,10 @@
 // Styx Sports on the web: the same schedule + player as the Android TV app, served from a Worker.
 //   /api/schedule        events + categories (edge-cached 60 s)
 //   /api/status          live clocks/scores feed (edge-cached 15 s)
+//   /api/games           the two above normalized: state, score, period, team colors, heat,
+//                        closeness, scoring timeline (see games.js; edge-cached 15 s)
+//   /api/games/live-summary   scores only (~1 KB), polled by score bugs and switchers
+//   /api/games/:id       one game; /api/games/coverage: status-text shapes seen per league
 //   /api/stream?page=    server tabs of a stream page + the active server resolved
 //   /api/stream?server=  one server resolved
 //   /hls/<token>         signed HLS proxy (see hls.js)
@@ -27,12 +31,16 @@ import {
   serializeSession, deserializeSession,
 } from './account.js';
 
+import { normalizeGames, sortGames, liveSummary, gamesStub } from './games.js';
+
 export { Presence } from './presence.js';
 export { Pool } from './pool.js';
+export { Games } from './games.js';
 
 const APK_URL = 'https://github.com/PresidentStyx/styxsports/releases/latest/download/StyxSports.apk';
 const SCHEDULE_TTL_S = 60;
 const STATUS_TTL_S = 15;
+const GAMES_TTL_S = 15;
 
 const json = (data, status = 200, extra = {}) =>
   new Response(JSON.stringify(data), {
@@ -77,7 +85,7 @@ export default {
       // A TV app whose network blocks the site by name reads it through here instead (the
       // APK's Relay): its install id, the same one that pings /api/ping, is its credential.
       const device = request.headers.get(DEVICE_HEADER) || '';
-      const app = !!device && APP_PATHS.has(path) && await isTvDevice(env, device);
+      const app = !!device && appPath(path) && await isTvDevice(env, device);
       const denied = leased || app || path.startsWith('/hls/') || path.startsWith('/ts/') ? null : await gate(request, env, path);
       if (denied) return denied;
       if (path === '/api/stats') {
@@ -108,6 +116,10 @@ export default {
       if (path.startsWith('/ts/')) return await handleTs(request, env, path.slice(4));
       if (path === '/api/schedule') return await cached(request, ctx, SCHEDULE_TTL_S, apiSchedule);
       if (path === '/api/status') return await cached(request, ctx, STATUS_TTL_S, apiStatus);
+      if (path === '/api/games') return await cached(request, ctx, GAMES_TTL_S, () => apiGames(request, env, ctx));
+      if (path === '/api/games/live-summary') return await cached(request, ctx, GAMES_TTL_S, () => apiGamesSummary(request, env, ctx));
+      if (path === '/api/games/coverage') return await apiGamesCoverage(env);
+      if (path.startsWith('/api/games/')) return await apiGame(request, env, ctx, decodeURIComponent(path.slice('/api/games/'.length)));
       if (path === '/api/stream') return await apiStream(request, env, url);
       if (path === '/api/account' || path.startsWith('/api/account/')) return await apiAccount(request, env, url, path);
       if (path === '/api/pool' || path.startsWith('/api/pool/')) {
@@ -131,6 +143,7 @@ const LEASED_PATHS = new Set(['/api/stream', '/api/iptv', '/api/iptv/token']);
 /** The TV apps' install id header, and what they may read with it when their network blocks the site. */
 const DEVICE_HEADER = 'X-Styx-Device';
 const APP_PATHS = new Set(['/api/schedule', '/api/status', '/api/stream', '/api/iptv', '/api/iptv/token', '/img']);
+const appPath = (path) => APP_PATHS.has(path) || (path.startsWith('/api/games') && path !== '/api/games/coverage');
 
 async function hasLiveLease(env, slot) {
   if (!slot) return false;
@@ -178,6 +191,59 @@ async function apiStatus() {
   const cfg = await loadConfig();
   const text = await fetchStatus(cfg);
   return new Response(text, { headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+}
+
+// --- Game State Service (games.js) ------------------------------------------------------------
+
+/** Reads another API's body through the same edge cache entry it serves from (no extra site hits). */
+async function readCached(request, ctx, path, ttl, handler) {
+  const key = new Request(new URL(request.url).origin + path, { method: 'GET' });
+  const res = await cached(key, ctx, ttl, handler);
+  if (!res.ok) throw new Error(path + ' failed: ' + res.status);
+  return await res.json();
+}
+
+const IMG_RE = /^\/img\?u=/;
+const unproxyImg = (u) => (IMG_RE.test(u || '') ? decodeURIComponent(u.slice(7)) : u || '');
+
+/** Schedule + status normalized, scoring timeline from the Games DO, sorted for Home. */
+async function buildGames(request, env, ctx) {
+  const [schedule, status] = await Promise.all([
+    readCached(request, ctx, '/api/schedule', SCHEDULE_TTL_S, apiSchedule),
+    readCached(request, ctx, '/api/status', STATUS_TTL_S, apiStatus).catch(() => null),
+  ]);
+  // apiSchedule already wrapped crests in /img; games.js reads the SVG behind it for colors.
+  let games = await normalizeGames(schedule, status, { rawCrest: unproxyImg });
+  try {
+    const stub = gamesStub(env);
+    if (stub) {
+      const timelines = await stub.record(games.map((g) => ({ id: g.id, league: g.league, state: g.state, score: g.score, statusText: g.statusText })));
+      for (const g of games) g.scoring = timelines[g.id] || [];
+    }
+  } catch { /* the timeline is a bonus */ }
+  games = sortGames(games);
+  const leagues = (schedule.categories || []).map((c) => ({ id: c.id, name: c.name, live: c.liveCount, soon: c.soonCount }));
+  return { generatedAt: Date.now(), scheduleAt: schedule.fetchedAt, statusAt: status && status.generated_at ? status.generated_at * 1000 : null, base: schedule.base, leagues, games };
+}
+
+async function apiGames(request, env, ctx) {
+  return json(await buildGames(request, env, ctx));
+}
+
+async function apiGamesSummary(request, env, ctx) {
+  const all = await buildGames(request, env, ctx);
+  return json({ at: all.generatedAt, games: liveSummary(all.games) });
+}
+
+async function apiGame(request, env, ctx, id) {
+  const all = await buildGames(request, env, ctx);
+  const g = all.games.find((x) => x.id === id || x.slug === id);
+  return g ? json(g) : json({ error: 'no such game' }, 404);
+}
+
+async function apiGamesCoverage(env) {
+  const stub = gamesStub(env);
+  return json({ shapes: stub ? await stub.coverage() : [] });
 }
 
 /**
