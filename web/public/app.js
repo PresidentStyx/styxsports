@@ -11,6 +11,19 @@
   const STALL_MS = 15_000;
   const START_TIMEOUT_MS = 25_000;
   const IMPATIENCE_MS = 6_000;
+  /**
+   * Self-healing (4.0 phase 2.2; NativePlayerActivity DEGRADE_*): a stream that keeps playing
+   * but badly - this many stalls within the window, this many stalls longer than
+   * DEGRADE_LONG_STALL_MS, or a burst of segment/playlist load errors - is left for the next
+   * best server, readied in a hidden second <video> and swapped in once it has frames.
+   */
+  const DEGRADE_STALLS = 3;
+  const DEGRADE_WINDOW_MS = 120_000;
+  const DEGRADE_LONG_STALLS = 2;
+  const DEGRADE_LONG_STALL_MS = 8_000;
+  const DEGRADE_ERRORS = 3;
+  const DEGRADE_ERROR_WINDOW_MS = 60_000;
+  const STANDBY_TIMEOUT_MS = 40_000;
   /** Shown to the flag service and telemetry; bump with the 4.0 release train. */
   const WEB_VERSION = '3.9';
   const FLAGS_MS = 6 * 3600_000;
@@ -109,6 +122,7 @@
     },
   };
   window.styxFlags = flags;
+  window.styxPlayer = { forceMigrate: () => player.forceMigrate() };
 
   /**
    * Anonymous playback telemetry (see web/src/telemetry.js): start (time to first frame),
@@ -650,10 +664,12 @@
   // ---------------------------------------------------------------------------------------------
 
   const player = {
-    root: $('player'), video: $('video'),
+    root: $('player'), video: $('video'), video2: $('video2'),
     hls: null, event: null, servers: [], current: -1, failed: new Set(), resolved: new Map(),
     generation: 0, everPlayed: false, retried: false, manual: false, open: false, embedMode: false,
-    hudTimer: null, stallTimer: null, startTimer: null, impatience: null,
+    hudTimer: null, stallTimer: null, startTimer: null, impatience: null, toastTimer: null,
+    /** Self-healing: stall/error counts on the current stream, the migration under way, the standby element. */
+    health: { stalls: [], long: 0, errors: [] }, migrating: null, standby: null, degraded: new Set(),
     /** Live TV: playing a channel of the account's playlist instead of a game (◀ ▶ = channels). */
     channelMode: false, channels: [], channelGroup: '',
     /** Shared-pool lease id (the same clientId used for /api/ping). Empty when using your own account. */
@@ -730,6 +746,8 @@
       this.pre = new Set(this.resolved.keys());
       this.pagePre = ahead && ahead.page ? ahead.page : null;
       this.askedAt = performance.now();
+      this.dropStandby();
+      this.degraded = new Set();
       this.everPlayed = false;
       this.retried = false;
       this.manual = false;
@@ -756,6 +774,7 @@
       this.open = false;
       this.generation++;
       this.clearTimers();
+      this.dropStandby();
       this.stopPlayback();
       telemetry.flush();
       this.hideEmbed();
@@ -964,6 +983,7 @@
       if (manual) this.askedAt = performance.now();
       const gen = ++this.generation;
       this.clearTimers();
+      this.dropStandby(); // a switch by hand or by the sweep supersedes any migration under way
       this.stopPlayback();
       this.hideEmbed();
       this.renderServers();
@@ -1075,11 +1095,12 @@
       // Resolved before the press (prefetch): reported as a "pre" start.
       if (server && this.pre && this.pre.has(server.pageUrl)) tele.pre = true;
       this.teleCurrent = tele;
-      let stallAt = 0;
-      const fail = (why) => {
+      this.health = { stalls: [], long: 0, errors: [] };
+      const ctx = { gen, tele, t0, started: false, stallAt: 0 };
+      ctx.fail = (why) => {
         if (gen !== this.generation) return;
-        if (!started) telemetry.push({ kind: 'error', code: why, cdn: tele.cdn, premium: tele.premium, relay: tele.relay });
-        if (!started && sourceIdx + 1 < sources.length) {
+        if (!ctx.started) telemetry.push({ kind: 'error', code: why, cdn: tele.cdn, premium: tele.premium, relay: tele.relay });
+        if (!ctx.started && sourceIdx + 1 < sources.length) {
           console.warn(`[styx] ${stream.server}: ${why} (${viaDirect ? 'direct' : 'proxy'}); retrying via ${viaDirect ? 'proxy' : 'direct'}`);
           this.generation++;
           this.clearTimer('startTimer');
@@ -1091,18 +1112,53 @@
         this.onFailure(why);
       };
       this.status(`Connecting to ${stream.server}…`, true);
-      this.startTimer = setTimeout(() => fail('start timeout'), START_TIMEOUT_MS);
+      this.startTimer = setTimeout(() => ctx.fail('start timeout'), START_TIMEOUT_MS);
+      this.bind(v, ctx);
 
-      const onReady = () => {
+      if (window.Hls && Hls.isSupported()) {
+        const hls = this.makeHls(viaDirect);
+        this.hls = hls;
+        this.bindHls(hls, ctx);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => { if (gen === this.generation) this.tryPlay(); });
+        hls.loadSource(src);
+        hls.attachMedia(v);
+      } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+        v.src = src;
+        v.onloadedmetadata = () => this.tryPlay();
+      } else {
+        this.allFailed('This browser cannot play HLS video.', true);
+      }
+    },
+
+    makeHls(viaDirect) {
+      return new Hls({
+        lowLatencyMode: false,
+        liveSyncDurationCount: 4, // a little extra runway: every segment takes a hop through the proxy
+        manifestLoadingTimeOut: 15000,
+        levelLoadingTimeOut: 15000,
+        fragLoadingTimeOut: 20000,
+        manifestLoadingMaxRetry: viaDirect ? 1 : 2, // a CORS refusal shows up as a manifest error
+        levelLoadingMaxRetry: 3,
+        fragLoadingMaxRetry: 3,
+      });
+    },
+
+    /** The on-screen element's events for one attempt: first frame, stalls, end, error. */
+    bind(v, ctx) {
+      const { gen, tele } = ctx;
+      v.onplaying = () => {
         if (gen !== this.generation) return;
-        if (!started) {
-          telemetry.push({ kind: 'start', ...tele, ttff: Math.round(performance.now() - t0) });
+        if (!ctx.started) {
+          telemetry.push({ kind: 'start', ...tele, ttff: Math.round(performance.now() - ctx.t0) });
           this.watchStart = Date.now();
-        } else if (stallAt) {
-          telemetry.push({ kind: 'stall', cdn: tele.cdn, premium: tele.premium, relay: tele.relay, duration: Math.round(performance.now() - stallAt), position: Math.round(v.currentTime * 1000) });
+        } else if (ctx.stallAt) {
+          const dur = Math.round(performance.now() - ctx.stallAt);
+          telemetry.push({ kind: 'stall', cdn: tele.cdn, premium: tele.premium, relay: tele.relay, duration: dur, position: Math.round(v.currentTime * 1000) });
+          if (dur > DEGRADE_LONG_STALL_MS) this.health.long++;
+          this.checkHealth();
         }
-        stallAt = 0;
-        started = true;
+        ctx.stallAt = 0;
+        ctx.started = true;
         this.clearTimer('startTimer');
         this.clearTimer('stallTimer');
         this.hideStatus();
@@ -1114,45 +1170,197 @@
         }
         this.showHud();
       };
-      v.onplaying = onReady;
       v.onwaiting = () => {
         if (gen !== this.generation) return;
-        if (started && !stallAt) stallAt = performance.now();
+        if (ctx.started && !ctx.stallAt) {
+          ctx.stallAt = performance.now();
+          this.health.stalls.push(ctx.stallAt);
+          this.health.stalls = this.health.stalls.filter((t) => ctx.stallAt - t <= DEGRADE_WINDOW_MS);
+          this.checkHealth();
+        }
         if (this.everPlayed) this.status('Buffering…', true);
         this.clearTimer('stallTimer');
         this.stallTimer = setTimeout(() => { if (gen === this.generation) this.onFailure('stalled'); }, STALL_MS);
       };
       v.onended = () => { if (gen === this.generation) this.onFailure('ended'); };
-      v.onerror = () => { if (gen === this.generation && !this.hls) fail('media error'); };
+      v.onerror = () => { if (gen === this.generation && !this.hls) ctx.fail('media error'); };
+    },
 
-      if (window.Hls && Hls.isSupported()) {
-        const hls = new Hls({
-          lowLatencyMode: false,
-          liveSyncDurationCount: 4, // a little extra runway: every segment takes a hop through the proxy
-          manifestLoadingTimeOut: 15000,
-          levelLoadingTimeOut: 15000,
-          fragLoadingTimeOut: 20000,
-          manifestLoadingMaxRetry: viaDirect ? 1 : 2, // a CORS refusal shows up as a manifest error
-          levelLoadingMaxRetry: 3,
-          fragLoadingMaxRetry: 3,
-        });
-        this.hls = hls;
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          if (gen !== this.generation) return;
-          if (data.fatal) {
-            const code = data.response && data.response.code ? ` HTTP ${data.response.code}` : '';
-            fail(`${data.type}/${data.details}${code}`);
-          }
-        });
-        hls.on(Hls.Events.MANIFEST_PARSED, () => { if (gen === this.generation) this.tryPlay(); });
-        hls.loadSource(src);
-        hls.attachMedia(v);
-      } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-        v.src = src;
-        v.onloadedmetadata = () => this.tryPlay();
-      } else {
-        this.allFailed('This browser cannot play HLS video.', true);
+    /** hls.js errors for the on-screen attempt: fatal ones fail it, a burst of load errors degrades it. */
+    bindHls(hls, ctx) {
+      const { gen } = ctx;
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (gen !== this.generation) return;
+        if (data.fatal) {
+          const code = data.response && data.response.code ? ` HTTP ${data.response.code}` : '';
+          ctx.fail(`${data.type}/${data.details}${code}`);
+        } else if (ctx.started && /LoadError|LoadTimeOut/.test(data.details || '')) {
+          const now = performance.now();
+          this.health.errors.push(now);
+          this.health.errors = this.health.errors.filter((t) => now - t <= DEGRADE_ERROR_WINDOW_MS);
+          this.checkHealth();
+        }
+      });
+    },
+
+    // --- Self-healing: leave a degraded stream for the next best server without a black screen ----
+    // (NativePlayerActivity.checkHealth / migrate / swapToStandby)
+
+    checkHealth() {
+      if (this.channelMode || this.embedMode || !this.everPlayed || this.migrating || this.standby) return;
+      const h = this.health;
+      const why = h.stalls.length >= DEGRADE_STALLS ? 'stalls' : h.long >= DEGRADE_LONG_STALLS ? 'long-stalls' : h.errors.length >= DEGRADE_ERRORS ? 'errors' : null;
+      if (why) this.migrate(why);
+    },
+
+    /** The current stream is degraded: ready the next best server in the hidden second element. */
+    async migrate(why) {
+      const from = this.servers[this.current];
+      if (!from) return;
+      this.degraded.add(from.pageUrl);
+      // Next best in preference order: not this one, not failed, not one already left as
+      // degraded; premium tabs only with a slot or an account of our own.
+      const canPremium = !!this.slot || usesOwnAccount();
+      let idx = -1;
+      for (let i = 0; i < this.servers.length; i++) {
+        const s = this.servers[i];
+        if (i === this.current || this.failed.has(i) || this.degraded.has(s.pageUrl)) continue;
+        if (s.premium && !canPremium) continue;
+        idx = i;
+        break;
       }
+      if (idx < 0) { console.info(`[styx] ${from.name} is degraded (${why}) but there is no other server to move to`); return; }
+      const to = this.servers[idx];
+      const token = {};
+      this.migrating = { why, idx, token, askedAt: performance.now() };
+      console.info(`[styx] ${from.name} is degraded (${why}); readying ${to.name} alongside`);
+      this.resolved.delete(to.pageUrl); // fresh: signed playlist URLs are short-lived
+      const stream = await this.resolve(to);
+      if (!this.migrating || this.migrating.token !== token) return;
+      if (!playable(stream)) return this.standbyFailed(`no playable stream (${stream && (stream.state || stream.error)})`);
+      this.startStandby(stream);
+    },
+
+    startStandby(stream) {
+      const el = this.video2;
+      const src = stream.direct || stream.hls;
+      const sb = { el, stream, hls: null, timer: null, onError: null };
+      this.standby = sb;
+      el.muted = true;
+      el.onplaying = () => { if (this.standby === sb) this.swapToStandby(true); };
+      el.onended = () => { if (this.standby === sb) this.standbyFailed('ended'); };
+      el.onerror = () => { if (this.standby === sb && !sb.hls) this.standbyFailed('media error'); };
+      sb.timer = setTimeout(() => { if (this.standby === sb) this.standbyFailed('no video after ' + STANDBY_TIMEOUT_MS / 1000 + 's'); }, STANDBY_TIMEOUT_MS);
+      if (window.Hls && Hls.isSupported()) {
+        sb.hls = this.makeHls(!!stream.direct);
+        sb.onError = (_, data) => { if (this.standby === sb && data.fatal) this.standbyFailed(`${data.type}/${data.details}`); };
+        sb.hls.on(Hls.Events.ERROR, sb.onError);
+        sb.hls.on(Hls.Events.MANIFEST_PARSED, () => { if (this.standby === sb) el.play().catch(() => {}); });
+        sb.hls.loadSource(src);
+        sb.hls.attachMedia(el);
+      } else {
+        el.src = src;
+        el.onloadedmetadata = () => { if (this.standby === sb) el.play().catch(() => {}); };
+      }
+      console.info(`[styx] standby: ${stream.server} via ${stream.cdn || src}`);
+    },
+
+    /**
+     * The standby becomes the element on screen and the degraded one is stopped: with frames
+     * (`ready`) the swap is seamless; promoted early (the old stream died first) it shows the
+     * connecting overlay and the usual first-frame handling takes it from there.
+     */
+    swapToStandby(ready) {
+      const sb = this.standby;
+      const mig = this.migrating;
+      if (!sb || !mig) return;
+      const from = this.servers[this.current];
+      const to = this.servers[mig.idx];
+      const wasMuted = this.video.muted;
+      console.info(`[styx] ${ready ? 'switching to' : 'promoting'} ${to.name} (${mig.why})`);
+      clearTimeout(sb.timer);
+      this.clearTimers();
+      this.stopPlayback(); // the degraded element: stop telemetry, hls, handlers
+      if (from) telemetry.push({ kind: 'switch', from: from.name, to: to.name, reason: 'degraded-' + mig.why });
+
+      const old = this.video;
+      old.classList.add('standby');
+      sb.el.classList.remove('standby');
+      sb.el.onplaying = sb.el.onended = sb.el.onerror = sb.el.onloadedmetadata = null;
+      if (sb.hls && sb.onError) sb.hls.off(Hls.Events.ERROR, sb.onError);
+      this.video = sb.el;
+      this.video2 = old;
+      this.hls = sb.hls;
+      this.standby = null;
+      this.migrating = null;
+      this.current = mig.idx;
+      this.retried = false;
+      this.manual = false;
+      this.video.muted = wasMuted;
+      $('p-unmute').classList.toggle('hidden', !wasMuted);
+
+      const gen = ++this.generation;
+      const tele = { game: String(this.event ? this.event.id : ''), server: sb.stream.server || '', cdn: sb.stream.cdn || (sb.stream.direct || sb.stream.hls), premium: !!to.premium, relay: !sb.stream.direct };
+      this.teleCurrent = tele;
+      this.health = { stalls: [], long: 0, errors: [] };
+      const ctx = { gen, tele, t0: mig.askedAt, started: ready, stallAt: 0, fail: (why) => this.onFailure(why) };
+      this.bind(this.video, ctx);
+      if (this.hls) this.bindHls(this.hls, ctx);
+      this.renderServers();
+      this.updateHud();
+      if (!ready) {
+        this.everPlayed = false;
+        this.status(`Connecting to ${to.name}…`, true);
+        this.startTimer = setTimeout(() => ctx.fail('start timeout'), START_TIMEOUT_MS);
+        return;
+      }
+      telemetry.push({ kind: 'start', ...tele, ttff: Math.round(performance.now() - mig.askedAt) });
+      this.watchStart = Date.now();
+      this.hideStatus();
+      this.showHud();
+      this.toast(`Switched to ${to.name} for a steadier stream`);
+    },
+
+    /** The standby did not get going: drop it and try the next candidate for the same reason. */
+    standbyFailed(why) {
+      const mig = this.migrating;
+      if (!mig) return;
+      console.warn(`[styx] standby ${this.servers[mig.idx] ? this.servers[mig.idx].name : '?'} failed: ${why}`);
+      this.failed.add(mig.idx);
+      this.dropStandby();
+      this.migrate(mig.why);
+    },
+
+    /** Forget any migration in progress (a switch by hand or by the sweep, or closing). */
+    dropStandby() {
+      const sb = this.standby;
+      this.migrating = null;
+      if (!sb) return;
+      this.standby = null;
+      clearTimeout(sb.timer);
+      if (sb.hls) { try { sb.hls.destroy(); } catch { /* ignore */ } }
+      sb.el.onplaying = sb.el.onended = sb.el.onerror = sb.el.onloadedmetadata = null;
+      try { sb.el.pause(); } catch { /* ignore */ }
+      sb.el.removeAttribute('src');
+      try { sb.el.load(); } catch { /* ignore */ }
+    },
+
+    /** Console: `styxPlayer.forceMigrate()` - "the stream is degraded" on demand, to watch the swap. */
+    forceMigrate() {
+      if (!this.everPlayed || this.migrating || this.standby) return false;
+      const now = performance.now();
+      while (this.health.stalls.length < DEGRADE_STALLS) this.health.stalls.push(now);
+      this.checkHealth();
+      return true;
+    },
+
+    toast(text) {
+      const t = $('p-toast');
+      if (!t) return;
+      t.textContent = text;
+      t.classList.remove('hidden');
+      this.clearTimer('toastTimer');
+      this.toastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
     },
 
     /**
@@ -1240,6 +1448,11 @@
       this.clearTimers();
       const wasPlaying = this.everPlayed && this.video.currentTime > 0;
       if (wasPlaying && this.teleCurrent) telemetry.push({ kind: 'error', code: why, cdn: this.teleCurrent.cdn, premium: this.teleCurrent.premium, relay: this.teleCurrent.relay });
+      if (this.standby && this.migrating) {
+        // The degraded stream died before its replacement was ready: the replacement goes on
+        // screen now (with the connecting overlay) rather than starting over on it.
+        return this.swapToStandby(false);
+      }
       const wasPre = s && this.pre && this.pre.has(s.pageUrl);
       if ((wasPlaying || wasPre) && !this.retried) {
         // A playing stream that died (the playlist probably expired), or one resolved while the

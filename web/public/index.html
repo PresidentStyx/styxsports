@@ -46,9 +46,11 @@
   <!-- Player -->
   <div id="player" class="player hidden" tabindex="-1">
     <video id="video" playsinline autoplay></video>
+    <video id="video2" class="standby" playsinline muted></video>
     <iframe id="p-embed" class="embed hidden" allow="autoplay; fullscreen; encrypted-media"
             sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" referrerpolicy="no-referrer-when-downgrade"></iframe>
     <div class="embed-note hidden" id="p-embed-note">Embedded player · may show ads · click the video if it doesn't start</div>
+    <div class="p-toast hidden" id="p-toast"></div>
     <div class="hud hud-top">
       <span class="pill" id="p-pill">LIVE</span>
       <span class="p-title" id="p-title"></span>

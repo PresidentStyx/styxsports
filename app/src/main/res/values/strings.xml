@@ -67,6 +67,7 @@
     <string name="np_hint_channels">◀ ▶ change channel   ·   OK play/pause   ·   Back to channels</string>
     <string name="np_reconnecting">Reconnecting to %1$s…</string>
     <string name="np_trying_next">%1$s isn’t responding — trying %2$s</string>
+    <string name="np_migrated">Switched to %1$s for a steadier stream</string>
     <string name="np_only_server">This game has only one server.</string>
     <string name="np_all_failed">None of the servers are playing right now.\nThe stream may not have started yet — try again in a minute.</string>
     <string name="np_premium_only">This stream is for the site’s premium members only.\nPick another game from the home screen.</string>

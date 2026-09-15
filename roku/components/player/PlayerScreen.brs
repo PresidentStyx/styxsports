@@ -75,6 +75,14 @@ sub init()
     ' Playback telemetry (Telemetry.brs): the attempt on screen, flushed every minute.
     m.attempt = invalid
     m.telemetryTimer = m.top.findNode("telemetryTimer")
+    ' Self-healing (4.0 phase 2.2; NativePlayerActivity DEGRADE_*): a stream that keeps playing
+    ' but badly - 3 stalls within 2 min, or 2 stalls longer than 15 s - is left for the next best
+    ' server, resolved in the background while it limps on, then switched to with a "Switching…"
+    ' note; the error screen only when every candidate fails. One Video node: the switch itself
+    ' is a moment of black, never a spinner over a dead stream.
+    m.health = { stalls: [], long: 0, stallAt: 0 }
+    m.migrating = invalid   ' { why, from, idx, seq, askedAt } while a candidate is being readied
+    m.degraded = {}         ' server index -> true: left as degraded, not migrated back to this sitting
 
     m.video.observeField("state", "onVideoState")
     m.hudTimer.observeField("fire", "onHudTimer")
@@ -148,6 +156,8 @@ sub applyPage(r as object)
     m.servers = r.servers
     m.streams = {}
     m.failed = {}
+    m.degraded = {}
+    m.migrating = invalid
     if r.stream <> invalid then m.streams[r.activeIndex.ToStr()] = r.stream
     m.activeIndex = r.activeIndex
     ' Pre-resolved streams sit under their server's index; their start is reported as "pre".
@@ -275,6 +285,7 @@ sub switchTo(i as integer)
     if i < 0 or i >= m.servers.Count() then return
     m.index = i
     m.paused = false
+    m.migrating = invalid ' a switch by hand or by the sweep supersedes any migration under way
     m.video.control = "stop"
     Telemetry_stop(m.attempt)
     m.attempt = invalid
@@ -406,6 +417,7 @@ sub playUrl(url as string, origin as string, title as string)
     game = "tv"
     if not m.channelMode and m.top.event <> invalid then game = strOr(m.top.event.id, "")
     m.attempt = Telemetry_attempt(game, serverName(m.index), cdn, premium, relay)
+    m.health = { stalls: [], long: 0, stallAt: 0 }
     ' Time to first frame counts from the press (or the Left/Right switch), not from here:
     ' resolving is part of the wait. A stream Home resolved ahead is a "pre" start.
     if m.askedAt <> invalid then m.attempt.startedAt = m.askedAt
@@ -455,6 +467,11 @@ sub onVideoState()
         if m.attempt <> invalid
             if m.attempt.firstFrameAt = 0 then Telemetry_start(m.attempt) else Telemetry_stallEnded(m.attempt, Int(m.video.position * 1000))
         end if
+        if m.health.stallAt > 0
+            if Telemetry_now() - m.health.stallAt > DEGRADE_LONG_STALL_MS() then m.health.long += 1
+            m.health.stallAt = 0
+            checkHealth()
+        end if
         m.everPlayed = true
         m.paused = false
         hideStatus()
@@ -470,6 +487,17 @@ sub onVideoState()
     else if st = "buffering"
         Telemetry_stallBegan(m.attempt)
         if m.everPlayed and not m.status.visible then showStatus("Buffering…", true)
+        if m.everPlayed and m.health.stallAt = 0
+            now = Telemetry_now()
+            m.health.stallAt = now
+            kept = []
+            for each t in m.health.stalls
+                if now - t <= DEGRADE_WINDOW_MS() then kept.Push(t)
+            end for
+            kept.Push(now)
+            m.health.stalls = kept
+            checkHealth()
+        end if
     else if st = "paused"
         m.paused = true
         bindServerLabel()
@@ -555,6 +583,87 @@ sub onFailure(kind as string, detail as string)
     else
         showStatusWithActions("None of the servers are playing right now." + Chr(10) + "The stream may not have started yet — try again in a minute.", retryBackButtons())
     end if
+end sub
+
+' ---------------------------------------------------------------------------------------------
+' Self-healing: leave a degraded stream for the next best server (NativePlayerActivity.migrate)
+' ---------------------------------------------------------------------------------------------
+
+function DEGRADE_STALLS() as integer
+    return 3
+end function
+function DEGRADE_WINDOW_MS() as integer
+    return 120000
+end function
+function DEGRADE_LONG_STALLS() as integer
+    return 2
+end function
+function DEGRADE_LONG_STALL_MS() as integer
+    return 15000
+end function
+
+' Is the current stream degraded enough to leave? Starts a migration when it is.
+sub checkHealth()
+    ' Live TV: the viewer chose this channel; it is not zapped away from on their behalf.
+    if m.channelMode or not m.everPlayed or m.migrating <> invalid or m.index < 0 then return
+    why = ""
+    if m.health.stalls.Count() >= DEGRADE_STALLS()
+        why = "stalls"
+    else if m.health.long >= DEGRADE_LONG_STALLS()
+        why = "long-stalls"
+    end if
+    if why <> "" then migrate(why)
+end sub
+
+' The current stream is degraded: resolve the next best server while it limps on.
+sub migrate(why as string)
+    if m.index < 0 or m.index >= m.servers.Count() then return
+    m.degraded[m.index.ToStr()] = true
+    ' Next best in preference order: not this one, not failed, not one already left as
+    ' degraded; premium tabs only while a slot is held (the manual path asks the pool).
+    idx = -1
+    for i = 0 to m.servers.Count() - 1
+        if idx < 0 and i <> m.index and m.failed[i.ToStr()] = invalid and m.degraded[i.ToStr()] = invalid
+            if m.servers[i].premium <> true or m.global.leaseHeld = true then idx = i
+        end if
+    end for
+    if idx < 0
+        logi("Player", serverName(m.index) + " is degraded (" + why + ") but there is no other server to move to")
+        return
+    end if
+    m.resolveSeq += 1
+    m.migrating = { why: why, from: m.index, idx: idx, seq: m.resolveSeq, askedAt: Telemetry_now() }
+    logi("Player", serverName(m.index) + " is degraded (" + why + "); readying " + serverName(idx) + " alongside")
+    s = m.servers[idx]
+    op = "resolveServer"
+    if s.premium = true and not Account_isSignedIn() then op = "resolveShared"
+    Ui_task(op, { server: s, seq: m.resolveSeq, viaPool: m.global.leaseHeld }, "onMigrateResolved")
+end sub
+
+sub onMigrateResolved(ev as object)
+    r = ev.getData()
+    mig = m.migrating
+    if r = invalid or mig = invalid then return
+    if r.seq <> invalid and r.seq <> mig.seq then return
+    ' The viewer moved on, or the sweep did, while the candidate resolved.
+    if m.index <> mig.from
+        m.migrating = invalid
+        return
+    end if
+    if r.hlsUrl = invalid
+        logi("Player", "standby " + serverName(mig.idx) + " failed: " + strOr(r.state, strOr(r.error, "no stream")))
+        m.failed[mig.idx.ToStr()] = true
+        m.migrating = invalid
+        migrate(mig.why) ' the next candidate, same reason
+        return
+    end if
+    m.streams[mig.idx.ToStr()] = r
+    m.migrating = invalid
+    logi("Player", "switching to " + serverName(mig.idx) + " (" + mig.why + ")")
+    Telemetry_switched(serverName(mig.from), serverName(mig.idx), "degraded-" + mig.why)
+    m.askedAt = mig.askedAt ' the new stream's start time counts from when the old one was given up on
+    switchTo(mig.idx)
+    showStatus("Switching to " + serverName(mig.idx) + " for a steadier stream…", true)
 end sub
 
 ' Premium tabs are only in the automatic sweep while we hold a pool slot (a manual pick asks

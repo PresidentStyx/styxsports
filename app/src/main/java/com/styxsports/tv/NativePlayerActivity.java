@@ -37,9 +37,12 @@ import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.LoadControl;
+import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.source.LoadEventInfo;
+import androidx.media3.exoplayer.source.MediaLoadData;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.upstream.DefaultAllocator;
 import androidx.media3.ui.AspectRatioFrameLayout;
@@ -48,11 +51,14 @@ import androidx.media3.ui.PlayerView;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -102,6 +108,22 @@ public class NativePlayerActivity extends Activity {
     private static final long PREMIUM_LIVE_OFFSET_MS = 30_000L;
     /** A rebuffer on the premium CDN may need two new segments (~20 s) before the runway is met. */
     private static final long PREMIUM_STALL_MS = 30_000L;
+    /**
+     * Self-healing (4.0 phase 2.2): a stream that keeps playing but badly is left for the next
+     * best server without a black screen. "Badly" is {@link #DEGRADE_STALLS} stalls within
+     * {@link #DEGRADE_WINDOW_MS}, {@link #DEGRADE_LONG_STALLS} stalls longer than the rebuffer
+     * runway, or {@link #DEGRADE_ERRORS} segment/playlist load errors within
+     * {@link #DEGRADE_ERROR_WINDOW_MS}. The next server is resolved and prepared in a second
+     * player (muted, no surface) and swapped in once it is ready with a steady runway; if it
+     * never gets there within {@link #STANDBY_TIMEOUT_MS} the next candidate is tried and the
+     * degraded stream simply keeps going.
+     */
+    private static final int DEGRADE_STALLS = 3;
+    private static final long DEGRADE_WINDOW_MS = 120_000L;
+    private static final int DEGRADE_LONG_STALLS = 2;
+    private static final int DEGRADE_ERRORS = 3;
+    private static final long DEGRADE_ERROR_WINDOW_MS = 60_000L;
+    private static final long STANDBY_TIMEOUT_MS = 40_000L;
     private static final long SCORE_REFRESH_MS = 30_000L;
     /** After this long without an answer, the next server is tried in parallel. */
     private static final long IMPATIENCE_MS = 6_000L;
@@ -156,7 +178,7 @@ public class NativePlayerActivity extends Activity {
     private final List<StreamResolver.Server> servers = new ArrayList<>();
     private final Map<String, StreamResolver.Stream> resolved = new HashMap<>();
     /** Servers whose stream Home resolved before OK was pressed (telemetry marks their start "pre"). */
-    private final java.util.Set<String> preResolved = new java.util.HashSet<>();
+    private final Set<String> preResolved = new HashSet<>();
     /** When the viewer asked for what is loading now: the press that opened this screen, then each switch. */
     private long askedAt;
     /** The stream page as fetched; its HTML already embeds the active server. */
@@ -181,6 +203,26 @@ public class NativePlayerActivity extends Activity {
     private int poolUsed, poolMax = 5;
     /** The playback attempt telemetry is describing (null before the first play()). */
     private Telemetry.Attempt attempt;
+
+    // Self-healing state (see DEGRADE_*). All on the main thread.
+    /** Stall starts on the current stream since it first played, oldest first. */
+    private final ArrayDeque<Long> stallStarts = new ArrayDeque<>();
+    /** When the current stall began (0 while playing). */
+    private long stallBeganAt;
+    /** Stalls on the current stream that outlasted the rebuffer runway. */
+    private int longStalls;
+    /** Segment / playlist load errors on the current stream, oldest first. */
+    private final ArrayDeque<Long> loadErrors = new ArrayDeque<>();
+    /** The player being readied on the next server while the current one limps on (null when none). */
+    private ExoPlayer standby;
+    private RunwayLoadControl standbyControl;
+    private int standbyIndex = -1;
+    /** Why a migration is under way ("stalls", "long-stalls", "errors"); null when none. */
+    private String migrating;
+    private long migrateAskedAt;
+    /** Servers left because they degraded: not migrated back to in this sitting (Left/Right still can). */
+    private final Set<String> degraded = new HashSet<>();
+    private final Runnable standbyTimeout = () -> standbyFailed("no video after " + STANDBY_TIMEOUT_MS / 1000 + "s");
 
     private final Runnable hideHud = this::hideHud;
     private final Runnable stallCheck = () -> {
@@ -261,6 +303,7 @@ public class NativePlayerActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         io.shutdownNow();
+        dropStandby();
         if (player != null) {
             player.release();
             player = null;
@@ -515,14 +558,35 @@ public class NativePlayerActivity extends Activity {
     // Resolution and playback
     // ---------------------------------------------------------------------------------------------
 
+    private static final AudioAttributes AUDIO = new AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build();
+
     @OptIn(markerClass = UnstableApi.class) // setVideoScalingMode, LoadControl
     private void createPlayer() {
         loadControl = new RunwayLoadControl();
         player = new ExoPlayer.Builder(this).setLoadControl(loadControl).build();
-        player.setAudioAttributes(new AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
+        player.setAudioAttributes(AUDIO, true);
         player.setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT);
-        player.addListener(new Player.Listener() {
+        player.addListener(mainListener);
+        player.addAnalyticsListener(loadErrorListener);
+        playerView.setPlayer(player);
+    }
+
+    /** Segment / playlist fetches that failed (ExoPlayer retries them itself): a burst is a degraded stream. */
+    @OptIn(markerClass = UnstableApi.class)
+    private final AnalyticsListener loadErrorListener = new AnalyticsListener() {
+        @Override
+        public void onLoadError(AnalyticsListener.EventTime t, LoadEventInfo info, MediaLoadData data, IOException e, boolean cancelled) {
+            if (!everPlayed || cancelled) return;
+            long now = SystemClock.elapsedRealtime();
+            loadErrors.addLast(now);
+            while (!loadErrors.isEmpty() && now - loadErrors.peekFirst() > DEGRADE_ERROR_WINDOW_MS) loadErrors.pollFirst();
+            Log.w(TAG, "load error (" + loadErrors.size() + " in " + DEGRADE_ERROR_WINDOW_MS / 1000 + " s): " + describe(e));
+            checkHealth();
+        }
+    };
+
+    private final Player.Listener mainListener = new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_BUFFERING) {
@@ -538,6 +602,11 @@ public class NativePlayerActivity extends Activity {
                             loadControl.stalled = true;
                             Log.i(TAG, "runway: stepping up to " + RUNWAY_STEADY_MS / 1000 + " s for this stream");
                         }
+                        long now = SystemClock.elapsedRealtime();
+                        stallBeganAt = now;
+                        stallStarts.addLast(now);
+                        while (!stallStarts.isEmpty() && now - stallStarts.peekFirst() > DEGRADE_WINDOW_MS) stallStarts.pollFirst();
+                        checkHealth();
                     }
                 } else if (state == Player.STATE_READY) {
                     Log.i(TAG, (everPlayed ? "resumed: " : "ready: ") + liveState());
@@ -547,6 +616,12 @@ public class NativePlayerActivity extends Activity {
                     if (attempt != null) {
                         if (!attempt.started()) Telemetry.start(NativePlayerActivity.this, attempt);
                         else Telemetry.stallEnded(NativePlayerActivity.this, attempt, player.getCurrentPosition());
+                    }
+                    if (stallBeganAt > 0) {
+                        long stall = SystemClock.elapsedRealtime() - stallBeganAt;
+                        stallBeganAt = 0;
+                        if (stall > RUNWAY_REBUFFER_MS) longStalls++;
+                        checkHealth();
                     }
                     hideStatus();
                     if (channelGroup == null && lease.held() && current < servers.size() && !servers.get(current).premium) {
@@ -599,8 +674,211 @@ public class NativePlayerActivity extends Activity {
             public void onIsPlayingChanged(boolean isPlaying) {
                 bindServerLabel();
             }
+    };
+
+    // ---------------------------------------------------------------------------------------------
+    // Self-healing: leave a degraded stream for the next best server without a black screen
+    // ---------------------------------------------------------------------------------------------
+
+    /** Is the current stream degraded enough to leave? Starts a migration when it is. */
+    private void checkHealth() {
+        // Live TV: the viewer chose this channel; the stall timer is the only judge there.
+        if (channelGroup != null || !everPlayed || migrating != null || standby != null || isFinishing()) return;
+        String why = null;
+        if (stallStarts.size() >= DEGRADE_STALLS) why = "stalls";
+        else if (longStalls >= DEGRADE_LONG_STALLS) why = "long-stalls";
+        else if (loadErrors.size() >= DEGRADE_ERRORS) why = "errors";
+        if (why != null) migrate(why);
+    }
+
+    /** Debug: pretend the stream just hit the stall threshold. */
+    private void checkHealthForced() {
+        if (migrating != null || standby != null) return;
+        long now = SystemClock.elapsedRealtime();
+        while (stallStarts.size() < DEGRADE_STALLS) stallStarts.addLast(now);
+        checkHealth();
+    }
+
+    /** The current stream is degraded: ready the next best server in a second player. */
+    private void migrate(String why) {
+        if (current < 0 || current >= servers.size()) return;
+        StreamResolver.Server from = servers.get(current);
+        degraded.add(from.pageUrl);
+        // The next best in preference order (the list already has premium tabs first while we
+        // hold a slot): not this one, not failed, not one we already left as degraded. Premium
+        // tabs only while a slot is held - acquiring one mid-game is the manual path's job.
+        StreamResolver.Server pick = null;
+        int pickIdx = -1;
+        for (int i = 0; i < servers.size(); i++) {
+            StreamResolver.Server s = servers.get(i);
+            if (i == current || failed.contains(s.pageUrl) || degraded.contains(s.pageUrl)) continue;
+            if (s.premium && !lease.held()) continue;
+            pick = s;
+            pickIdx = i;
+            break;
+        }
+        if (pick == null) {
+            Log.i(TAG, from.name + " is degraded (" + why + ") but there is no other server to move to");
+            return;
+        }
+        migrating = why;
+        migrateAskedAt = SystemClock.elapsedRealtime();
+        standbyIndex = pickIdx;
+        Log.i(TAG, from.name + " is degraded (" + why + ", " + liveState() + "); readying " + pick.name + " alongside");
+        final StreamResolver.Server target = pick;
+        final int idx = pickIdx;
+        io.execute(() -> {
+            StreamResolver.Stream st;
+            try {
+                st = resolveServer(target); // fresh: signed playlist URLs are short-lived
+            } catch (Exception e) {
+                st = null;
+                Log.w(TAG, target.name + " resolve failed: " + e);
+            }
+            final StreamResolver.Stream got = st;
+            handler.post(() -> {
+                if (isFinishing() || migrating == null || standbyIndex != idx) return;
+                if (got != null) resolved.put(target.pageUrl, got);
+                if (got == null || !got.playableNatively()) {
+                    standbyFailed(got == null ? "resolve failed" : "no player (" + got.state + ")");
+                    return;
+                }
+                startStandby(got);
+            });
         });
-        playerView.setPlayer(player);
+    }
+
+    @OptIn(markerClass = UnstableApi.class)
+    private void startStandby(StreamResolver.Stream st) {
+        Prepared p = prepare(st);
+        standbyControl = new RunwayLoadControl();
+        standbyControl.runway = p.runway;
+        standbyControl.stalled = true; // it takes over from a limping stream: start it with the steady runway
+        standby = new ExoPlayer.Builder(this).setLoadControl(standbyControl).build();
+        // No audio focus and no sound until it is on screen; without a surface the video
+        // renderer decodes to a placeholder, so READY means real frames are flowing.
+        standby.setAudioAttributes(AUDIO, false);
+        standby.setVolume(0f);
+        standby.setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+        standby.addListener(standbyListener);
+        standby.setMediaSource(p.source);
+        standby.prepare();
+        standby.setPlayWhenReady(true);
+        handler.removeCallbacks(standbyTimeout);
+        handler.postDelayed(standbyTimeout, STANDBY_TIMEOUT_MS);
+        Log.i(TAG, "standby: " + st.server.name + " via " + StreamResolver.hostOf(st.hlsUrl));
+    }
+
+    private final Player.Listener standbyListener = new Player.Listener() {
+        @Override
+        public void onPlaybackStateChanged(int state) {
+            if (state == Player.STATE_READY) swapToStandby(true);
+            else if (state == Player.STATE_ENDED) standbyFailed("ended");
+        }
+
+        @Override
+        public void onPlayerError(PlaybackException error) {
+            standbyFailed(error.getErrorCodeName());
+        }
+    };
+
+    /**
+     * The standby becomes the player on screen and the degraded one is released: with frames
+     * ({@code ready}) the swap is seamless; promoted early (the old stream died first) it shows
+     * the connecting overlay and the usual READY handling takes it from there.
+     */
+    @OptIn(markerClass = UnstableApi.class) // analytics listener
+    private void swapToStandby(boolean ready) {
+        if (standby == null || standbyIndex < 0 || standbyIndex >= servers.size()) return;
+        handler.removeCallbacks(standbyTimeout);
+        handler.removeCallbacks(stallCheck);
+        handler.removeCallbacks(startTimeout);
+        ExoPlayer old = player;
+        StreamResolver.Server from = current >= 0 && current < servers.size() ? servers.get(current) : null;
+        StreamResolver.Server to = servers.get(standbyIndex);
+        StreamResolver.Stream st = resolved.get(to.pageUrl);
+        Log.i(TAG, (ready ? "switching to " : "promoting ") + to.name + " (" + migrating + "); " + liveState());
+
+        standby.removeListener(standbyListener);
+        standby.addListener(mainListener);
+        standby.addAnalyticsListener(loadErrorListener);
+        standby.setAudioAttributes(AUDIO, true);
+        standby.setVolume(1f);
+        playerView.setPlayer(standby);
+        player = standby;
+        loadControl = standbyControl;
+        standby = null;
+        standbyControl = null;
+        old.removeListener(mainListener);
+        old.removeAnalyticsListener(loadErrorListener);
+        old.release();
+
+        // Bookkeeping the normal path does in switchTo()/play()/READY.
+        Telemetry.stop(this, attempt);
+        if (from != null) Telemetry.switched(this, from.name, to.name, "degraded-" + migrating);
+        current = standbyIndex;
+        standbyIndex = -1;
+        migrating = null;
+        manualSelection = false;
+        liveEdgeResyncs = 0;
+        retried.remove(to.pageUrl);
+        runwayFor = to.pageUrl;
+        stallStarts.clear();
+        loadErrors.clear();
+        stallBeganAt = 0;
+        longStalls = 0;
+        if (st != null) {
+            boolean relay = st.hlsUrl.startsWith(Pool.WEB + "/hls/") || st.hlsUrl.startsWith(Pool.WEB + "/ts/");
+            attempt = new Telemetry.Attempt(event.id, to.name,
+                    relay ? StreamResolver.hostOf(st.playerOrigin) : StreamResolver.hostOf(st.hlsUrl), to.premium, relay);
+            attempt.startedAt = migrateAskedAt;
+        } else {
+            attempt = null;
+        }
+        bindServerLabel();
+        if (!ready) {
+            // Not playing yet: the READY handler reports the start, clears the sweep and
+            // releases a slot a free server does not need; the start timeout still applies.
+            everPlayed = false;
+            switchedAt = System.currentTimeMillis();
+            showStatus(getString(R.string.np_connecting_to, to.name), true);
+            showHud();
+            handler.postDelayed(startTimeout, startTimeoutMs());
+            return;
+        }
+        if (attempt != null) Telemetry.start(this, attempt);
+        if (!to.premium && lease.held()) {
+            Log.i(TAG, "free server playing: giving the pool slot back");
+            lease.release();
+        }
+        hideStatus();
+        showHud();
+        Toast.makeText(this, getString(R.string.np_migrated, to.name), Toast.LENGTH_SHORT).show();
+    }
+
+    /** The standby did not get going: drop it, and try the next candidate for the same reason. */
+    private void standbyFailed(String why) {
+        if (migrating == null) return;
+        String reason = migrating;
+        StreamResolver.Server s = standbyIndex >= 0 && standbyIndex < servers.size() ? servers.get(standbyIndex) : null;
+        Log.w(TAG, "standby " + (s == null ? "?" : s.name) + " failed: " + why);
+        if (s != null && !failed.contains(s.pageUrl)) failed.add(s.pageUrl);
+        dropStandby();
+        // The degraded stream is still on screen; look for another candidate right away.
+        migrate(reason);
+    }
+
+    /** Forget any migration in progress (a manual switch, a failure sweep, or leaving). */
+    private void dropStandby() {
+        handler.removeCallbacks(standbyTimeout);
+        if (standby != null) {
+            standby.removeListener(standbyListener);
+            standby.release();
+            standby = null;
+            standbyControl = null;
+        }
+        standbyIndex = -1;
+        migrating = null;
     }
 
     private void resolvePage() {
@@ -833,6 +1111,7 @@ public class NativePlayerActivity extends Activity {
         }
         everPlayed = false;
         liveEdgeResyncs = 0;
+        dropStandby(); // a switch by hand or by the sweep supersedes any migration under way
         handler.removeCallbacks(stallCheck);
         handler.removeCallbacks(startTimeout);
         player.stop();
@@ -1002,7 +1281,6 @@ public class NativePlayerActivity extends Activity {
         }
     };
 
-    @OptIn(markerClass = UnstableApi.class) // HlsMediaSource / DefaultHttpDataSource (Media3 version is pinned)
     private void play(StreamResolver.Stream st) {
         if (st.server.premium) {
             // What the site gave a premium tab tells us whether the account really has premium.
@@ -1021,6 +1299,47 @@ public class NativePlayerActivity extends Activity {
                     : "blocked".equals(st.state) ? "blocked" : "no player");
             return;
         }
+        Prepared p = prepare(st);
+        // Premium tabs, Live TV and proxied streams: wait for a runway before the first frame
+        // and after a stall (see RUNWAY_*).
+        loadControl.runway = p.runway;
+        // A different stream starts on the short runway again; the same one re-opened after a
+        // stall (reconnect, live-edge resync) keeps the steady runway it earned.
+        if (!st.server.pageUrl.equals(runwayFor)) loadControl.stalled = false;
+        runwayFor = st.server.pageUrl;
+        // Relayed streams carry the CDN inside a signed token; the player origin names its family.
+        attempt = new Telemetry.Attempt(channelGroup != null ? "tv" : event.id, st.server.name,
+                p.relay ? StreamResolver.hostOf(st.playerOrigin) : StreamResolver.hostOf(st.hlsUrl),
+                p.premiumCdn, p.relay);
+        // Time to first frame counts from the press, not from here: resolving is part of the wait.
+        attempt.startedAt = askedAt;
+        attempt.pre = preResolved.contains(st.server.pageUrl);
+        stallStarts.clear();
+        loadErrors.clear();
+        stallBeganAt = 0;
+        longStalls = 0;
+        player.setMediaSource(p.source);
+        player.prepare();
+        player.setPlayWhenReady(true);
+        handler.removeCallbacks(startTimeout);
+        handler.postDelayed(startTimeout, startTimeoutMs());
+        Log.i(TAG, "playing " + st.server.name + " via " + StreamResolver.hostOf(st.hlsUrl));
+    }
+
+    /** A stream's media source and what kind of CDN it is on (shared by the player and the standby). */
+    private static final class Prepared {
+        MediaSource source;
+        /** Premium tab or Live TV channel: the slow-starting premium CDN. */
+        boolean premiumCdn;
+        /** Through the Worker (proxy or continuous TS): each segment makes two trips. */
+        boolean relay;
+        /** Wait for a runway before the first frame and after a stall. */
+        boolean runway;
+    }
+
+    @OptIn(markerClass = UnstableApi.class) // HlsMediaSource / DefaultHttpDataSource (Media3 version is pinned)
+    private Prepared prepare(StreamResolver.Stream st) {
+        Prepared p = new Prepared();
         Map<String, String> headers = new HashMap<>();
         headers.put("Referer", st.playerOrigin + "/");
         headers.put("Origin", st.playerOrigin);
@@ -1030,31 +1349,18 @@ public class NativePlayerActivity extends Activity {
                 .setConnectTimeoutMs(12_000)
                 .setReadTimeoutMs(12_000)
                 .setAllowCrossProtocolRedirects(true);
-        MediaSource source;
-        final boolean premiumCdn = st.server.premium || channelGroup != null;
+        p.premiumCdn = st.server.premium || channelGroup != null;
         // A stream relayed through the Worker's proxy: each segment makes two trips (CDN to
         // Cloudflare, Cloudflare to here), so it arrives later than from the CDN itself.
         final boolean viaProxy = st.hlsUrl.startsWith(Pool.WEB + "/hls/");
         // The premium panel relayed by the Worker as one continuous MPEG-TS response (Relay.java):
         // not HLS at all - a plain progressive stream with no live window to sit in.
         final boolean viaTs = st.hlsUrl.startsWith(Pool.WEB + "/ts/");
-        // Premium tabs, Live TV and proxied streams: wait for a runway before the first frame
-        // and after a stall (see RUNWAY_*), and join the live window 30 s back when it is that
-        // deep (the free CDNs' windows are 60 s).
-        loadControl.runway = premiumCdn || viaProxy || viaTs;
-        // A different stream starts on the short runway again; the same one re-opened after a
-        // stall (reconnect, live-edge resync) keeps the steady runway it earned.
-        if (!st.server.pageUrl.equals(runwayFor)) loadControl.stalled = false;
-        runwayFor = st.server.pageUrl;
-        // Relayed streams carry the CDN inside a signed token; the player origin names its family.
-        attempt = new Telemetry.Attempt(channelGroup != null ? "tv" : event.id, st.server.name,
-                viaProxy || viaTs ? StreamResolver.hostOf(st.playerOrigin) : StreamResolver.hostOf(st.hlsUrl),
-                premiumCdn, viaProxy || viaTs);
-        // Time to first frame counts from the press, not from here: resolving is part of the wait.
-        attempt.startedAt = askedAt;
-        attempt.pre = preResolved.contains(st.server.pageUrl);
+        p.relay = viaProxy || viaTs;
+        p.runway = p.premiumCdn || viaProxy || viaTs;
         MediaItem.Builder item = new MediaItem.Builder().setUri(st.hlsUrl);
-        if ((premiumCdn || viaProxy) && !viaTs) {
+        // Join the live window 30 s back when it is that deep (the free CDNs' windows are 60 s).
+        if ((p.premiumCdn || viaProxy) && !viaTs) {
             item.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()
                     .setTargetOffsetMs(PREMIUM_LIVE_OFFSET_MS).build());
         }
@@ -1065,22 +1371,17 @@ public class NativePlayerActivity extends Activity {
             // default gives up on an unchanging live playlist after 3 target durations. Allow
             // twice that - the stall timer above is the viewer-facing limit.
             HlsMediaSource.Factory hls = new HlsMediaSource.Factory(http).setAllowChunklessPreparation(true);
-            if (premiumCdn) {
+            if (p.premiumCdn) {
                 hls.setPlaylistTrackerFactory((dsf, policy, parserFactory) ->
                         new DefaultHlsPlaylistTracker(dsf, policy, parserFactory, 6.0));
             }
-            source = hls.createMediaSource(item.build());
+            p.source = hls.createMediaSource(item.build());
         } else {
             // IPTV channels without an HLS variant, and the Worker's /ts/ relay of the premium
             // panel, are plain MPEG-TS over HTTP; let the default factory sniff the container.
-            source = new DefaultMediaSourceFactory(http).createMediaSource(item.build());
+            p.source = new DefaultMediaSourceFactory(http).createMediaSource(item.build());
         }
-        player.setMediaSource(source);
-        player.prepare();
-        player.setPlayWhenReady(true);
-        handler.removeCallbacks(startTimeout);
-        handler.postDelayed(startTimeout, startTimeoutMs());
-        Log.i(TAG, "playing " + st.server.name + " via " + StreamResolver.hostOf(st.hlsUrl));
+        return p;
     }
 
     /** "offset=16s buffered=13s window=60s" - where in the live window the player sits. */
@@ -1147,6 +1448,13 @@ public class NativePlayerActivity extends Activity {
         }
 
         boolean premium = "premium".equals(why);
+        if (standby != null && !premium) {
+            // The degraded stream died before its replacement was ready: the replacement goes
+            // on screen now (with the connecting overlay) rather than starting over on it.
+            Log.i(TAG, s.name + " gave out while " + servers.get(standbyIndex).name + " was getting ready; promoting it");
+            swapToStandby(false);
+            return;
+        }
         if (!premium && !retried.contains(s.pageUrl) && (everPlayed || preResolved.contains(s.pageUrl))) {
             // It was playing (the playlist token probably expired), or it was resolved while the
             // card had focus and the signed URL went stale before the press: re-resolve the same
@@ -1349,6 +1657,16 @@ public class NativePlayerActivity extends Activity {
                 if (down) {
                     retried.clear();
                     switchTo(current, true);
+                }
+                return true;
+
+            case KeyEvent.KEYCODE_PROG_RED:
+                // Debug builds only: "the stream is degraded" on demand (adb shell input keyevent
+                // PROG_RED) so the migration can be watched without waiting for a bad night.
+                if (down && (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                        && everPlayed && channelGroup == null) {
+                    Log.i(TAG, "debug: forcing a migration");
+                    checkHealthForced();
                 }
                 return true;
             default:
