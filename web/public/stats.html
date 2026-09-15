@@ -121,6 +121,7 @@
         <tbody></tbody>
       </table>
       <p class="empty hidden" id="health-empty">No playback reported yet. Apps on 4.0 send anonymous start / stall / error events here.</p>
+      <p class="pool-note hidden" id="healed"></p>
       <ul class="devices" id="versions"></ul>
     </div>
   </div>
@@ -224,6 +225,16 @@
           td(c.viewerHours ? c.viewerHours + ' h' : '—'),
         );
         body.appendChild(tr);
+      }
+      // Self-healing (4.0): streams the players left on their own because they degraded.
+      const healed = (h && h.healed) || {};
+      const nHealed = Object.values(healed).reduce((a, b) => a + b, 0);
+      const note = $('healed');
+      note.classList.toggle('hidden', !nHealed);
+      if (nHealed) {
+        const why = { stalls: 'repeated stalls', 'long-stalls': 'long stalls', errors: 'load errors' };
+        note.textContent = 'Self-healed ' + nHealed + (nHealed === 1 ? ' stream' : ' streams') + ' · '
+          + Object.entries(healed).map(([k, n]) => n + ' for ' + (why[k] || k)).join(' · ');
       }
       const ul = $('versions');
       ul.replaceChildren();

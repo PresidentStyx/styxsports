@@ -77,7 +77,14 @@ export class Telemetry extends DurableObject {
     const since = Date.now() - hours * HOUR_MS;
     const byCdn = new Map();
     const row = (cdn) => byCdn.get(cdn) || byCdn.set(cdn, { cdn, starts: 0, ttff: [], ttffPre: [], stalls: 0, stallMs: 0, errors: 0, watchedMs: 0, premium: 0 }).get(cdn);
-    for (const r of sql.exec('SELECT kind, cdn, premium, ttff, duration, code FROM events WHERE at >= ?', since).toArray()) {
+    // Switches the players made on their own because a stream degraded (self-healing), by reason.
+    const healed = {};
+    for (const r of sql.exec('SELECT kind, cdn, premium, ttff, duration, code, detail FROM events WHERE at >= ?', since).toArray()) {
+      if (r.kind === 'switch') {
+        const m = /\|degraded-([a-z-]+)$/.exec(String(r.detail || ''));
+        if (m) healed[m[1]] = (healed[m[1]] || 0) + 1;
+        continue;
+      }
       const c = row(r.cdn || 'unknown');
       if (r.kind === 'start') {
         c.starts++;
@@ -107,7 +114,7 @@ export class Telemetry extends DurableObject {
     const updates = sql.exec(
       'SELECT code AS outcome, detail, COUNT(*) AS n FROM events WHERE kind = ? AND at >= ? GROUP BY code, detail ORDER BY n DESC LIMIT 20', 'update', since,
     ).toArray().map((r) => ({ outcome: r.outcome, change: r.detail, n: Number(r.n) }));
-    return { hours, cdns, platforms, updates };
+    return { hours, cdns, platforms, updates, healed };
   }
 
   /** Hourly rollups (for trends and the 90-day history). */

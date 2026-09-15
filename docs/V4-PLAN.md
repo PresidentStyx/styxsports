@@ -371,7 +371,26 @@ Phases 4 and 5 can interleave with 3.
   first 3 minutes (the stream settled behind the live edge on its own).
 - [ ] 2.1 Cold launch from cache: APK already paints `repo.cached()`; web/PWA and Roku to
   confirm/measure once the PWA shell (Phase 5) exists.
-- [ ] 2.2 Self-healing stream.
+- [x] 2.2 Self-healing stream - built on all three, swap verified where a live game had a
+  second server (see below). Degraded = 3 stalls in 2 min, 2 stalls longer than the
+  rebuffer runway (15 s APK/Roku, 8 s web), or 3 segment/playlist load errors in 60 s (APK
+  `AnalyticsListener.onLoadError`, hls.js non-fatal `*LoadError|*LoadTimeOut`; Roku has no
+  non-fatal error signal, stalls only). Games only - a Live TV channel is never zapped away
+  from. Next best = preference order (premium first while a slot is held), skipping failed
+  servers and ones already left as degraded; premium candidates only while a slot is held.
+  APK: second `ExoPlayer` (muted, no focus, placeholder surface, steady 12 s runway) swapped
+  into the `PlayerView` at READY, old player released - "Switched to X for a steadier
+  stream" toast. Web: hidden `#video2` with its own hls.js, elements trade roles on
+  `playing`. Roku: candidate resolved in the background, then "Switching to X for a steadier
+  stream…" over the one Video node (a moment of black, not a spinner over a dead stream).
+  On all three: the old stream dying first promotes the standby early; a standby that fails
+  or times out (40 s) marks that server failed and the next candidate is tried; no
+  candidate = leave the stream alone. Telemetry: `switch` with reason `degraded-<why>`,
+  start of the new stream timed from the moment the old one was given up on; `/stats` shows
+  "Self-healed N streams · n for repeated stalls · …". Debug: APK `PROG_RED` (debug builds),
+  web `styxPlayer.forceMigrate()`.
+  Left for later: "per-device source memory" as the ranking input (the remembered server
+  per game already leads the order; a stall-history rank needs a few weeks of telemetry).
 
 #### 0.2 Mobile audit results
 | Screen | Portrait | Landscape | Notes |
