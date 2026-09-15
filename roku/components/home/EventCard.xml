@@ -21,6 +21,7 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Account.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
+  <script type="text/brightscript" uri="pkg:/source/Tokens.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
     <Group id="card" scaleRotateCenter="[292,150]">

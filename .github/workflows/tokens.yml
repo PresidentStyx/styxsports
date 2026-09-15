@@ -1,0 +1,15 @@
+# Design tokens are generated files; a change to design/tokens.json must ship with its outputs.
+name: Design tokens
+on:
+  push:
+    paths: ['design/**', 'web/public/tokens.css', 'app/src/main/res/values/tokens.xml', 'roku/source/Tokens.brs']
+  pull_request:
+    paths: ['design/**', 'web/public/tokens.css', 'app/src/main/res/values/tokens.xml', 'roku/source/Tokens.brs']
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node design/build.mjs --check

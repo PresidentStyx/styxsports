@@ -1,21 +1,8 @@
 ' Render-thread helpers shared by the screens.
 
-' The Android app's palette (app/src/main/res/values/colors.xml), so both apps look the same.
+' The shared palette (design/tokens.json -> source/Tokens.brs), so all the apps look the same.
 function Ui_color(name as string) as string
-    if name = "bg" then return "0x0A0A0AFF"
-    if name = "card" or name = "surface" or name = "pill" then return "0x171717FF"
-    if name = "cardFocus" or name = "surfaceFocused" then return "0x242424FF"
-    if name = "line" or name = "outline" then return "0x262626FF"
-    if name = "outlineStrong" then return "0x343434FF"
-    if name = "text" then return "0xF5F5F5FF"
-    if name = "dim" or name = "muted" then return "0x9E9E9EFF"
-    if name = "live" then return "0xDC2626FF"
-    if name = "pillTime" then return "0x2E2E2EFF"
-    if name = "hot" then return "0xFB923CFF"
-    if name = "gold" then return "0xF5B942FF"
-    if name = "accent" or name = "pillOn" then return "0xFFFFFFFF"
-    if name = "scrim" then return "0x000000B0"
-    return "0xFFFFFFFF"
+    return Tokens_color(name)
 end function
 
 ' ---------------------------------------------------------------------------------------------

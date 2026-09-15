@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from design/tokens.json by design/build.mjs. Do not edit: change the JSON and run `node design/build.mjs`. -->
+<resources>
+    <color name="tk_color_bg">#FF0A0A0A</color>
+    <color name="tk_color_surface">#FF171717</color>
+    <color name="tk_color_surface_focused">#FF242424</color>
+    <color name="tk_color_surface_raised">#FF1F1F1F</color>
+    <color name="tk_color_outline">#FF262626</color>
+    <color name="tk_color_outline_strong">#FF343434</color>
+    <color name="tk_color_text">#FFF5F5F5</color>
+    <color name="tk_color_text_secondary">#FFDDDDDD</color>
+    <color name="tk_color_muted">#FF9E9E9E</color>
+    <color name="tk_color_accent">#FFFFFFFF</color>
+    <color name="tk_color_live">#FFDC2626</color>
+    <color name="tk_color_pre">#FF2E2E2E</color>
+    <color name="tk_color_final">#FF3A3A3A</color>
+    <color name="tk_color_halftime">#FFB45309</color>
+    <color name="tk_color_delayed">#FF6B7280</color>
+    <color name="tk_color_hot">#FFFB923C</color>
+    <color name="tk_color_gold">#FFF5B942</color>
+    <color name="tk_color_ok">#FF22C55E</color>
+    <color name="tk_color_warn">#FFF59E0B</color>
+    <color name="tk_color_error">#FFEF4444</color>
+    <color name="tk_color_premium">#FFF5B942</color>
+    <color name="tk_color_focus_ring">#FFFFFFFF</color>
+    <color name="tk_color_scrim">#B0000000</color>
+    <color name="tk_color_hero_scrim">#E60A0A0A</color>
+    <color name="tk_color_black">#FF000000</color>
+    <dimen name="tk_space_xs">2dp</dimen>
+    <dimen name="tk_space_sm">4dp</dimen>
+    <dimen name="tk_space_md">6dp</dimen>
+    <dimen name="tk_space_lg">8dp</dimen>
+    <dimen name="tk_space_xl">12dp</dimen>
+    <dimen name="tk_space_xxl">16dp</dimen>
+    <dimen name="tk_space_xxxl">24dp</dimen>
+    <dimen name="tk_space_gutter">32dp</dimen>
+    <dimen name="tk_radius_sm">3dp</dimen>
+    <dimen name="tk_radius_md">5dp</dimen>
+    <dimen name="tk_radius_lg">7dp</dimen>
+    <dimen name="tk_radius_xl">12dp</dimen>
+    <dimen name="tk_radius_pill">999dp</dimen>
+    <dimen name="tk_type_display_size">28sp</dimen>
+    <integer name="tk_type_display_weight">800</integer>
+    <item name="tk_type_display_lh" type="dimen" format="float">1.05</item>
+    <dimen name="tk_type_title_size">18sp</dimen>
+    <integer name="tk_type_title_weight">700</integer>
+    <item name="tk_type_title_lh" type="dimen" format="float">1.15</item>
+    <dimen name="tk_type_heading_size">14sp</dimen>
+    <integer name="tk_type_heading_weight">700</integer>
+    <item name="tk_type_heading_lh" type="dimen" format="float">1.2</item>
+    <dimen name="tk_type_body_size">12sp</dimen>
+    <integer name="tk_type_body_weight">500</integer>
+    <item name="tk_type_body_lh" type="dimen" format="float">1.3</item>
+    <dimen name="tk_type_caption_size">10sp</dimen>
+    <integer name="tk_type_caption_weight">600</integer>
+    <item name="tk_type_caption_lh" type="dimen" format="float">1.3</item>
+    <dimen name="tk_type_micro_size">8sp</dimen>
+    <integer name="tk_type_micro_weight">600</integer>
+    <item name="tk_type_micro_lh" type="dimen" format="float">1.3</item>
+    <dimen name="tk_type_score_size">22sp</dimen>
+    <integer name="tk_type_score_weight">800</integer>
+    <item name="tk_type_score_lh" type="dimen" format="float">1</item>
+    <integer name="tk_motion_fast">120</integer>
+    <integer name="tk_motion_base">200</integer>
+    <integer name="tk_motion_slow">320</integer>
+    <integer name="tk_motion_hero">600</integer>
+    <dimen name="tk_focus_ring_width">1.5dp</dimen>
+    <dimen name="tk_focus_ring_offset">1dp</dimen>
+    <item name="tk_focus_scale" type="dimen" format="float">1.06</item>
+    <dimen name="tk_card_width">125dp</dimen>
+    <dimen name="tk_card_height">75dp</dimen>
+    <dimen name="tk_card_hero_height">210dp</dimen>
+
+    <!-- names the layouts already use -->
+    <color name="bg">@color/tk_color_bg</color>
+    <color name="surface">@color/tk_color_surface</color>
+    <color name="surface_focused">@color/tk_color_surface_focused</color>
+    <color name="outline">@color/tk_color_outline</color>
+    <color name="outline_strong">@color/tk_color_outline_strong</color>
+    <color name="accent">@color/tk_color_accent</color>
+    <color name="text">@color/tk_color_text</color>
+    <color name="muted">@color/tk_color_muted</color>
+    <color name="live">@color/tk_color_live</color>
+    <color name="pill_time">@color/tk_color_pre</color>
+    <color name="hot">@color/tk_color_hot</color>
+    <color name="gold">@color/tk_color_gold</color>
+</resources>
