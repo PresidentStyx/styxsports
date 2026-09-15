@@ -16,12 +16,14 @@
     "bindings": [
       { "name": "PRESENCE", "class_name": "Presence" },
       { "name": "POOL", "class_name": "Pool" },
-      { "name": "GAMES", "class_name": "Games" }
+      { "name": "GAMES", "class_name": "Games" },
+      { "name": "TELEMETRY", "class_name": "Telemetry" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Presence"] },
     { "tag": "v2", "new_sqlite_classes": ["Pool"] },
-    { "tag": "v3", "new_sqlite_classes": ["Games"] }
+    { "tag": "v3", "new_sqlite_classes": ["Games"] },
+    { "tag": "v4", "new_sqlite_classes": ["Telemetry"] }
   ]
 }

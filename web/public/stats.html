@@ -60,7 +60,15 @@
     .empty { color: var(--muted); font-size: 14px; padding: 12px 4px 0; }
     .leases li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .lease-dev { color: var(--muted); }
+    .health { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .health th { text-align: left; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 0 6px 8px; }
+    .health td { padding: 9px 6px; border-top: 1px solid var(--outline); white-space: nowrap; }
+    .health td:first-child { font-weight: 600; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+    .health .bad { color: #f87171; }
+    .health .good { color: var(--gold); }
+    .health.hidden { display: none; }
     @media (max-width: 640px) {
+      .health th:nth-child(6), .health td:nth-child(6) { display: none; }
       .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
       .card { padding: 14px 8px; }
       .card b { font-size: 30px; }
@@ -105,6 +113,16 @@
       <div class="pool-actions" id="pool-actions"></div>
       <p class="err" id="pool-err"></p>
     </div>
+
+    <h2>Playback health · last 24 h</h2>
+    <div class="pool">
+      <table class="health" id="health">
+        <thead><tr><th>Source</th><th>Starts</th><th>Success</th><th>Start time</th><th>Stalls / viewer-h</th><th>Watched</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="empty hidden" id="health-empty">No playback reported yet. Apps on 4.0 send anonymous start / stall / error events here.</p>
+      <ul class="devices" id="versions"></ul>
+    </div>
   </div>
   <script>
     const $ = (id) => document.getElementById(id);
@@ -128,6 +146,7 @@
         $('err').textContent = '';
         if (d.pool) { poolState = d.pool; renderPool(); }
         renderDevices(d.devices || []);
+        renderHealth(d.playback);
       } catch (e) {
         $('err').textContent = 'Could not load counts.';
       }
@@ -179,6 +198,43 @@
         pl.textContent = lease ? plat + ' · ' + (lease.account || 'own account') : plat;
         const ago_ = document.createElement('span'); ago_.className = 'dev-ago'; ago_.textContent = ago(d.lastSeen);
         li.append(ic, name, pl, ago_);
+        ul.appendChild(li);
+      }
+    }
+
+    // Telemetry from the apps (4.0): per CDN family, then who is on which version.
+    function renderHealth(h) {
+      const table = $('health'), body = table.querySelector('tbody');
+      const cdns = (h && h.cdns) || [];
+      table.classList.toggle('hidden', cdns.length === 0);
+      $('health-empty').classList.toggle('hidden', cdns.length > 0);
+      body.replaceChildren();
+      const td = (text, cls) => { const c = document.createElement('td'); c.textContent = text; if (cls) c.className = cls; return c; };
+      const fmtMs = (ms) => (ms == null ? '—' : ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s');
+      for (const c of cdns) {
+        const tr = document.createElement('tr');
+        const rate = c.successRate;
+        tr.append(
+          td(c.cdn + (c.premium ? ' ★' : '')),
+          td(String(c.starts)),
+          td(rate == null ? '—' : rate + '%', rate == null ? '' : rate >= 95 ? 'good' : rate < 80 ? 'bad' : ''),
+          td(fmtMs(c.medianTtffMs)),
+          td(c.stallsPerViewerHour == null ? (c.stalls ? c.stalls + ' total' : '—') : String(c.stallsPerViewerHour), c.stallsPerViewerHour > 3 ? 'bad' : ''),
+          td(c.viewerHours ? c.viewerHours + ' h' : '—'),
+        );
+        body.appendChild(tr);
+      }
+      const ul = $('versions');
+      ul.replaceChildren();
+      for (const p of (h && h.platforms) || []) {
+        const li = document.createElement('li');
+        const [icon, plat] = PLATFORM[p.platform] || ['·', p.platform];
+        const ic = document.createElement('span'); ic.className = 'dev-icon'; ic.textContent = icon;
+        const name = document.createElement('span'); name.className = 'dev-name';
+        name.textContent = plat + ' ' + p.version + (p.network === 'relay' ? ' · via relay' : '');
+        const n = document.createElement('span'); n.className = 'dev-plat';
+        n.textContent = p.devices + (p.devices === 1 ? ' device' : ' devices') + ' · ' + p.starts + ' starts';
+        li.append(ic, name, n);
         ul.appendChild(li);
       }
     }

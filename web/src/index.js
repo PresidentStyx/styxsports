@@ -14,6 +14,7 @@
 //   /install             how to install the Android TV / Fire TV and Roku apps (public/install.html)
 //   /api/ping            public heartbeat from web / APK / Roku (see presence.js)
 //   /api/flags           public: config.json feature flags resolved for ?platform=&device=&version= (flags.js)
+//   /api/telemetry       public: playback events from web / APK / Roku (telemetry.js); summarized on /stats
 //   /api/pool            shared premium account: 5 connection slots (see pool.js);
 //                        /acquire /heartbeat /release are public so the APK and Roku can join
 //   /stats, /api/stats   who is watching right now + pool usage (site password)
@@ -34,10 +35,12 @@ import {
 
 import { normalizeGames, sortGames, liveSummary, gamesStub } from './games.js';
 import { resolveFlags } from './flags.js';
+import { handleTelemetry, telemetryHealth } from './telemetry.js';
 
 export { Presence } from './presence.js';
 export { Pool } from './pool.js';
 export { Games } from './games.js';
+export { Telemetry } from './telemetry.js';
 
 const APK_URL = 'https://github.com/PresidentStyx/styxsports/releases/latest/download/StyxSports.apk';
 const SCHEDULE_TTL_S = 60;
@@ -70,6 +73,7 @@ export default {
         return out;
       }
       if (path === '/api/ping') return await handlePing(request, env);
+      if (path === '/api/telemetry') return await handleTelemetry(request, env);
       // Feature flags carry nothing private, and a client that is gated or on a blocking network
       // still needs them, so they are open like /api/ping.
       if (path === '/api/flags') {
@@ -120,6 +124,7 @@ export default {
           }
         } catch { /* optional */ }
         for (const d of data.devices || []) delete d.id;
+        data.playback = await telemetryHealth(env, 24);
         return json(data);
       }
       if (path === '/stats') {
@@ -522,6 +527,7 @@ async function apiIptvToken(request, env, url) {
       hop,
       ts,
       ownAddressOnly: !hls,
+      cdn: hostOf(u),
       // For the relay: nothing else to try means the message below, not a proxied stream.
       error: relay && !hls && !hop && !ts ? 'this channel plays only from your own network, which blocks it' : undefined,
     });

@@ -14,6 +14,7 @@
   /** Shown to the flag service and telemetry; bump with the 4.0 release train. */
   const WEB_VERSION = '3.9';
   const FLAGS_MS = 6 * 3600_000;
+  const TELEMETRY_MS = 60_000;
 
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => {
@@ -91,6 +92,43 @@
     }
     return id;
   }
+
+  // Remote feature flags (config.json `features`, resolved by the Worker for this client id).
+  // The last answer is kept so a flag-gated feature does not flicker on a slow start.
+  const flags = {
+    values: store.get('flags', {}),
+    on(name, def = false) { return name in this.values ? this.values[name] === true : def; },
+    async load() {
+      try {
+        const r = await fetch(`/api/flags?platform=web&device=${encodeURIComponent(clientId())}&version=${WEB_VERSION}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d && d.flags) { this.values = d.flags; store.set('flags', d.flags); }
+        document.documentElement.dataset.flags = Object.keys(this.values).filter((k) => this.values[k]).join(' ');
+      } catch { /* keep the last answer */ }
+    },
+  };
+  window.styxFlags = flags;
+
+  /**
+   * Anonymous playback telemetry (see web/src/telemetry.js): start (time to first frame),
+   * stall, switch, error, stop. Batched every minute and when the player closes; the batch is
+   * keyed by the same client id as /api/ping. Off when the `telemetry` flag is off.
+   */
+  const telemetry = {
+    queue: [],
+    push(ev) {
+      if (!flags.on('telemetry', true)) return;
+      this.queue.push({ at: Date.now(), ...ev });
+      if (this.queue.length >= 40) this.flush();
+    },
+    flush(unloading = false) {
+      if (!this.queue.length) return;
+      const body = JSON.stringify({ device: clientId(), platform: 'web', version: WEB_VERSION, network: 'direct', events: this.queue.splice(0, 50) });
+      if (unloading && navigator.sendBeacon) { navigator.sendBeacon('/api/telemetry', new Blob([body], { type: 'application/json' })); return; }
+      fetch('/api/telemetry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true, cache: 'no-store' }).catch(() => {});
+    },
+  };
 
   function setAccount(a) {
     const changed = !account || a.signedIn !== account.signedIn || a.premium !== account.premium || a.iptv !== account.iptv;
@@ -709,6 +747,7 @@
       this.generation++;
       this.clearTimers();
       this.stopPlayback();
+      telemetry.flush();
       this.hideEmbed();
       this.root.classList.add('hidden');
       document.body.style.overflow = '';
@@ -793,12 +832,13 @@
         return this.channelFailed(e.message);
       }
       if (gen !== this.generation) return;
-      this.play({ server: ch.n, hls: data.hls, direct: data.direct || null, playable: true });
+      this.play({ server: ch.n, hls: data.hls, direct: data.direct || null, cdn: data.cdn || null, playable: true });
     },
 
     channelFailed(why) {
       const ch = this.channels[this.current];
       console.warn('[styx] channel ' + (ch ? ch.n : '?') + ' failed: ' + why);
+      if (this.everPlayed && this.teleCurrent) telemetry.push({ kind: 'error', code: why, cdn: this.teleCurrent.cdn, premium: true, relay: this.teleCurrent.relay });
       this.clearTimers();
       this.stopPlayback();
       this.everPlayed = false;
@@ -1005,8 +1045,21 @@
       const src = sources[sourceIdx] || sources[0];
       const viaDirect = !!stream.direct && sourceIdx === 0;
       let started = false;
+      // Telemetry: what this attempt is, when it began, and whether we are inside a stall.
+      const t0 = performance.now();
+      const server = this.channelMode ? null : this.servers[this.current];
+      const tele = {
+        game: this.channelMode ? 'tv' : String(this.event ? this.event.id : ''),
+        server: stream.server || '',
+        cdn: stream.cdn || src,
+        premium: !!(server && server.premium),
+        relay: !viaDirect,
+      };
+      this.teleCurrent = tele;
+      let stallAt = 0;
       const fail = (why) => {
         if (gen !== this.generation) return;
+        if (!started) telemetry.push({ kind: 'error', code: why, cdn: tele.cdn, premium: tele.premium, relay: tele.relay });
         if (!started && sourceIdx + 1 < sources.length) {
           console.warn(`[styx] ${stream.server}: ${why} (${viaDirect ? 'direct' : 'proxy'}); retrying via ${viaDirect ? 'proxy' : 'direct'}`);
           this.generation++;
@@ -1023,6 +1076,13 @@
 
       const onReady = () => {
         if (gen !== this.generation) return;
+        if (!started) {
+          telemetry.push({ kind: 'start', ...tele, ttff: Math.round(performance.now() - t0) });
+          this.watchStart = Date.now();
+        } else if (stallAt) {
+          telemetry.push({ kind: 'stall', cdn: tele.cdn, premium: tele.premium, relay: tele.relay, duration: Math.round(performance.now() - stallAt), position: Math.round(v.currentTime * 1000) });
+        }
+        stallAt = 0;
         started = true;
         this.clearTimer('startTimer');
         this.clearTimer('stallTimer');
@@ -1038,6 +1098,7 @@
       v.onplaying = onReady;
       v.onwaiting = () => {
         if (gen !== this.generation) return;
+        if (started && !stallAt) stallAt = performance.now();
         if (this.everPlayed) this.status('Buffering…', true);
         this.clearTimer('stallTimer');
         this.stallTimer = setTimeout(() => { if (gen === this.generation) this.onFailure('stalled'); }, STALL_MS);
@@ -1135,6 +1196,11 @@
     },
 
     stopPlayback() {
+      if (this.watchStart && this.teleCurrent) {
+        const t = this.teleCurrent;
+        telemetry.push({ kind: 'stop', cdn: t.cdn, premium: t.premium, relay: t.relay, duration: Date.now() - this.watchStart });
+      }
+      this.watchStart = 0;
       if (this.hls) { try { this.hls.destroy(); } catch { /* ignore */ } this.hls = null; }
       const v = this.video;
       v.onplaying = v.onwaiting = v.onended = v.onerror = v.onloadedmetadata = null;
@@ -1154,6 +1220,7 @@
       console.warn('[styx] ' + (s ? s.name : '?') + ' failed: ' + why, stream && stream.log);
       this.clearTimers();
       const wasPlaying = this.everPlayed && this.video.currentTime > 0;
+      if (wasPlaying && this.teleCurrent) telemetry.push({ kind: 'error', code: why, cdn: this.teleCurrent.cdn, premium: this.teleCurrent.premium, relay: this.teleCurrent.relay });
       if (wasPlaying && !this.retried) {
         // A playing stream that died: the playlist probably expired; fetch a fresh one once.
         this.retried = true;
@@ -1182,6 +1249,7 @@
         return this.allFailed('None of the servers are responding right now.', true);
       }
       this.status(`${s.name} isn't responding — trying ${this.servers[next].name}`, true);
+      telemetry.push({ kind: 'switch', from: s.name, to: this.servers[next].name, reason: why });
       this.renderServers();
       this.switchTo(next, false);
     },
@@ -1271,6 +1339,8 @@
       if (this.channelMode) { if (this.channels.length > 1) this.tuneTo(this.current + delta); return; }
       if (this.servers.length < 2) { this.status('This game has only one server', false); setTimeout(() => this.everPlayed && this.hideStatus(), 1500); return; }
       this.failed.clear();
+      const from = this.servers[this.current], to = this.servers[(this.current + delta + this.servers.length) % this.servers.length];
+      telemetry.push({ kind: 'switch', from: from ? from.name : '', to: to ? to.name : '', reason: 'manual' });
       this.switchTo(this.current + delta, true);
     },
 
@@ -1809,25 +1879,11 @@
   }
   ping();
   setInterval(ping, PING_MS);
+  setInterval(() => telemetry.flush(), TELEMETRY_MS);
+  window.addEventListener('pagehide', () => telemetry.flush(true));
 
-  // Remote feature flags (config.json `features`, resolved by the Worker for this client id).
-  // The last answer is kept so a flag-gated feature does not flicker on a slow start.
-  const flags = {
-    values: store.get('flags', {}),
-    on(name) { return this.values[name] === true; },
-    async load() {
-      try {
-        const r = await fetch(`/api/flags?platform=web&device=${encodeURIComponent(clientId())}&version=${WEB_VERSION}`, { cache: 'no-store' });
-        if (!r.ok) return;
-        const d = await r.json();
-        if (d && d.flags) { this.values = d.flags; store.set('flags', d.flags); }
-        document.documentElement.dataset.flags = Object.keys(this.values).filter((k) => this.values[k]).join(' ');
-      } catch { /* keep the last answer */ }
-    },
-  };
   flags.load();
   setInterval(() => { if (!document.hidden) flags.load(); }, FLAGS_MS);
-  window.styxFlags = flags;
   // Free the shared premium slot the moment the tab goes away (the lease would expire anyway).
   window.addEventListener('pagehide', () => player.dropSlot());
 
