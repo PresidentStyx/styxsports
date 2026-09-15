@@ -692,6 +692,7 @@
       document.body.style.overflow = 'hidden';
       $('p-servers').replaceChildren();
       $('p-unmute').classList.add('hidden');
+      this.primeForSound();
       this.updateHud();
       this.status('Connecting…', true);
       this.root.focus();
@@ -745,9 +746,24 @@
       this.hideEmbed();
       document.body.style.overflow = 'hidden';
       $('p-unmute').classList.add('hidden');
+      this.primeForSound();
       this.root.focus();
       history.pushState({ player: true }, '');
       this.tuneTo(idx);
+    },
+
+    /**
+     * Called synchronously from the tap that opens the player. On a phone that tap is the only
+     * user gesture there will be, and the stream takes seconds to resolve - longer than WebKit's
+     * gesture window - so the real play() with sound would be refused and every game would start
+     * muted behind "Tap to unmute" (seen on an iPhone 17 Pro Max). A play() *now*, on the still
+     * empty element, marks it user-activated for good; the promise just aborts when the source is
+     * attached.
+     */
+    primeForSound() {
+      this.video.muted = false;
+      const p = this.video.play();
+      if (p && p.catch) p.catch(() => {});
     },
 
     async tuneTo(idx, isRetry = false) {

@@ -307,8 +307,16 @@ Phases 4 and 5 can interleave with 3.
   emulated in Chromium) and defects listed below
 - [x] 0.1 Blocking fixes shipped (permission dialogs, CLEAR_TASK, truthful copy, release notes)
 - [x] 0.2 Fixes shipped (phone player rules in landscape, safe areas, touch targets, hints, copy)
-- [ ] 0.2 Confirmed on the real iPhone (WebKit-only behaviour: MMS playback, autoplay with
-  sound after the tap, fullscreen button, Dynamic Island insets in landscape)
+- [x] 0.2 Confirmed on the real iPhone 17 Pro Max (iOS 27.0, Safari) over USB → Mac → Web
+  Inspector (`pymobiledevice3`, driven from the PC over SSH). Viewport 440×796 portrait /
+  956×330 landscape @3x. `ManagedMediaSource` present, classic `MediaSource` absent, hls.js
+  1.5.17 takes the MMS path and a premium game plays (1280×720) ~10 s after the tap. Landscape:
+  Safari reports 62px insets left/right (Dynamic Island) and 20px bottom; HUD honors them. One
+  fix came out of it: a game could start muted behind "Tap to unmute" because the real `play()`
+  happens seconds after the tap, outside WebKit's gesture window - the player now calls `play()`
+  on the empty element synchronously in the tap (`primeForSound`), which marks it user-activated
+  for good. Not tested: the fullscreen button (needs a finger; `webkitEnterFullscreen` fallback
+  is in place) and PWA standalone mode (Phase 4).
 
 #### 0.2 Mobile audit results
 | Screen | Portrait | Landscape | Notes |
