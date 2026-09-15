@@ -20,4 +20,6 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Pool.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Flags.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Telemetry.brs" />
 </component>

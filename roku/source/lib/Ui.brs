@@ -392,7 +392,7 @@ function Ui_task(op as string, input as object, handler as string) as object
     t = CreateObject("roSGNode", "NetTask")
     t.op = op
     t.input = input
-    t.observeField("result", handler)
+    if handler <> "" then t.observeField("result", handler) ' "" = fire and forget (telemetry)
     t.control = "RUN"
     return t
 end function

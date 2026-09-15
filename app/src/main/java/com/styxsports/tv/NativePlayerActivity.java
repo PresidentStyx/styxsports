@@ -166,6 +166,8 @@ public class NativePlayerActivity extends Activity {
     /** The pool turned us down (all slots taken); premium tabs are skipped until a manual retry. */
     private boolean poolFull;
     private int poolUsed, poolMax = 5;
+    /** The playback attempt telemetry is describing (null before the first play()). */
+    private Telemetry.Attempt attempt;
 
     private final Runnable hideHud = this::hideHud;
     private final Runnable stallCheck = () -> {
@@ -232,6 +234,8 @@ public class NativePlayerActivity extends Activity {
         super.onStop();
         // A TV app is either on screen or gone: release everything and re-resolve next time.
         CrashLog.notePlayerClosedNormally(this);
+        Telemetry.stop(this, attempt);
+        Telemetry.flush();
         boolean backgrounded = !isFinishing();
         // Playback stopped: give the premium slot back. Zapping back to the Live TV screen keeps
         // it (that screen renews the same lease at once); leaving the app from a channel drops it.
@@ -510,6 +514,7 @@ public class NativePlayerActivity extends Activity {
                 if (state == Player.STATE_BUFFERING) {
                     handler.removeCallbacks(stallCheck);
                     handler.postDelayed(stallCheck, onPremiumCdn() ? PREMIUM_STALL_MS : STALL_MS);
+                    if (attempt != null) Telemetry.stallBegan(attempt);
                     if (everPlayed) {
                         showStatus(getString(R.string.np_buffering), true);
                         Log.i(TAG, "buffering: " + liveState());
@@ -519,6 +524,10 @@ public class NativePlayerActivity extends Activity {
                     handler.removeCallbacks(stallCheck);
                     handler.removeCallbacks(startTimeout);
                     handler.removeCallbacks(impatience);
+                    if (attempt != null) {
+                        if (!attempt.started()) Telemetry.start(NativePlayerActivity.this, attempt);
+                        else Telemetry.stallEnded(NativePlayerActivity.this, attempt, player.getCurrentPosition());
+                    }
                     hideStatus();
                     if (channelGroup == null && lease.held() && current < servers.size() && !servers.get(current).premium) {
                         // A free server is what plays (the premium tabs failed, or the viewer
@@ -809,6 +818,8 @@ public class NativePlayerActivity extends Activity {
         handler.removeCallbacks(startTimeout);
         player.stop();
         player.clearMediaItems();
+        Telemetry.stop(this, attempt);
+        attempt = null;
         StreamResolver.Server s = servers.get(index);
         if (channelGroup != null) {
             event.home = s.name;
@@ -1013,6 +1024,10 @@ public class NativePlayerActivity extends Activity {
         }
         if (!st.playableNatively()) {
             Log.i(TAG, st.server.name + " has no HLS (state=" + st.state + ")");
+            // No CDN was reached; the failure below is attributed to the server's player page.
+            attempt = new Telemetry.Attempt(channelGroup != null ? "tv" : event.id, st.server.name,
+                    st.playerOrigin != null ? StreamResolver.hostOf(st.playerOrigin) : StreamResolver.hostOf(st.server.pageUrl),
+                    st.server.premium || channelGroup != null, false);
             // "warming": the CDN's warming.ts placeholder - no video on this server yet, try another.
             // "blocked": this network refuses the premium CDN (nothing was fetched for it).
             onFailure("gate".equals(st.state) ? "premium" : "warming".equals(st.state) ? "warming"
@@ -1040,6 +1055,10 @@ public class NativePlayerActivity extends Activity {
         // and after a stall (see RUNWAY_*), and join the live window 30 s back when it is that
         // deep (the free CDNs' windows are 60 s).
         loadControl.runway = premiumCdn || viaProxy || viaTs;
+        // Relayed streams carry the CDN inside a signed token; the player origin names its family.
+        attempt = new Telemetry.Attempt(channelGroup != null ? "tv" : event.id, st.server.name,
+                viaProxy || viaTs ? StreamResolver.hostOf(st.playerOrigin) : StreamResolver.hostOf(st.hlsUrl),
+                premiumCdn, viaProxy || viaTs);
         MediaItem.Builder item = new MediaItem.Builder().setUri(st.hlsUrl);
         if ((premiumCdn || viaProxy) && !viaTs) {
             item.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder()
@@ -1125,6 +1144,10 @@ public class NativePlayerActivity extends Activity {
         handler.removeCallbacks(startTimeout);
         StreamResolver.Server s = servers.get(current);
         Log.w(TAG, s.name + " failed: " + why);
+        // A tab that was never fetched ("blocked", "pool") or is gated ("premium") is not a CDN failure.
+        if (attempt != null && !"blocked".equals(why) && !"pool".equals(why) && !"premium".equals(why)) {
+            Telemetry.error(this, attempt, why);
+        }
 
         boolean premium = "premium".equals(why);
         if (!premium && !retried.contains(s.pageUrl) && everPlayed) {
@@ -1162,6 +1185,7 @@ public class NativePlayerActivity extends Activity {
                 Toast.makeText(this, getString(R.string.np_trying_next, s.name, servers.get(next).name),
                         Toast.LENGTH_SHORT).show();
             }
+            Telemetry.switched(this, s.name, servers.get(next).name, why);
             // Servers that die instantly would otherwise be swept in a burst of page fetches,
             // which the site rate-limits (HTTP 429); pace the sweep. A tab skipped as "blocked"
             // fetched nothing, so there is nothing to pace.
@@ -1336,6 +1360,8 @@ public class NativePlayerActivity extends Activity {
             showHud();
             return;
         }
+        int to = ((current + delta) % servers.size() + servers.size()) % servers.size();
+        if (current >= 0) Telemetry.switched(this, servers.get(current).name, servers.get(to).name, "manual");
         switchTo(current + delta, true);
     }
 

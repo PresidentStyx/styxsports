@@ -41,7 +41,14 @@ final class Flags {
 
     /** Whether a named feature is on for this device; unknown names are off. */
     boolean on(String name) {
-        return flagOn(features.opt(name), PLATFORM, deviceId, version);
+        return on(name, false);
+    }
+
+    /** Like {@link #on(String)}, but {@code def} applies when config.json does not mention the flag. */
+    boolean on(String name, boolean def) {
+        Object spec = features.opt(name);
+        if (spec == null) return def;
+        return flagOn(spec, PLATFORM, deviceId, version);
     }
 
     /** True when config.json's minVersion for the APK is above this build. */

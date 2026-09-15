@@ -72,12 +72,17 @@ sub init()
     m.poolFull = false
     m.poolUsed = 0
     m.poolMax = 5
+    ' Playback telemetry (Telemetry.brs): the attempt on screen, flushed every minute.
+    m.attempt = invalid
+    m.telemetryTimer = m.top.findNode("telemetryTimer")
 
     m.video.observeField("state", "onVideoState")
     m.hudTimer.observeField("fire", "onHudTimer")
     m.retryTimer.observeField("fire", "onRetryTimer")
     m.scoreTimer.observeField("fire", "onScoreTick")
     m.layoutTimer.observeField("fire", "onLayoutTimer")
+    m.telemetryTimer.observeField("fire", "onTelemetryTimer")
+    m.telemetryTimer.control = "start"
     setHint()
     layoutHud()
 end sub
@@ -241,6 +246,8 @@ sub switchTo(i as integer)
     m.index = i
     m.paused = false
     m.video.control = "stop"
+    Telemetry_stop(m.attempt)
+    m.attempt = invalid
     hideStatus()
     bindServerLabel()
     if m.channelMode
@@ -359,6 +366,16 @@ end sub
 
 sub playUrl(url as string, origin as string, title as string)
     m.video.control = "stop"
+    ' Telemetry: a relayed stream (through the Worker) carries its CDN inside a signed token,
+    ' so the player origin names its family instead.
+    relay = startsWith(url, Pool_webBase() + "/")
+    cdn = hostOf(url)
+    if relay and origin <> "" then cdn = hostOf(origin)
+    premium = m.channelMode
+    if not m.channelMode and m.index >= 0 and m.servers[m.index].premium = true then premium = true
+    game = "tv"
+    if not m.channelMode and m.top.event <> invalid then game = strOr(m.top.event.id, "")
+    m.attempt = Telemetry_attempt(game, serverName(m.index), cdn, premium, relay)
     m.video.setCertificatesFile("common:/certs/ca-bundle.crt")
     m.video.initClientCertificates()
     m.video.addHeader("User-Agent", Http_UA())
@@ -400,6 +417,9 @@ end sub
 sub onVideoState()
     st = m.video.state
     if st = "playing"
+        if m.attempt <> invalid
+            if m.attempt.firstFrameAt = 0 then Telemetry_start(m.attempt) else Telemetry_stallEnded(m.attempt, Int(m.video.position * 1000))
+        end if
         m.everPlayed = true
         m.paused = false
         hideStatus()
@@ -413,6 +433,7 @@ sub onVideoState()
         bindServerLabel()
         m.hudTimer.control = "start"
     else if st = "buffering"
+        Telemetry_stallBegan(m.attempt)
         if m.everPlayed and not m.status.visible then showStatus("Buffering…", true)
     else if st = "paused"
         m.paused = true
@@ -429,6 +450,14 @@ sub onFailure(kind as string, detail as string)
     logi("Player", "server " + m.index.ToStr() + " failed: " + kind + " - " + detail)
     m.failed[m.index.ToStr()] = true
     m.video.control = "stop"
+    ' Gated / pool-refused tabs reached no CDN; everything else is a playback failure.
+    if kind <> "pool" and kind <> "premium" and kind <> "gated"
+        if m.attempt = invalid
+            ' Resolution failed before anything played: attribute it to the server's page.
+            m.attempt = Telemetry_attempt("", serverName(m.index), "", not m.channelMode and m.servers[m.index].premium = true, false)
+        end if
+        Telemetry_error(m.attempt, kind)
+    end if
 
     if m.channelMode
         c = m.servers[m.index]
@@ -444,6 +473,7 @@ sub onFailure(kind as string, detail as string)
     ' Is there an untried server left? Sweep with a pause so the site is not hammered.
     nextIdx = nextUntried()
     if nextIdx >= 0
+        Telemetry_switched(serverName(m.index), serverName(nextIdx), kind)
         if kind = "pool"
             showStatus(m.poolNote + Chr(10) + Chr(10) + "Trying " + m.servers[nextIdx].name, true)
         else if kind = "warming"
@@ -794,7 +824,15 @@ end sub
 sub closeScreen()
     m.video.control = "stop"
     m.scoreTimer.control = "stop"
+    m.telemetryTimer.control = "stop"
+    Telemetry_stop(m.attempt)
+    m.attempt = invalid
+    Telemetry_flush()
     m.top.close = true
+end sub
+
+sub onTelemetryTimer()
+    Telemetry_flush()
 end sub
 
 sub togglePlayPause()
@@ -828,8 +866,15 @@ sub manualSwitch(dir as integer)
         end while
         m.failed = {}
     end if
+    Telemetry_switched(serverName(m.index), serverName(i), "manual")
     switchTo(i)
 end sub
+
+function serverName(i as integer) as string
+    if i < 0 or i >= m.servers.Count() then return ""
+    if m.channelMode then return Iptv_displayName(m.servers[i])
+    return strOr(m.servers[i].name, "")
+end function
 
 ' Developer key injection (see MainScene.onDevCmd); the player handles every key itself.
 sub onDevKey()

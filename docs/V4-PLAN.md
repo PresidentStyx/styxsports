@@ -318,6 +318,24 @@ Phases 4 and 5 can interleave with 3.
   for good. Not tested: the fullscreen button (needs a finger; `webkitEnterFullscreen` fallback
   is in place) and PWA standalone mode (Phase 4).
 
+### Phase 1
+- [x] 1.1 Game State Service: `web/src/games.js` + `Games` DO; `/api/games`,
+  `/api/games/live-summary`, `/api/games/:id`, `/api/games/coverage`; `design/teams.json`
+  for short names and brand colors (crest fallback). Verified live: MLB/NFL games normalized,
+  scoring timeline recorded, coverage table filling with status shapes.
+- [x] 1.3 Design tokens: `design/tokens.json` → `tokens.css` / `tokens.xml` / `Tokens.brs`
+  via `design/build.mjs`; CI check (`tokens.yml`). Old names kept as aliases, no visual change.
+- [x] 1.4 Remote flags: `features` / `minVersion` / `pinned` in config.json; one rule set in
+  `flags.js`, `Flags.java`, `Flags.brs` (FNV-1a bucket verified identical); `/api/flags`.
+  `telemetry` defaults **on** in all three clients unless config.json says `false`.
+- [x] 1.2 Telemetry: `Telemetry` DO (7-day raw, 90-day hourly rollups), `POST /api/telemetry`,
+  Playback health on `/stats`. Reporting from web (verified), APK (verified on DM Theater:
+  premium start via pool, TTFF ~4 s, stop on Back) and Roku (`Telemetry.brs` compiles and is
+  wired into `PlayerScreen`; **not yet seen on `/stats`** - no Roku was awake on the LAN
+  tonight; sideload with `roku/deploy.ps1` and play one game to confirm).
+- [ ] 1.1 Spike: a full day of status-feed shapes per league (`/api/games/coverage` is
+  collecting them now; review after the first weekend to settle `situation` per league).
+
 #### 0.2 Mobile audit results
 | Screen | Portrait | Landscape | Notes |
 |---|---|---|---|

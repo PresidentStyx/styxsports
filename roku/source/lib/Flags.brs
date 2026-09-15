@@ -12,7 +12,13 @@ end function
 
 ' Whether a named feature is on for this device; unknown names are off.
 function Flags_on(cfg as object, name as string) as boolean
-    if cfg = invalid or type(cfg.features) <> "roAssociativeArray" then return false
+    return Flags_onDefault(cfg, name, false)
+end function
+
+' Same, but `def` applies when config.json does not mention the flag.
+function Flags_onDefault(cfg as object, name as string, def as boolean) as boolean
+    if cfg = invalid or type(cfg.features) <> "roAssociativeArray" then return def
+    if not cfg.features.DoesExist(name) then return def
     return Flags_eval(cfg.features[name], Pool_clientId(), Flags_version())
 end function
 

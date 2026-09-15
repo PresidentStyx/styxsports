@@ -170,6 +170,7 @@ public class HomeActivity extends Activity {
 
         refreshConfig();
         fullRefresh(true);
+        Telemetry.noteLaunch(this); // reports "updated from X to Y" once per new version
         if (!showCrashReport()) updates.checkInBackground();
     }
 

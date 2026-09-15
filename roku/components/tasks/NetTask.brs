@@ -106,6 +106,11 @@ sub runJob()
     else if op = "poolRelease"
         out = Pool_release()
 
+    else if op = "telemetry"
+        ' input.events: a batch of playback events for sports.styxam.com/stats (Telemetry.brs).
+        Telemetry_post(input.events)
+        out = { ok: true }
+
     else if op = "checkPlaylist"
         ' input.url: one fetch of a playlist from this device -> { ok, url (final), warming, code, error }.
         out = Resolver_checkPlaylist(input.url, "")

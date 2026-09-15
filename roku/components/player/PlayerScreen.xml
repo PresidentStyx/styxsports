@@ -34,6 +34,8 @@
   <script type="text/brightscript" uri="pkg:/source/lib/Iptv.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Store.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Pool.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Flags.brs" />
+  <script type="text/brightscript" uri="pkg:/source/lib/Telemetry.brs" />
   <script type="text/brightscript" uri="pkg:/source/Tokens.brs" />
   <script type="text/brightscript" uri="pkg:/source/lib/Ui.brs" />
   <children>
@@ -74,5 +76,6 @@
     <Timer id="retryTimer" duration="1.5" />
     <Timer id="scoreTimer" repeat="true" duration="30" />
     <Timer id="layoutTimer" duration="0.05" />
+    <Timer id="telemetryTimer" repeat="true" duration="60" />
   </children>
 </component>
