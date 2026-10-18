@@ -9,13 +9,14 @@
 // `cdn` is the stream host (grouped into families here); `relay: true` means the bytes came
 // through this Worker's /hls/ or /ts/ rather than straight from the CDN.
 // Kinds: start (first frame; ttff ms), stall (duration ms), switch (from/to server, reason),
-// error (code, cdn), stop (duration ms watched), update (from -> to version, outcome).
+// error (code, cdn), stop (duration ms watched), update (from -> to version, outcome),
+// fail (game, code: a game that could not be opened at all - no server list, or none played).
 //
 // Raw events are kept 7 days; hourly rollups (per platform / version / cdn) 90 days.
 import { DurableObject } from 'cloudflare:workers';
 
 const PLATFORMS = new Set(['web', 'apk', 'roku']);
-const KINDS = new Set(['start', 'stall', 'switch', 'error', 'stop', 'update']);
+const KINDS = new Set(['start', 'stall', 'switch', 'error', 'stop', 'update', 'fail']);
 const NETWORKS = new Set(['direct', 'relay', '']);
 const ID_RE = /^[a-zA-Z0-9_-]{8,64}$/;
 const MAX_EVENTS = 50;
@@ -117,6 +118,43 @@ export class Telemetry extends DurableObject {
     return { hours, cdns, platforms, updates, healed };
   }
 
+  /**
+   * Game opens per platform over the last `minutes`: first frames (start) against games that
+   * could not be opened at all (fail), with the devices involved and the commonest fail reason.
+   * Feeds the outage alerts (alerts.js).
+   */
+  async opens(minutes = 15) {
+    const since = Date.now() - minutes * 60_000;
+    const sql = this.ctx.storage.sql;
+    const rows = sql.exec(
+      `SELECT platform, SUM(kind = 'start') AS starts, SUM(kind = 'fail') AS fails,
+         COUNT(DISTINCT CASE WHEN kind = 'fail' THEN device END) AS fail_devices,
+         COUNT(DISTINCT CASE WHEN kind IN ('start', 'fail') THEN device END) AS devices
+       FROM events WHERE at >= ? AND kind IN ('start', 'fail') GROUP BY platform`, since,
+    ).toArray();
+    return rows.map((r) => {
+      const top = sql.exec(
+        `SELECT code, COUNT(*) AS n FROM events WHERE at >= ? AND kind = 'fail' AND platform = ?
+         GROUP BY code ORDER BY n DESC LIMIT 1`, since, r.platform,
+      ).toArray()[0];
+      return {
+        platform: r.platform, starts: Number(r.starts), fails: Number(r.fails),
+        failDevices: Number(r.fail_devices), devices: Number(r.devices),
+        topReason: top ? String(top.code || '') : '', topReasonCount: top ? Number(top.n) : 0,
+      };
+    });
+  }
+
+  /** The outage alert's state ({ issue, key, clean }), or null when none is open. */
+  async alertState() {
+    return (await this.ctx.storage.get('alert')) || null;
+  }
+
+  async setAlertState(state) {
+    if (state) await this.ctx.storage.put('alert', state);
+    else await this.ctx.storage.delete('alert');
+  }
+
   /** Hourly rollups (for trends and the 90-day history). */
   async rollups(days = 7) {
     const since = Date.now() - days * 24 * HOUR_MS;
@@ -186,6 +224,7 @@ export async function handleTelemetry(request, env) {
     else if (e.kind === 'switch') detail = str(e.from, 40) + '>' + str(e.to, 40) + '|' + str(e.reason, 40);
     else if (e.kind === 'update') detail = str(e.from, 16) + '>' + str(e.to, 16);
     else if (e.kind === 'stall') detail = String(num(e.position) ?? '');
+    else if (e.kind === 'fail') detail = str(e.game, 40);
     let cdn = cdnFamily(e.cdn);
     if (cdn === 'relay' || !cdn) cdn = 'unknown';
     if (e.relay === true) cdn += ' via relay'; // proxied through this Worker (/hls/ or /ts/)
@@ -194,7 +233,7 @@ export async function handleTelemetry(request, env) {
       ttff: e.kind === 'start' ? num(e.ttff, 600_000) : null,
       duration: e.kind === 'stall' || e.kind === 'stop' ? num(e.duration) : null,
       // start: "pre" when the stream was resolved before the viewer pressed OK (zero-wait start)
-      code: e.kind === 'error' || e.kind === 'update' ? str(e.code || e.outcome, 40) : e.kind === 'start' && e.pre === true ? 'pre' : null,
+      code: e.kind === 'error' || e.kind === 'update' || e.kind === 'fail' ? str(e.code || e.outcome, 40) : e.kind === 'start' && e.pre === true ? 'pre' : null,
       detail,
     });
   }
@@ -212,6 +251,10 @@ export async function telemetryHealth(env, hours = 24) {
   const s = stub(env);
   if (!s) return null;
   try { return await s.health(hours); } catch { return null; }
+}
+
+export function telemetryStub(env) {
+  return stub(env);
 }
 
 export async function telemetryRollups(env, days = 7) {

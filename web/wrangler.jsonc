@@ -12,6 +12,10 @@
     { "pattern": "sports.styxam.com", "custom_domain": true }
   ],
   "observability": { "enabled": true },
+  // Outage alerts (src/alerts.js) every 5 minutes; the GitHub token is a secret:
+  //   npx wrangler secret put GITHUB_TOKEN
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": { "ALERT_REPO": "PresidentStyx/styxsports" },
   "durable_objects": {
     "bindings": [
       { "name": "PRESENCE", "class_name": "Presence" },

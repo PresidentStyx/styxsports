@@ -36,6 +36,7 @@ import {
 import { normalizeGames, sortGames, liveSummary, gamesStub } from './games.js';
 import { resolveFlags } from './flags.js';
 import { handleTelemetry, telemetryHealth } from './telemetry.js';
+import { checkAlerts } from './alerts.js';
 
 export { Presence } from './presence.js';
 export { Pool } from './pool.js';
@@ -54,6 +55,14 @@ const json = (data, status = 200, extra = {}) =>
   });
 
 export default {
+  // Cron (wrangler.jsonc triggers): outage alerts from viewers' telemetry.
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(checkAlerts(env).then(
+      (r) => console.log('alerts', JSON.stringify(r)),
+      (e) => console.error('alerts failed', e && e.message),
+    ));
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;

@@ -895,6 +895,7 @@
         if (!data) data = await api('/api/stream?only=servers&page=' + encodeURIComponent(this.event.url));
       } catch (e) {
         if (gen !== this.generation) return;
+        telemetry.push({ kind: 'fail', game: this.event.id, code: 'page: ' + e.message });
         return this.allFailed('Could not open this game.\n' + e.message, false);
       }
       if (gen !== this.generation) return;
@@ -1481,6 +1482,7 @@
           return r && r.state === 'gate';
         });
         if (gated) return this.premiumOnly();
+        if (this.event) telemetry.push({ kind: 'fail', game: this.event.id, code: 'no server played' });
         return this.allFailed('None of the servers are responding right now.', true);
       }
       this.status(`${s.name} isn't responding — trying ${this.servers[next].name}`, true);

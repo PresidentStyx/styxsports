@@ -107,6 +107,14 @@ final class Telemetry {
         push(ctx, stamp(a, "error").put("code", code));
     }
 
+    /**
+     * A game that could not be opened at all: its server list did not load, or no server played.
+     * Nothing else reports these (no attempt ever started); the Worker's outage alerts count them.
+     */
+    static void fail(Context ctx, String game, String code) {
+        push(ctx, new Json().put("kind", "fail").put("game", game).put("code", code));
+    }
+
     static void switched(Context ctx, String from, String to, String reason) {
         push(ctx, new Json().put("kind", "switch").put("from", from).put("to", to).put("reason", reason));
     }

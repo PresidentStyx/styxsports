@@ -918,6 +918,7 @@ public class NativePlayerActivity extends Activity {
                 Log.w(TAG, "resolve failed: " + e);
                 handler.post(() -> {
                     if (gen != loadGeneration || isFinishing()) return;
+                    Telemetry.fail(this, event.id, "page: " + shortError(e));
                     showStatusWithActions(getString(R.string.np_page_failed, shortError(e)), false);
                 });
             }
@@ -1525,6 +1526,7 @@ public class NativePlayerActivity extends Activity {
         } else if (poolFull && hasPremium && !lease.held()) {
             showStatusWithActions(getString(R.string.pool_full_free_failed, poolMax), anyEmbed);
         } else {
+            if (event != null) Telemetry.fail(this, event.id, "no server played");
             showStatusWithActions(getString(R.string.np_all_failed), anyEmbed);
         }
     }
