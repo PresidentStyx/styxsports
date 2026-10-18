@@ -13,9 +13,20 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import okhttp3.Cookie;
+import okhttp3.CookieJar;
+import okhttp3.HttpUrl;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 
 /** Minimal blocking HTTP helpers; always call from a background thread. */
 final class Http {
@@ -92,6 +103,7 @@ final class Http {
 
     /** @param readTimeoutMs how long to wait for the response; some embed hosts take ~15 s. */
     static String getText(String url, String referer, int readTimeoutMs) throws IOException {
+        if (isWorker(url)) return new String(workerCall(url, null, referer, readTimeoutMs, MAX_TEXT_BYTES), StandardCharsets.UTF_8);
         HttpURLConnection c = open(url);
         try {
             c.setReadTimeout(readTimeoutMs);
@@ -138,6 +150,10 @@ final class Http {
     }
 
     static String postJson(String url, String jsonBody) throws IOException {
+        if (isWorker(url)) {
+            RequestBody body = RequestBody.create(jsonBody, MediaType.get("application/json; charset=UTF-8"));
+            return new String(workerCall(url, body, null, TIMEOUT_MS, MAX_TEXT_BYTES), StandardCharsets.UTF_8);
+        }
         HttpURLConnection c = open(url);
         try {
             c.setRequestMethod("POST");
@@ -204,6 +220,7 @@ final class Http {
     }
 
     static byte[] getBytes(String url, long maxBytes) throws IOException {
+        if (isWorker(url)) return workerCall(url, null, null, TIMEOUT_MS, maxBytes);
         HttpURLConnection c = open(url);
         try {
             check(c);
@@ -236,6 +253,87 @@ final class Http {
      * password (web/src/index.js APP_PATHS). Set by {@link Presence#id}.
      */
     static volatile String deviceId;
+
+    /**
+     * Calls to our own Worker go over HTTP/2 like the web app's. HttpURLConnection only speaks
+     * HTTP/1.1, and the Worker's reads of the site fail (HTTP 403 from the site, 502 to us) for
+     * HTTP/1.1 callers while the same request over HTTP/2 succeeds.
+     */
+    private static boolean isWorker(String url) {
+        return url.startsWith(Pool.WEB + "/");
+    }
+
+    private static OkHttpClient workerClient;
+
+    private static synchronized OkHttpClient workerClient() {
+        if (workerClient == null) {
+            ensureCookies();
+            workerClient = new OkHttpClient.Builder()
+                    .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    .cookieJar(new HandlerCookieJar())
+                    .build();
+        }
+        return workerClient;
+    }
+
+    /** GET (or POST when {@code body} is non-null) to the Worker; returns at most {@code maxBytes} of a 2xx body. */
+    private static byte[] workerCall(String url, RequestBody body, String referer,
+                                     int readTimeoutMs, long maxBytes) throws IOException {
+        Request.Builder rb = new Request.Builder().url(url)
+                .header("User-Agent", DESKTOP_UA)
+                .header("Accept", "text/html,application/json,application/vnd.github+json,*/*")
+                .header("Accept-Language", "en-US,en;q=0.9");
+        String id = deviceId;
+        if (id != null) rb.header("X-Styx-Device", id);
+        if (referer != null) rb.header("Referer", referer);
+        if (body != null) rb.post(body);
+        OkHttpClient client = workerClient().newBuilder()
+                .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
+                .build();
+        try (Response r = client.newCall(rb.build()).execute()) {
+            if (!r.isSuccessful()) throw new IOException("HTTP " + r.code() + " for " + r.request().url());
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            if (r.body() != null) copy(r.body().byteStream(), buf, maxBytes);
+            return buf.toByteArray();
+        }
+    }
+
+    /** OkHttp cookie jar over the process cookie handler, so Worker calls share the WebView's store. */
+    private static final class HandlerCookieJar implements CookieJar {
+        @Override
+        public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
+            CookieHandler h = CookieHandler.getDefault();
+            if (h == null || cookies.isEmpty()) return;
+            List<String> values = new ArrayList<>();
+            for (Cookie c : cookies) values.add(c.toString());
+            try {
+                h.put(url.uri(), Collections.singletonMap("Set-Cookie", values));
+            } catch (IOException ignored) {
+                // cookie not stored; the next call simply goes without it
+            }
+        }
+
+        @Override
+        public List<Cookie> loadForRequest(HttpUrl url) {
+            CookieHandler h = CookieHandler.getDefault();
+            if (h == null) return Collections.emptyList();
+            List<Cookie> out = new ArrayList<>();
+            try {
+                Map<String, List<String>> got = h.get(url.uri(), Collections.emptyMap());
+                List<String> headers = got.get("Cookie");
+                if (headers == null) return out;
+                for (String header : headers) {
+                    for (String pair : header.split(";\\s*")) {
+                        Cookie c = Cookie.parse(url, pair);
+                        if (c != null) out.add(c);
+                    }
+                }
+            } catch (IOException ignored) {
+                // no cookies for this call
+            }
+            return out;
+        }
+    }
 
     private static HttpURLConnection open(String url) throws IOException {
         ensureCookies();
