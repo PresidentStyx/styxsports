@@ -1,0 +1,71 @@
+name: Outage monitor
+
+# Every 10 minutes, walk the viewer path on sports.styxam.com over HTTP/1.1 (TV apps) and HTTP/2
+# (browsers) with .github/monitor/probe.sh. Anything but "ok" twice in a row (a minute apart)
+# opens an issue labelled `outage` that @mentions the owner, so GitHub emails and pushes it;
+# a change of verdict is commented on that issue, and it is closed when the probe is ok again.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: outage-monitor
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/monitor
+
+      - name: Probe
+        run: |
+          probe() { : > report.md; REPORT=report.md VERDICT=verdict bash .github/monitor/probe.sh; }
+          probe
+          # One retry a minute later, so a single blip doesn't page anyone.
+          if [ "$(cat verdict)" != ok ]; then sleep 60; probe; fi
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "VERDICT=$(cat verdict)" >> "$GITHUB_ENV"
+
+      - name: Open, update or close the outage issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create outage --color B60205 \
+            --description "Opened and closed by the outage monitor" >/dev/null 2>&1 || true
+          open=$(gh issue list --label outage --state open --json number,title -q '.[] | "\(.number)\t\(.title)"' | head -n1)
+          num=${open%%$'\t'*}; title=${open#*$'\t'}
+          now=$(date -u '+%Y-%m-%d %H:%M UTC')
+          case "$VERDICT" in
+            ok) want="" ;;
+            down) want="Styx Sports is down for every viewer" ;;
+            *) if grep -qE '^\| http1\.1 \|.*❌' report.md; then want="Styx Sports: TV apps can't load (HTTP/1.1 path failing)";
+               else want="Styx Sports: browsers and APK 3.10+ can't load (HTTP/2 path failing)"; fi ;;
+          esac
+          if [ -z "$want" ]; then
+            if [ -n "$num" ]; then
+              { echo "✅ Recovered at $now ([run]($RUN_URL))."; echo; cat report.md; } > body.md
+              gh issue comment "$num" --body-file body.md
+              gh issue close "$num"
+            fi
+            exit 0
+          fi
+          { echo "Detected at $now by the [outage monitor]($RUN_URL)."; echo; cat report.md; } > body.md
+          if [ -z "$num" ]; then
+            { cat body.md; echo; echo "@$OWNER"; } > new.md
+            gh issue create --title "$want" --label outage --body-file new.md
+          elif [ "$title" != "$want" ]; then
+            gh issue edit "$num" --title "$want"
+            gh issue comment "$num" --body-file body.md
+          fi
