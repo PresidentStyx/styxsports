@@ -4,9 +4,10 @@ name: Outage monitor
 # (browsers) with .github/monitor/probe.sh. Anything but "ok" twice in a row (a minute apart)
 # opens an issue labelled `outage` that @mentions the owner, so GitHub emails and pushes it;
 # a change of verdict is commented on that issue, and it is closed when the probe is ok again.
+# Manual only for now: from GitHub's datacenter network the site challenges the Worker's reads
+# on both protocols, so a scheduled run here reports "down" while home viewers play fine.
+# The probe needs a residential vantage point (see probe.sh; it runs anywhere with curl + jq).
 on:
-  schedule:
-    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 permissions:
