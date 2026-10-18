@@ -464,7 +464,7 @@ public class NativePlayerActivity extends Activity {
             hudPill.setVisibility(View.VISIBLE);
         } else if (event.live) {
             String txt = getString(R.string.pill_live);
-            if (!event.liveText.isEmpty()) txt += "  " + event.liveText;
+            if (!event.liveText.isEmpty() && !event.liveText.equalsIgnoreCase("live")) txt += "  " + event.liveText;
             hudPill.setText(txt);
             hudPill.setBackground(pill(color(R.color.live)));
             hudPill.setVisibility(View.VISIBLE);

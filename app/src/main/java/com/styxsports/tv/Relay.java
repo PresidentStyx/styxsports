@@ -335,7 +335,7 @@ final class Relay {
             body = Http.getText(url, null, readTimeoutMs);
         } catch (IOException e) {
             String m = e.getMessage() == null ? "" : e.getMessage();
-            if (m.contains("HTTP 401")) {
+            if (m.startsWith("HTTP 401")) {
                 // The Worker has not heard from this device (yet): announce it and try once more.
                 announcedAt = 0;
                 ensureAnnounced(ctx);
@@ -344,8 +344,17 @@ final class Relay {
                 } catch (IOException again) {
                     throw new IOException("the web relay did not accept this device");
                 }
-            } else if (m.contains("HTTP 403")) {
+            } else if (m.startsWith("HTTP 403")) {
                 throw new IOException("the web relay refused the request");
+            } else if (m.startsWith("HTTP 5")) {
+                // The Worker is up but could not read the site for us (it says why after the colon).
+                int colon = m.indexOf(": ");
+                String why = colon > 0 ? m.substring(colon + 2) : "";
+                if (why.startsWith("HTTP 404") || why.startsWith("HTTP 410")) {
+                    throw new IOException("This game's page is gone - it may have ended or moved. Go back and pick it from Home again.");
+                }
+                throw new IOException("The Styx server couldn't reach the game site right now. Try again in a minute."
+                        + (why.isEmpty() ? "" : "\n(" + why + ")"));
             } else {
                 throw e;
             }

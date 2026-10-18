@@ -291,7 +291,19 @@ final class Http {
                 .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
                 .build();
         try (Response r = client.newCall(rb.build()).execute()) {
-            if (!r.isSuccessful()) throw new IOException("HTTP " + r.code() + " for " + r.request().url());
+            if (!r.isSuccessful()) {
+                // The Worker says why in {"error": ...}; keep it, and leave the query string (the
+                // device id, the game page) out of a message that ends up on screen.
+                String why = "";
+                try {
+                    if (r.body() != null) why = new org.json.JSONObject(r.body().string()).optString("error", "");
+                } catch (Exception ignored) {
+                    // not JSON
+                }
+                HttpUrl u = r.request().url();
+                throw new IOException("HTTP " + r.code() + " from " + u.host() + u.encodedPath()
+                        + (why.isEmpty() ? "" : ": " + why));
+            }
             ByteArrayOutputStream buf = new ByteArrayOutputStream();
             if (r.body() != null) copy(r.body().byteStream(), buf, maxBytes);
             return buf.toByteArray();
@@ -352,7 +364,10 @@ final class Http {
 
     private static void check(HttpURLConnection c) throws IOException {
         int code = c.getResponseCode();
-        if (code < 200 || code >= 300) throw new IOException("HTTP " + code + " for " + c.getURL());
+        if (code < 200 || code >= 300) {
+            URL u = c.getURL();
+            throw new IOException("HTTP " + code + " for " + u.getProtocol() + "://" + u.getHost() + u.getPath());
+        }
     }
 
     private static String readText(HttpURLConnection c) throws IOException {

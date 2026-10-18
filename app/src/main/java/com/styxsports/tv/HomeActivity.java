@@ -37,9 +37,11 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -528,9 +530,23 @@ public class HomeActivity extends Activity {
 
     private final Runnable configTick = this::refreshConfig;
 
+    /** Failed refreshes in a row; drives {@link #offlineRetry}'s backoff. */
+    private int offlineFailures;
+
+    /** While the schedule can't be fetched, try again sooner than the 5-minute tick. */
+    private final Runnable offlineRetry = () -> fullRefresh(false);
+
+    private void scheduleOfflineRetry() {
+        long delay = Math.min(FULL_REFRESH_INTERVAL_MS, 30_000L << Math.min(offlineFailures, 4));
+        offlineFailures++;
+        handler.removeCallbacks(offlineRetry);
+        handler.postDelayed(offlineRetry, delay);
+    }
+
     private void fullRefresh(boolean userVisible) {
         if (loading) return;
         loading = true;
+        handler.removeCallbacks(offlineRetry);
         if (userVisible && snapshot != null) statusText.setText(R.string.refreshing);
         io.execute(() -> {
             try {
@@ -538,6 +554,7 @@ public class HomeActivity extends Activity {
                 handler.post(() -> {
                     loading = false;
                     if (isFinishing() || isDestroyed()) return;
+                    offlineFailures = 0;
                     images.forgetFailures();
                     render(fresh);
                 });
@@ -550,6 +567,7 @@ public class HomeActivity extends Activity {
                     } else {
                         statusText.setText(getString(R.string.status_offline, timeOf(snapshot.fetchedAtMs)));
                     }
+                    scheduleOfflineRetry();
                 });
             }
         });
@@ -670,14 +688,29 @@ public class HomeActivity extends Activity {
         afterLayout(this::restoreFocus);
     }
 
-    /** Recently opened games, using the snapshot's copy when it is still listed. */
+    /**
+     * Recently opened games, using the snapshot's copy when it is still listed. The site re-lists
+     * a recurring event under a new id and page (nfl-redzone-27 → -28), so an unlisted game is
+     * matched by category and title; one the schedule dropped after it was opened is over and is
+     * left out, since its page is gone (HTTP 404/410).
+     */
     private List<Event> continueWatching(Snapshot s) {
         List<Event> out = new ArrayList<>();
+        Set<String> shown = new HashSet<>();
         Map<String, Event> byId = new HashMap<>();
-        for (Event e : s.events) byId.put(e.id, e);
+        Map<String, Event> byTitle = new HashMap<>();
+        for (Event e : s.events) {
+            byId.put(e.id, e);
+            if (!e.ended) byTitle.put(e.categoryId + "|" + e.title().toLowerCase(Locale.US), e);
+        }
         for (Recents.Item it : Recents.load(this)) {
-            Event fresh = byId.get(it.event.id);
-            out.add(fresh != null ? fresh : it.event);
+            Event e = byId.get(it.event.id);
+            if (e == null) e = byTitle.get(it.event.categoryId + "|" + it.event.title().toLowerCase(Locale.US));
+            if (e == null) {
+                if (s.fetchedAtMs > it.openedAtMs) continue;
+                e = it.event; // opened after this (offline) snapshot was taken: keep it
+            }
+            if (shown.add(e.id)) out.add(e);
             if (out.size() >= MAX_CONTINUE) break;
         }
         return out;
@@ -960,7 +993,7 @@ public class HomeActivity extends Activity {
             h.pill.setBackground(pillBackground(color(R.color.pill_time)));
         } else if (e.live) {
             String txt = getString(R.string.pill_live);
-            if (!e.liveText.isEmpty()) txt += "  " + e.liveText;
+            if (!e.liveText.isEmpty() && !e.liveText.equalsIgnoreCase("live")) txt += "  " + e.liveText;
             h.pill.setText(txt);
             h.pill.setBackground(pillBackground(color(R.color.live)));
         } else {
@@ -1187,6 +1220,7 @@ public class HomeActivity extends Activity {
         super.onPause();
         handler.removeCallbacks(statusTick);
         handler.removeCallbacks(fullTick);
+        handler.removeCallbacks(offlineRetry);
         // Leaving Home without opening a game (openEvent hands a pre-warm to the player first):
         // a pool slot taken for browsing goes back now rather than after the Worker's minute.
         Prefetch.blur(handler);
