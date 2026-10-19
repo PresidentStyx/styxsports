@@ -65,6 +65,16 @@ export class Presence extends DurableObject {
     };
   }
 
+  /** Names the devices gave (or that were derived from their User-Agent), by id. */
+  async names(ids) {
+    const out = {};
+    for (const id of ids) {
+      const row = this.ctx.storage.sql.exec('SELECT name FROM clients WHERE id = ?', id).toArray()[0];
+      if (row && row.name) out[id] = String(row.name);
+    }
+    return out;
+  }
+
   /** A TV app (APK / Roku) that pinged within the window; browsers do not count. */
   async isTvDevice(id) {
     const row = this.ctx.storage.sql.exec('SELECT platform, last_seen FROM clients WHERE id = ?', id).toArray()[0];
@@ -176,4 +186,15 @@ export async function handleStats(env) {
   return new Response(JSON.stringify(data), {
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
   });
+}
+
+/** Device names by id (Cast shows "DM Theater" / "iPhone · Safari"); {} on any failure. */
+export async function deviceNames(env, ids) {
+  const ok = ids.filter((id) => ID_RE.test(id || ''));
+  if (!ok.length) return {};
+  try {
+    return await stub(env).names(ok);
+  } catch {
+    return {};
+  }
 }

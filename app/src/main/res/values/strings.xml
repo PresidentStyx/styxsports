@@ -149,4 +149,15 @@
     <string name="ltv_pool_unreachable">Couldn’t reach the premium pool (%1$s).\nLive TV needs one of the shared account’s connections.</string>
 
     <string name="update_allow_source_manual">Enable “Install unknown apps” for Styx Sports in Settings, then relaunch.</string>
+    <!-- Cast from the phone (Cast.java) -->
+    <string name="action_pair_phone">Pair phone</string>
+    <string name="cast_pair_title">Pair your phone</string>
+    <string name="cast_pair_steps">On your phone, open sports.styxam.com, press and hold any game, choose “Send to TV”, and enter this code:</string>
+    <string name="cast_pair_expires">The code works for 10 minutes. You only pair once.</string>
+    <string name="cast_pair_loading">Getting a code…</string>
+    <string name="cast_pair_failed">Couldn’t get a code: %1$s</string>
+    <string name="cast_paired">Paired with %1$s. Games you send from it open here.</string>
+    <string name="cast_opening">Opening %1$s · sent from %2$s</string>
+    <string name="cast_a_phone">a phone</string>
+    <string name="cast_close">Close</string>
 </resources>

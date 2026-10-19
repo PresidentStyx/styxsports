@@ -25,7 +25,8 @@ import { handleHls, handleTs, proxyPath, tsPath, proxyable } from './hls.js';
 import { hostOf } from './parser.js';
 import { DESKTOP_UA } from './site.js';
 import { gate, handleLogin, handleLogout } from './auth.js';
-import { handlePing, handleStats, isTvDevice } from './presence.js';
+import { handlePing, handleStats, isTvDevice, deviceNames } from './presence.js';
+import { handleCast } from './cast.js';
 import { handlePool, poolStub } from './pool.js';
 import {
   loadSession, sessionCookie, clearCookie, publicAccount, requestCode, pollCode, completeSignIn,
@@ -42,6 +43,7 @@ export { Presence } from './presence.js';
 export { Pool } from './pool.js';
 export { Games } from './games.js';
 export { Telemetry } from './telemetry.js';
+export { Cast } from './cast.js';
 
 const APK_URL = 'https://github.com/PresidentStyx/styxsports/releases/latest/download/StyxSports.apk';
 const SCHEDULE_TTL_S = 60;
@@ -153,6 +155,9 @@ export default {
         const session = await loadSession(request, env);
         return await handlePool(request, env, path, session, serializeSession);
       }
+      if (path.startsWith('/api/cast/')) {
+        return await handleCast(request, env, path, { tvDevice: app ? device : '', names: (ids) => deviceNames(env, ids) });
+      }
       if (path === '/api/iptv') return await apiIptv(request, env, ctx, url);
       if (path === '/api/iptv/token') return await apiIptvToken(request, env, url);
       if (path === '/api/probe') return await apiProbe(url);
@@ -169,7 +174,7 @@ export default {
 const LEASED_PATHS = new Set(['/api/stream', '/api/iptv', '/api/iptv/token']);
 /** The TV apps' install id header, and what they may read with it when their network blocks the site. */
 const DEVICE_HEADER = 'X-Styx-Device';
-const APP_PATHS = new Set(['/api/schedule', '/api/status', '/api/stream', '/api/iptv', '/api/iptv/token', '/img']);
+const APP_PATHS = new Set(['/api/schedule', '/api/status', '/api/stream', '/api/iptv', '/api/iptv/token', '/img', '/api/cast/pair', '/api/cast/ws']);
 const appPath = (path) => APP_PATHS.has(path) || (path.startsWith('/api/games') && path !== '/api/games/coverage');
 
 async function hasLiveLease(env, slot) {

@@ -117,25 +117,8 @@ final class Relay {
         if (evs != null) {
             for (int i = 0; i < evs.length(); i++) {
                 JSONObject j = evs.optJSONObject(i);
-                if (j == null) continue;
-                Event e = new Event();
-                e.id = j.optString("id", "");
-                e.categoryId = j.optInt("categoryId", 0);
-                e.home = j.optString("home", "");
-                e.away = j.optString("away", "");
-                e.url = j.optString("url", "");
-                e.startTs = j.optLong("startTs", 0);
-                e.live = j.optBoolean("live", false);
-                e.ended = j.optBoolean("ended", false);
-                e.hot = j.optBoolean("hot", false);
-                e.hotRank = j.optInt("hotRank", 0);
-                e.premium = j.optBoolean("premium", false);
-                e.league = j.optString("league", "");
-                e.crestHome = absolute(j.optString("crestHome", ""));
-                e.crestAway = absolute(j.optString("crestAway", ""));
-                e.liveText = j.optString("liveText", "");
-                e.score = j.optString("score", "");
-                if (!e.id.isEmpty() && !e.url.isEmpty()) s.events.add(e);
+                Event e = j == null ? null : eventFrom(j);
+                if (e != null) s.events.add(e);
             }
         }
         if (s.events.isEmpty()) throw new IOException("the relay listed no games");
@@ -152,6 +135,28 @@ final class Relay {
     // ---------------------------------------------------------------------------------------------
     // Streams
     // ---------------------------------------------------------------------------------------------
+
+    /** One event in the Worker's /api/schedule shape (also what a phone casts); null without id/url. */
+    static Event eventFrom(JSONObject j) {
+        Event e = new Event();
+        e.id = j.optString("id", "");
+        e.categoryId = j.optInt("categoryId", 0);
+        e.home = j.optString("home", "");
+        e.away = j.optString("away", "");
+        e.url = j.optString("url", "");
+        e.startTs = j.optLong("startTs", 0);
+        e.live = j.optBoolean("live", false);
+        e.ended = j.optBoolean("ended", false);
+        e.hot = j.optBoolean("hot", false);
+        e.hotRank = j.optInt("hotRank", 0);
+        e.premium = j.optBoolean("premium", false);
+        e.league = j.optString("league", "");
+        e.crestHome = absolute(j.optString("crestHome", ""));
+        e.crestAway = absolute(j.optString("crestAway", ""));
+        e.liveText = j.optString("liveText", "");
+        e.score = j.optString("score", "");
+        return e.id.isEmpty() || e.url.isEmpty() ? null : e;
+    }
 
     /** A stream page's server tabs (/api/stream?only=servers); no HTML, so resolve tabs with {@link #resolve}. */
     static StreamResolver.Page page(Context ctx, String pageUrl) throws IOException {

@@ -144,6 +144,50 @@
     },
   };
 
+  // Cast to a paired TV (web/src/cast.js). Pair once with the code the TV shows (Home → Pair
+  // phone); then "Send to <TV>" in a card's long-press menu or the player's 📺 opens it there.
+  const cast = {
+    tvs: [],
+    enabled() { return flags.on('cast', true); },
+    async refresh() {
+      if (!this.enabled()) { this.tvs = []; return; }
+      try { this.tvs = (await api('/api/cast/targets?phone=' + encodeURIComponent(clientId()))).tvs || []; } catch { /* keep */ }
+      const b = $('p-cast');
+      if (b) b.classList.toggle('hidden', !this.enabled());
+    },
+    async send(tv, e) {
+      try {
+        await api('/api/cast/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: clientId(), tv: tv.id, cmd: 'open', event: e }) });
+        appToast(`Sent to ${tv.name}`);
+        return true;
+      } catch (err) {
+        appToast(err.message);
+        this.refresh();
+        return false;
+      }
+    },
+    async claim(code) {
+      const r = await api('/api/cast/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: clientId(), code }) });
+      await this.refresh();
+      return r.tv;
+    },
+    async unpair(tv) {
+      try { await api('/api/cast/unpair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: clientId(), tv: tv.id }) }); } catch { /* next refresh shows it */ }
+      await this.refresh();
+      appToast(`Removed ${tv.name}`);
+    },
+  };
+
+  let appToastTimer = null;
+  function appToast(text) {
+    if (!$('player').classList.contains('hidden')) return player.toast(text);
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.remove('hidden');
+    clearTimeout(appToastTimer);
+    appToastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
+  }
+
   function setAccount(a) {
     const changed = !account || a.signedIn !== account.signedIn || a.premium !== account.premium || a.iptv !== account.iptv;
     account = { signedIn: !!a.signedIn, premium: a.premium === true ? true : a.premium === false ? false : null, iptv: !!a.iptv };
@@ -454,6 +498,11 @@
     return col;
   }
 
+  /** "LIVE  Q3 4:12"; just "LIVE" when the status text says nothing more (Redzone's is "Live"). */
+  function liveLabel(e) {
+    return 'LIVE' + (e.liveText && e.liveText.toLowerCase() !== 'live' ? '  ' + e.liveText : '');
+  }
+
   function createCard(e) {
     const card = el('button', 'card');
     card.type = 'button';
@@ -515,7 +564,7 @@
       pill.textContent = 'FINAL';
       pill.classList.remove('live');
     } else if (e.live) {
-      pill.textContent = 'LIVE' + (e.liveText ? '  ' + e.liveText : '');
+      pill.textContent = liveLabel(e);
       pill.classList.add('live');
     } else {
       pill.textContent = startLabel(e.startTs);
@@ -572,12 +621,73 @@
       const lk = league.toLowerCase();
       item((favorites.leagues.has(lk) ? '★ Unstar ' : '☆ Star ') + prettyLeague(league), () => favorites.toggleLeague(lk));
     }
+    addCastItems(menu, e);
     menu.classList.remove('hidden');
     const w = menu.offsetWidth, h = menu.offsetHeight;
     menu.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + 'px';
     menu.style.top = Math.max(8, Math.min(y, innerHeight - h - 8)) + 'px';
     const first = menu.querySelector('button');
     if (first) first.focus();
+  }
+
+  /** "Send to <TV>" for each paired TV, then "Pair a TV…". */
+  function addCastItems(menu, e) {
+    if (!cast.enabled()) return;
+    menu.appendChild(el('div', 'menu-title', 'Send to TV'));
+    for (const tv of cast.tvs) {
+      const b = el('button', null, `📺 ${tv.name}${tv.online ? '' : ' (app closed)'}`);
+      b.onclick = () => { hideMenu(); cast.send(tv, e); };
+      menu.appendChild(b);
+    }
+    const pair = el('button', null, cast.tvs.length ? '＋ Pair another TV…' : '📺 Pair a TV…');
+    pair.onclick = () => showPairForm(e, menu.offsetLeft, menu.offsetTop);
+    menu.appendChild(pair);
+    if (cast.tvs.length) {
+      const manage = el('button', null, 'Remove a TV…');
+      manage.onclick = () => {
+        menu.replaceChildren(el('div', 'menu-title', 'Remove a TV'));
+        for (const tv of cast.tvs) {
+          const b = el('button', null, `✕ ${tv.name}`);
+          b.onclick = () => { hideMenu(); cast.unpair(tv); };
+          menu.appendChild(b);
+        }
+      };
+      menu.appendChild(manage);
+    }
+    cast.refresh(); // online state for next time
+  }
+
+  /** Enter the TV's 6-digit code; with `e`, the game is sent right after pairing. */
+  function showPairForm(e, x, y) {
+    const menu = $('menu');
+    menu.replaceChildren(el('div', 'menu-title', 'Pair a TV'));
+    menu.appendChild(el('div', 'menu-note', 'On the TV, open Styx Sports and choose Pair phone. Enter the code it shows:'));
+    const input = document.createElement('input');
+    Object.assign(input, { className: 'cast-code', inputMode: 'numeric', autocomplete: 'one-time-code', maxLength: 7, placeholder: '000000' });
+    menu.appendChild(input);
+    const go = el('button', null, 'Pair');
+    const submit = async () => {
+      go.disabled = true;
+      try {
+        const tv = await cast.claim(input.value.replace(/\D/g, ''));
+        hideMenu();
+        appToast(`Paired with ${tv.name}`);
+        if (e) {
+          const t = cast.tvs.find((v) => v.id === tv.id) || tv;
+          cast.send(t, e);
+        }
+      } catch (err) {
+        go.disabled = false;
+        appToast(err.message);
+      }
+    };
+    go.onclick = submit;
+    input.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
+    menu.appendChild(go);
+    menu.classList.remove('hidden');
+    menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';
+    input.focus();
   }
 
   function hideMenu() { $('menu').classList.add('hidden'); }
@@ -1547,7 +1657,7 @@
       const e = byId(this.event.id) || this.event;
       const pill = $('p-pill');
       if (e.ended) { pill.textContent = 'FINAL'; pill.classList.remove('live'); }
-      else if (e.live) { pill.textContent = 'LIVE' + (e.liveText ? '  ' + e.liveText : ''); pill.classList.add('live'); }
+      else if (e.live) { pill.textContent = liveLabel(e); pill.classList.add('live'); }
       else { pill.textContent = startLabel(e.startTs); pill.classList.remove('live'); }
       $('p-title').textContent = e.away ? `${e.home} vs ${e.away}` : e.home;
       $('p-score').textContent = e.score ? e.score.replace(' - ', '–') : '';
@@ -1769,6 +1879,17 @@
 
   // Player UI wiring.
   $('p-close').onclick = () => player.close();
+  $('p-cast').onclick = (ev) => {
+    const e = player.event;
+    if (!e) return;
+    const menu = $('menu');
+    menu.replaceChildren();
+    addCastItems(menu, e);
+    menu.classList.remove('hidden');
+    const r = ev.currentTarget.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = (r.bottom + 6) + 'px';
+  };
   $('p-fs').onclick = () => player.toggleFullscreen();
   $('p-unmute').onclick = () => { player.video.muted = false; $('p-unmute').classList.add('hidden'); };
   // On a touch screen the first tap on a hidden HUD only brings it back; a mouse click always
@@ -2248,6 +2369,7 @@
 
   flags.load();
   setInterval(() => { if (!document.hidden) flags.load(); }, FLAGS_MS);
+  cast.refresh();
   // Free the shared premium slot the moment the tab goes away (the lease would expire anyway).
   window.addEventListener('pagehide', () => player.dropSlot());
 

@@ -63,6 +63,8 @@ public class HomeActivity extends Activity {
     private static final int WORDMARK_W = 196;
 
     private static final String PREFS = "styxsports";
+    /** A game a paired phone sent (Cast): its /api/schedule JSON. */
+    static final String EXTRA_CAST_EVENT = "cast_event";
     private static final String KEY_FILTER = "filter_category";
     private static final int MAX_CONTINUE = 6;
 
@@ -174,6 +176,79 @@ public class HomeActivity extends Activity {
         fullRefresh(true);
         Telemetry.noteLaunch(this); // reports "updated from X to Y" once per new version
         if (!showCrashReport()) updates.checkInBackground();
+        openCast(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        openCast(intent); // singleTask: whatever was playing above Home is gone already
+    }
+
+    /** A game sent from a paired phone (Cast) opens like a card press. */
+    private void openCast(Intent intent) {
+        String json = intent == null ? null : intent.getStringExtra(EXTRA_CAST_EVENT);
+        if (json == null || repo == null) return;
+        intent.removeExtra(EXTRA_CAST_EVENT);
+        try {
+            Event e = Relay.eventFrom(new org.json.JSONObject(json));
+            if (e != null) openEvent(e);
+        } catch (org.json.JSONException ignored) {
+            // not a game
+        }
+    }
+
+    /** "Pair phone": a 6-digit code the phone enters once (Cast). */
+    private void showPairDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(28), dp(8), dp(28), 0);
+        TextView steps = new TextView(this);
+        steps.setText(R.string.cast_pair_steps);
+        steps.setTextSize(16);
+        TextView code = new TextView(this);
+        code.setText(R.string.cast_pair_loading);
+        code.setTextSize(44);
+        code.setTypeface(Typeface.DEFAULT_BOLD);
+        code.setLetterSpacing(0.15f);
+        code.setGravity(Gravity.CENTER);
+        code.setPadding(0, dp(16), 0, dp(16));
+        TextView note = new TextView(this);
+        note.setText(R.string.cast_pair_expires);
+        note.setTextSize(13);
+        box.addView(steps);
+        box.addView(code);
+        box.addView(note);
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.cast_pair_title)
+                .setView(box)
+                .setNegativeButton(R.string.cast_close, null)
+                .create();
+        final Cast.Listener paired = phone -> {
+            code.setText("✓");
+            note.setText(getString(R.string.cast_paired, phone.isEmpty() ? getString(R.string.cast_a_phone) : phone));
+            handler.postDelayed(() -> { if (dialog.isShowing()) dialog.dismiss(); }, 3_000L);
+        };
+        Cast.addListener(paired);
+        dialog.setOnDismissListener(d -> Cast.removeListener(paired));
+        dialog.show();
+        io.execute(() -> {
+            String text;
+            try {
+                String c = Cast.pairCode(this).optString("code", "");
+                text = c.length() == 6 ? c.substring(0, 3) + " " + c.substring(3) : c;
+            } catch (IOException e) {
+                text = null;
+                final String why = e.getMessage();
+                handler.post(() -> {
+                    code.setTextSize(16);
+                    code.setText(getString(R.string.cast_pair_failed, why));
+                });
+            }
+            final String shown = text;
+            if (shown != null) handler.post(() -> code.setText(shown));
+        });
     }
 
     /** Shows what was recorded about the previous crash, if any. Returns whether it did. */
@@ -294,6 +369,12 @@ public class HomeActivity extends Activity {
         View site = pillButton(getString(R.string.action_open_site), v -> openWebsite());
         ((LinearLayout.LayoutParams) site.getLayoutParams()).leftMargin = dp(10);
         bar.addView(site);
+
+        if (Cast.enabled(this)) {
+            View pair = pillButton(getString(R.string.action_pair_phone), v -> showPairDialog());
+            ((LinearLayout.LayoutParams) pair.getLayoutParams()).leftMargin = dp(10);
+            bar.addView(pair);
+        }
 
         accountButton = pillButton("", v -> startActivity(AccountActivity.intent(this)));
         ((LinearLayout.LayoutParams) accountButton.getLayoutParams()).leftMargin = dp(10);

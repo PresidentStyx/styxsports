@@ -265,7 +265,8 @@ final class Http {
 
     private static OkHttpClient workerClient;
 
-    private static synchronized OkHttpClient workerClient() {
+    /** HTTP/2 client for the Worker (also carries Cast's WebSocket). */
+    static synchronized OkHttpClient workerClient() {
         if (workerClient == null) {
             ensureCookies();
             workerClient = new OkHttpClient.Builder()

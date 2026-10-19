@@ -8,5 +8,6 @@ public class StyxApp extends Application {
         super.onCreate();
         CrashLog.install(this);
         Presence.install(this);
+        Cast.install(this);
     }
 }

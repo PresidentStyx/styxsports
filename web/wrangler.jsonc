@@ -21,13 +21,15 @@
       { "name": "PRESENCE", "class_name": "Presence" },
       { "name": "POOL", "class_name": "Pool" },
       { "name": "GAMES", "class_name": "Games" },
-      { "name": "TELEMETRY", "class_name": "Telemetry" }
+      { "name": "TELEMETRY", "class_name": "Telemetry" },
+      { "name": "CAST", "class_name": "Cast" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Presence"] },
     { "tag": "v2", "new_sqlite_classes": ["Pool"] },
     { "tag": "v3", "new_sqlite_classes": ["Games"] },
-    { "tag": "v4", "new_sqlite_classes": ["Telemetry"] }
+    { "tag": "v4", "new_sqlite_classes": ["Telemetry"] },
+    { "tag": "v5", "new_sqlite_classes": ["Cast"] }
   ]
 }
