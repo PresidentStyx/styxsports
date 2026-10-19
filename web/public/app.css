@@ -393,3 +393,42 @@ button.apk { cursor: pointer; }
 .install-hint img { width: 40px; height: 40px; border-radius: 10px; flex: none; }
 .install-hint span { flex: 1; }
 .install-hint.hidden { display: none; }
+
+/* ---------------------------------------------------------------- phones: score list */
+/* Replaces the two-column card grid on phones (portrait): the top bar sits below the status bar
+   on a solid background (the installed app draws under it), and each row's games are one
+   grouped list - a status line, then a line per team with crest and score. */
+@media (max-width: 600px) {
+  .top {
+    background: var(--bg); border-bottom: 1px solid var(--outline);
+    padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: 8px;
+  }
+  .wordmark { height: 18px; }
+  .rows { padding-top: 14px; }
+  .row { margin-bottom: 22px; }
+  .row-head { padding: 0 16px 8px; }
+  .row-title { font-size: 18px; }
+  .strip {
+    display: block; padding: 0; margin: 0 12px;
+    background: var(--surface); border: 1px solid var(--outline); border-radius: 14px; overflow: hidden;
+  }
+  .card.game-row {
+    display: block; width: 100%; height: auto; min-width: 0; text-align: left; /* a <button> shrinks to fit otherwise */
+    background: transparent; border: 0; border-top: 1px solid var(--outline); border-radius: 0;
+    padding: 10px 14px 8px; -webkit-tap-highlight-color: transparent;
+  }
+  .card.game-row:first-child { border-top: 0; }
+  .card.game-row:active, .card.game-row:focus-visible { background: var(--surface-focused); border-color: var(--outline); }
+  .game-row .card-top { justify-content: flex-start; gap: 8px; margin-bottom: 4px; font-size: 11px; }
+  .game-row .badges { margin-left: auto; }
+  .tl-league { color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .team-line { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+  .team-line .crest { width: 22px; height: 22px; border-radius: 4px; flex: none; }
+  .tl-name { flex: 1; min-width: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-score { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .team-line.trailing .tl-name, .team-line.trailing .tl-score { color: var(--muted); }
+  .team-line.trailing .tl-score { font-weight: 600; }
+  .game-row .single-title { text-align: left; font-size: 16px; padding: 6px 0 4px; max-height: none; }
+  .empty { padding: 32px 16px; }
+  .foot { padding-top: 6px; }
+}

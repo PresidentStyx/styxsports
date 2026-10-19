@@ -355,14 +355,39 @@
       if (filter && c !== filter) continue;
       const list = byCat.get(c.id) || [];
       if (!list.length) continue;
-      let liveN = 0, endedN = 0;
-      for (const e of list) { if (e.ended) endedN++; else if (e.live) liveN++; }
-      const upcoming = list.length - liveN - endedN;
-      let sub = liveN > 0 ? `${liveN} live · ${upcoming} upcoming` : `${upcoming} upcoming`;
-      if (endedN > 0) sub += ` · ${endedN} final`;
-      rows.push({ title: c.name, sub, events: favoritesFirst(list) });
+      rows.push({ title: c.name, sub: categorySub(list), events: favoritesFirst(list), category: true });
     }
-    return { rows, filter, premiumOnly };
+    return { rows: isPhone() ? phoneRows(rows) : rows, filter, premiumOnly };
+  }
+
+  function categorySub(list) {
+    let liveN = 0, endedN = 0;
+    for (const e of list) { if (e.ended) endedN++; else if (e.live) liveN++; }
+    const upcoming = list.length - liveN - endedN;
+    const parts = [];
+    if (liveN) parts.push(`${liveN} live`);
+    if (upcoming || !liveN) parts.push(`${upcoming} upcoming`);
+    if (endedN) parts.push(`${endedN} final`);
+    return parts.join(' · ');
+  }
+
+  /**
+   * Phones: Your teams, then Live now, then Continue watching, then the leagues - and a game shows
+   * up only in the first of those that lists it (the TV repeats live games in every row; on a
+   * phone that doubled the scrolling).
+   */
+  function phoneRows(rows) {
+    const rank = (r) => (r.title === 'Your teams' ? 0 : r.title === 'Live now' ? 1 : r.title === 'Continue watching' ? 2 : 3);
+    const seen = new Set();
+    const out = [];
+    for (const r of rows.map((r, i) => [r, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map((x) => x[0])) {
+      const events = r.events.filter((e) => !seen.has(e.id));
+      for (const e of events) seen.add(e.id);
+      if (!events.length) continue;
+      const sub = r.category ? categorySub(events) : r.title === 'Live now' ? `${events.length} live` : r.sub;
+      out.push({ ...r, events, sub });
+    }
+    return out;
   }
 
   function render() {
@@ -501,6 +526,12 @@
     return col;
   }
 
+  // Phones (portrait) get a score list instead of the TV's card strips: one row per game, and
+  // each game listed once (see phoneRows).
+  const phoneMq = matchMedia('(max-width: 600px)');
+  const isPhone = () => phoneMq.matches;
+  phoneMq.addEventListener('change', () => { lastLayoutKey = ''; render(); });
+
   /** "LIVE  Q3 4:12"; just "LIVE" when the status text says nothing more (Redzone's is "Live"). */
   function liveLabel(e) {
     return 'LIVE' + (e.liveText && e.liveText.toLowerCase() !== 'live' ? '  ' + e.liveText : '');
@@ -519,16 +550,37 @@
     top.append(card._pill, card._badges);
     card.appendChild(top);
 
-    const mid = el('div', 'card-mid');
-    if (!e.away) {
-      card._middle = el('div', 'single-title', e.home);
-      mid.appendChild(card._middle);
+    if (isPhone()) {
+      // A score-list row: status line, then one line per team with its crest and score.
+      card.classList.add('game-row');
+      const league = prettyLeague(e.league);
+      if (league) top.insertBefore(el('span', 'tl-league', league), card._badges);
+      if (!e.away) {
+        card._middle = el('div', 'single-title', e.home);
+        card.appendChild(card._middle);
+      } else {
+        const line = (name, crestUrl) => {
+          const l = el('div', 'team-line');
+          const score = el('span', 'tl-score');
+          l.append(crest(crestUrl), el('span', 'tl-name', name), score);
+          card.appendChild(l);
+          return [l, score];
+        };
+        [card._homeLine, card._homeScore] = line(e.home, e.crestHome);
+        [card._awayLine, card._awayScore] = line(e.away, e.crestAway);
+      }
     } else {
-      card._middle = el('div', 'mid-text');
-      mid.append(team(e.home, e.crestHome), card._middle, team(e.away, e.crestAway));
+      const mid = el('div', 'card-mid');
+      if (!e.away) {
+        card._middle = el('div', 'single-title', e.home);
+        mid.appendChild(card._middle);
+      } else {
+        card._middle = el('div', 'mid-text');
+        mid.append(team(e.home, e.crestHome), card._middle, team(e.away, e.crestAway));
+      }
+      card.appendChild(mid);
+      card.appendChild(el('div', 'card-league', prettyLeague(e.league)));
     }
-    card.appendChild(mid);
-    card.appendChild(el('div', 'card-league', prettyLeague(e.league)));
     bindDynamic(card, e);
 
     card.onclick = () => openEvent(card._event);
@@ -573,7 +625,14 @@
       pill.textContent = startLabel(e.startTs);
       pill.classList.remove('live');
     }
-    if (e.away) {
+    if (card._homeScore) {
+      const m = /^\s*(\d+)\s*-\s*(\d+)\s*$/.exec(e.score || '');
+      card._homeScore.textContent = m ? m[1] : '';
+      card._awayScore.textContent = m ? m[2] : '';
+      const lead = m && (e.live || e.ended) ? Math.sign(Number(m[1]) - Number(m[2])) : 0;
+      card._homeLine.classList.toggle('trailing', lead < 0);
+      card._awayLine.classList.toggle('trailing', lead > 0);
+    } else if (e.away) {
       if (e.score) {
         card._middle.textContent = e.score.replace(' - ', '–');
         card._middle.classList.remove('muted');
