@@ -24,8 +24,8 @@ android {
         minSdk 21
         targetSdk 35
         // Keep versionName == git tag without the "v"; the in-app updater compares them.
-        versionCode 22
-        versionName '3.10'
+        versionCode 23
+        versionName '3.11'
     }
 
     signingConfigs {
