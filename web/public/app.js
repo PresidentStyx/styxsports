@@ -257,7 +257,7 @@
       store.set(SNAPSHOT_KEY, s); // painted instantly on the next launch, like the app's disk snapshot
       render();
     } catch (e) {
-      if (!snapshot) showProblem('Could not load the schedule.\n' + e.message);
+      if (!snapshot) showProblem(navigator.onLine === false ? 'You’re offline.\nConnect to the internet, then tap Retry.' : 'Could not load the schedule.\n' + e.message);
       else $('status').textContent = 'Offline · ' + e.message;
     }
   }
@@ -2373,6 +2373,43 @@
   flags.load();
   setInterval(() => { if (!document.hidden) flags.load(); }, FLAGS_MS);
   cast.refresh();
+
+  // Installable app (4.0 phase 4.2): a service worker for an instant start (sw.js), and on a
+  // phone's second visit a one-time hint to put it on the home screen.
+  const pwa = {
+    deferred: null,
+    standalone() { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; },
+    ios() { return /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1); },
+    start() {
+      if ('serviceWorker' in navigator) {
+        if (flags.on('pwa', true)) navigator.serviceWorker.register('/sw.js').catch(() => {});
+        else navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
+      }
+      addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); this.deferred = ev; this.maybeHint(); });
+      addEventListener('appinstalled', () => this.done());
+      store.set('visits', store.get('visits', 0) + 1);
+      this.maybeHint();
+    },
+    maybeHint() {
+      if (this.standalone() || store.get('install_hint_done', false) || store.get('visits', 0) < 2) return;
+      if (!matchMedia('(pointer: coarse)').matches || !flags.on('pwa', true)) return;
+      const ios = this.ios();
+      if (!ios && !this.deferred) return; // elsewhere only once the browser says it can install
+      $('install-text').textContent = ios
+        ? 'Put Styx Sports on your Home Screen: tap Share ⎙, then “Add to Home Screen”.'
+        : 'Install Styx Sports as an app on this phone.';
+      $('install-go').classList.toggle('hidden', ios);
+      $('install-hint').classList.remove('hidden');
+    },
+    done() { store.set('install_hint_done', true); $('install-hint').classList.add('hidden'); },
+  };
+  $('install-x').onclick = () => pwa.done();
+  $('install-go').onclick = async () => {
+    const d = pwa.deferred;
+    pwa.done();
+    if (d) { d.prompt(); try { await d.userChoice; } catch { /* dismissed */ } }
+  };
+  pwa.start();
   // Free the shared premium slot the moment the tab goes away (the lease would expire anyway).
   window.addEventListener('pagehide', () => player.dropSlot());
 

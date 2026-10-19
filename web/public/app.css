@@ -383,3 +383,13 @@ button.apk { cursor: pointer; }
   margin: 4px 14px 8px; width: calc(100% - 28px); box-sizing: border-box; font-size: 24px; letter-spacing: .2em;
   text-align: center; padding: 8px; border-radius: 10px; border: 1px solid var(--outline-strong); background: transparent; color: inherit;
 }
+
+/* "Add to Home Screen" hint on phones (second visit, dismissible). */
+.install-hint {
+  position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 40;
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px;
+  background: rgba(23,23,23,.96); border: 1px solid var(--outline-strong); font-size: 14px;
+}
+.install-hint img { width: 40px; height: 40px; border-radius: 10px; flex: none; }
+.install-hint span { flex: 1; }
+.install-hint.hidden { display: none; }

@@ -10,6 +10,8 @@ const LOGOUT_PATH = '/logout';
 const OPEN = new Set([
   LOGIN_PATH, LOGOUT_PATH, '/apk', '/download', '/styxsports.apk', '/roku', '/styxsports.zip', '/install', '/install.html', '/app.css',
   '/wordmark.png', '/icon.png', '/favicon.ico', '/robots.txt', '/manifest.webmanifest',
+  // Installable app: the service worker and the icons an installer may fetch without our cookie.
+  '/sw.js', '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png', '/apple-touch-icon.png',
 ]);
 
 export function gateEnabled(env) {

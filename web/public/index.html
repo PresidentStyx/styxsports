@@ -7,10 +7,12 @@
   <meta name="description" content="Styx Sports: live sports schedule and streams. Pick a game, it plays.">
   <meta name="referrer" content="no-referrer">
   <title>Styx Sports</title>
-  <link rel="icon" href="/icon.png">
-  <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="icon" href="/icon-192.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Styx Sports">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="stylesheet" href="/tokens.css">
   <link rel="stylesheet" href="/app.css">
@@ -75,6 +77,12 @@
   <!-- Favorites menu -->
   <div id="menu" class="menu hidden" role="menu"></div>
   <div class="p-toast app-toast hidden" id="toast" role="status"></div>
+  <div class="install-hint hidden" id="install-hint" role="dialog" aria-label="Install Styx Sports">
+    <img src="/icon-192.png" alt="">
+    <span id="install-text"></span>
+    <button class="btn primary hidden" id="install-go">Install</button>
+    <button class="icon-btn" id="install-x" title="Not now">✕</button>
+  </div>
 
   <!-- Premium account: the site's TV sign-in (code on this screen, approved on the phone) -->
   <div id="acct" class="acct hidden" role="dialog" aria-modal="true" aria-labelledby="acct-title">
