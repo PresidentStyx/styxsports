@@ -394,41 +394,722 @@ button.apk { cursor: pointer; }
 .install-hint span { flex: 1; }
 .install-hint.hidden { display: none; }
 
-/* ---------------------------------------------------------------- phones: score list */
-/* Replaces the two-column card grid on phones (portrait): the top bar sits below the status bar
-   on a solid background (the installed app draws under it), and each row's games are one
-   grouped list - a status line, then a line per team with crest and score. */
+/* ---------------------------------------------------------------- phones: the 3.13 score list */
+/* For pages without the phone Home below, whose <html> has no .home: /install and /stats (they
+   load this file too) keep the phone styles they always had, and so does a home page the service
+   worker still has from an earlier release. Unchanged from 3.13, scoped with :where() (which adds
+   no specificity). */
 @media (max-width: 600px) {
-  .top {
+  :where(html:not(.home)) .top {
     background: var(--bg); border-bottom: 1px solid var(--outline);
     padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: 8px;
   }
-  .wordmark { height: 18px; }
-  .rows { padding-top: 14px; }
-  .row { margin-bottom: 22px; }
-  .row-head { padding: 0 16px 8px; }
-  .row-title { font-size: 18px; }
-  .strip {
+  :where(html:not(.home)) .wordmark { height: 18px; }
+  :where(html:not(.home)) .rows { padding-top: 14px; }
+  :where(html:not(.home)) .row { margin-bottom: 22px; }
+  :where(html:not(.home)) .row-head { padding: 0 16px 8px; }
+  :where(html:not(.home)) .row-title { font-size: 18px; }
+  :where(html:not(.home)) .strip {
     display: block; padding: 0; margin: 0 12px;
     background: var(--surface); border: 1px solid var(--outline); border-radius: 14px; overflow: hidden;
   }
-  .card.game-row {
+  :where(html:not(.home)) .card.game-row {
     display: block; width: 100%; height: auto; min-width: 0; text-align: left; /* a <button> shrinks to fit otherwise */
     background: transparent; border: 0; border-top: 1px solid var(--outline); border-radius: 0;
     padding: 10px 14px 8px; -webkit-tap-highlight-color: transparent;
   }
-  .card.game-row:first-child { border-top: 0; }
-  .card.game-row:active, .card.game-row:focus-visible { background: var(--surface-focused); border-color: var(--outline); }
-  .game-row .card-top { justify-content: flex-start; gap: 8px; margin-bottom: 4px; font-size: 11px; }
-  .game-row .badges { margin-left: auto; }
-  .tl-league { color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .team-line { display: flex; align-items: center; gap: 10px; min-height: 30px; }
-  .team-line .crest { width: 22px; height: 22px; border-radius: 4px; flex: none; }
-  .tl-name { flex: 1; min-width: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tl-score { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .team-line.trailing .tl-name, .team-line.trailing .tl-score { color: var(--muted); }
-  .team-line.trailing .tl-score { font-weight: 600; }
-  .game-row .single-title { text-align: left; font-size: 16px; padding: 6px 0 4px; max-height: none; }
-  .empty { padding: 32px 16px; }
-  .foot { padding-top: 6px; }
+  :where(html:not(.home)) .card.game-row:first-child { border-top: 0; }
+  :where(html:not(.home)) .card.game-row:active, :where(html:not(.home)) .card.game-row:focus-visible { background: var(--surface-focused); border-color: var(--outline); }
+  :where(html:not(.home)) .game-row .card-top { justify-content: flex-start; gap: 8px; margin-bottom: 4px; font-size: 11px; }
+  :where(html:not(.home)) .game-row .badges { margin-left: auto; }
+  :where(html:not(.home)) .tl-league { color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  :where(html:not(.home)) .team-line { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+  :where(html:not(.home)) .team-line .crest { width: 22px; height: 22px; border-radius: 4px; flex: none; }
+  :where(html:not(.home)) .tl-name { flex: 1; min-width: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  :where(html:not(.home)) .tl-score { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  :where(html:not(.home)) .team-line.trailing .tl-name, :where(html:not(.home)) .team-line.trailing .tl-score { color: var(--muted); }
+  :where(html:not(.home)) .team-line.trailing .tl-score { font-weight: 600; }
+  :where(html:not(.home)) .game-row .single-title { text-align: left; font-size: 16px; padding: 6px 0 4px; max-height: none; }
+  :where(html:not(.home)) .empty { padding: 32px 16px; }
+  :where(html:not(.home)) .foot { padding-top: 6px; }
+}
+
+/* =================================================================================================
+   Phones (portrait, <= 600px wide): "editorial broadcast" Home. Everything visual lives inside
+   @media (max-width: 600px): the TV / desktop layout and the phone held sideways (852px wide) never
+   match it and stay exactly as they are. The markup it styles is built by app.js's phone path.
+   Every rule is scoped to index.html's <html class="home"> with :where(.home) (no added
+   specificity): /install and /stats share this file, and a cached older home page keeps its own.
+   ================================================================================================= */
+
+/* iOS insets for the phone layout: always read through these two (a test harness can override them;
+   headless browsers report 0 for env()). */
+:root { --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* New phone-only elements: hidden on every other layout. */
+.edge, .tv-ic, .foot-brand, .foot-tip, .scrim, .hold-hint, .dateline, .page-h, .kicker, .teaser, .offline-bar { display: none; }
+
+@media (max-width: 600px) {
+  :root:where(.home) {
+    /* iOS insets: always through these two (the harness sets --safe-top / --safe-bottom). */
+    --st: var(--safe-top, env(safe-area-inset-top, 0px));
+    --sb: var(--safe-bottom, env(safe-area-inset-bottom, 0px));
+    /* Top band: 44px of flat colour under a translucent status bar (old installs, iOS blurs it);
+       a 12px solid strip when the inset is 0 (opaque "black" status bar, or Safari) so WebKit
+       always finds a full-width solid fixed box at the top edge. */
+    --edge-clear: clamp(12px, calc(var(--st) * 100), 44px);
+    --edge-h: calc(var(--st) + var(--edge-clear));
+    --mast-h: 52px;
+    --gutter: 16px;
+    --card: var(--tk-color-surface);              /* #171717 */
+    --card-press: var(--tk-color-surface-raised); /* #1f1f1f */
+    --hair: var(--tk-color-outline);              /* #262626 */
+    --ring: rgba(255, 255, 255, .06);
+    --text-2: var(--tk-color-text-secondary);     /* #dddddd */
+    --live-text: #ff5a52;                         /* live red that passes 4.5:1 as text on #171717 */
+    --break-text: #f5a524;                        /* halftime / end of period, as text */
+    --display: "Bodoni 72", "Bodoni 72 Oldstyle", Didot, "Bodoni MT", ui-serif, Georgia, serif;
+    --sheet-bg: #161616;
+    --glow-a: transparent;
+    --glow-b: transparent;
+    /* Reading text is sized in rem over this base, so it follows the reader's text size (iOS Larger
+       Text through -apple-system-body, a browser's default font size elsewhere); scoreboard type
+       (scores, status column, chips, the lead card) stays fixed like a broadcast graphic. */
+    --rb: 16;
+  }
+  @supports (font: -apple-system-body) {
+    html:where(.home) { font: -apple-system-body; }
+    :root:where(.home) { --rb: 17; }
+  }
+  /* app.css pins html/body to height:100%; a sticky header cannot outlive its parent's box, so
+     with a 100%-tall body the chips row scrolled away after one screen. Let the body grow. */
+  html:where(.home) { background-color: #0a0a0a; height: auto; }
+  :where(.home) body { height: auto; min-height: 100%; font-size: calc(15rem / var(--rb)); line-height: 1.3; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+
+  /* ---------------------------------------------------------------- top edge strip */
+  /* Fixed, full width, solid background-color: the box WebKit samples to drop the iOS 26 top
+     blur. Only a low-detail glow in the lead game's colours is drawn here (survives the blur). */
+  :where(.home) .edge {
+    display: block; position: fixed; z-index: 6; top: 0; left: 0; right: 0; height: var(--edge-h);
+    background-color: #0a0a0a;
+    background-image:
+      radial-gradient(75% 100% at 14% 0%, var(--glow-a) 0%, transparent 100%),
+      radial-gradient(75% 100% at 86% 0%, var(--glow-b) 0%, transparent 100%);
+  }
+
+  /* ---------------------------------------------------------------- header */
+  /* Masthead row (TV app | wordmark | Sign in) scrolls away under the strip; the chips row sticks.
+     Pure CSS: a sticky header with a negative top equal to the masthead height. */
+  :where(.home) .top {
+    position: sticky; top: calc(-1 * var(--mast-h)); z-index: 5;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: var(--mast-h) auto auto;
+    align-items: center; gap: 0; flex-wrap: nowrap;
+    padding: var(--edge-h) 0 0; background: #0a0a0a; border-bottom: 1px solid var(--hair);
+  }
+  :where(.home) .top-right { display: contents; }
+  :where(.home) .top .status, :where(.home) .top #refresh { display: none; }
+  :where(.home) .top .wordmark { grid-column: 2; grid-row: 1; height: 18px; width: auto; }
+  :where(.home) .top .apk {
+    height: 44px; min-height: 44px; display: inline-flex; align-items: center; gap: 6px;
+    border: 0; border-radius: 12px; background: none; font-size: 15px; white-space: nowrap; padding: 0 10px;
+  }
+  :where(.home) .top .tv-link { grid-column: 1; grid-row: 1; justify-self: start; margin-left: 6px; font-weight: 500; color: var(--text-2); }
+  :where(.home) .top .tv-link:active { background: var(--card); }
+  :where(.home) .tv-ic { display: block; width: 19px; height: 19px; flex: none; }
+  :where(.home) .tv-ic svg { display: block; width: 100%; height: 100%; } /* the span is [hidden] for an older app.css */
+  :where(.home) .top #account {
+    grid-column: 3; grid-row: 1; justify-self: end; margin-right: var(--gutter); padding: 0 14px;
+    position: relative; isolation: isolate; font-weight: 600; color: var(--text);
+  }
+  :where(.home) .top #account::before { content: ''; position: absolute; z-index: -1; inset: 6px 0; border-radius: 16px; box-shadow: inset 0 0 0 1px #3a3a3a; }
+  :where(.home) .top #account:active::before { background: var(--card); }
+  :where(.home) .top #account.premium { color: var(--gold); }
+  :where(.home) .top #account.premium::before { background: rgba(245, 185, 66, .08); box-shadow: inset 0 0 0 1px rgba(245, 185, 66, .45); }
+  /* "★ Premium" is wider than "Sign in": it keeps 12px+ clear of the centred wordmark. */
+  :where(.home) .top #account.premium { padding: 0 12px; font-size: 14px; }
+  :where(.home) .top .apk:hover, :where(.home) .top .apk:focus-visible { background: none; }
+  :where(.home) .top .apk:focus-visible { outline: 3px solid #fff; outline-offset: -3px; }
+
+  /* ---------------------------------------------------------------- chips (sport filters) */
+  :where(.home) .chips {
+    grid-column: 1 / -1; grid-row: 2; order: 0; flex-basis: auto;
+    display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 var(--gutter);
+    overflow-x: auto; overflow-y: hidden; scroll-padding: 0 var(--gutter);
+    /* Fades only where more chips sit past the edge (app.js sets .at-start / .at-end on scroll). */
+    --fl: 16px; --fr: 24px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+  }
+  :where(.home) .chips.at-start { --fl: 0px; }
+  :where(.home) .chips.at-end { --fr: 0px; }
+  /* Extra room after the last chip when the row must end on a whole chip at the left (app.js). */
+  :where(.home) .chips::after { content: ''; flex: none; align-self: stretch; width: var(--tail, 0px); margin-left: -8px; }
+  :where(.home) .chip {
+    position: relative; isolation: isolate; flex: none; height: 44px; min-height: 44px;
+    display: inline-flex; align-items: center; gap: 7px; padding: 0 14px;
+    border: 0; border-radius: 0; background: none; color: var(--text-2);
+    font-size: 14px; font-weight: 650; letter-spacing: -.01em;
+  }
+  :where(.home) .chip::before { content: ''; position: absolute; z-index: -1; inset: 5px 0; border-radius: 999px; background: var(--card); box-shadow: inset 0 0 0 1px #2c2c2c; }
+  :where(.home) .chip .n { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 800; color: var(--live-text); font-variant-numeric: tabular-nums; }
+  :where(.home) .chip .n::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  :where(.home) .chip:hover, :where(.home) .chip:focus-visible { background: none; color: var(--text); }
+  :where(.home) .chip:focus-visible { outline: 3px solid #fff; outline-offset: -3px; border-radius: 999px; }
+  :where(.home) .chip.selected, :where(.home) .chip.selected:hover { padding: 0 14px; border: 0; background: none; color: #0a0a0a; }
+  :where(.home) .chip.selected::before { background: var(--text); box-shadow: none; }
+  :where(.home) .chip.selected .n { color: var(--tk-color-live); }
+  :where(.home) .chip.premium, :where(.home) .chip.premium:hover { color: var(--gold); }
+  :where(.home) .chip.premium::before { background: rgba(245, 185, 66, .08); box-shadow: inset 0 0 0 1px rgba(245, 185, 66, .38); }
+  :where(.home) .chip.premium.selected { color: #1a1205; }
+  :where(.home) .chip.premium.selected::before { background: var(--gold); box-shadow: none; }
+  :where(.home) .chip.livetv { margin-left: 9px; color: var(--text); }
+  :where(.home) .chip.livetv::after { content: ''; position: absolute; left: -9px; top: 14px; bottom: 14px; width: 1px; background: var(--hair); }
+  :where(.home) .chip svg { width: 16px; height: 16px; flex: none; }
+
+  /* ---------------------------------------------------------------- offline bar (under the chips, stuck with them) */
+  :where(.home) .offline-bar {
+    grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; gap: 10px; min-height: 44px;
+    padding: 0 6px 0 var(--gutter); border-top: 1px solid var(--hair); background: #141210;
+    font-size: calc(14rem / var(--rb)); line-height: 1.25; color: var(--text-2);
+  }
+  :where(.home) .offline-bar.hidden { display: none; }
+  :where(.home) .ob-ic { flex: none; width: 18px; height: 18px; color: var(--break-text); }
+  :where(.home) .ob-ic svg { display: block; width: 18px; height: 18px; }
+  /* "Can't update · Scores from 8:59 PM" on one line, or two on a narrow screen: the dot sits in the
+     gap and is clipped when the second part wraps to the start of a line. */
+  :where(.home) .ob-tx { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; column-gap: 14px; padding: 6px 0; overflow: hidden; }
+  :where(.home) .ob-tx b { font-weight: 650; color: var(--text); }
+  :where(.home) .ob-tx span::before { content: '·'; display: inline-block; width: 14px; margin-left: -14px; text-align: center; color: var(--muted); }
+  :where(.home) .ob-retry {
+    flex: none; position: relative; isolation: isolate; height: 44px; padding: 0 14px; border: 0; background: none;
+    color: var(--text); font: inherit; font-weight: 650; cursor: pointer;
+  }
+  :where(.home) .ob-retry::before { content: ''; position: absolute; z-index: -1; inset: 7px 0; border-radius: 15px; box-shadow: inset 0 0 0 1px #3a3a3a; }
+  :where(.home) .ob-retry:active::before { background: var(--card); }
+  :where(.home) .ob-retry:disabled { color: var(--muted); }
+  :where(.home) .ob-retry:focus-visible { outline: 3px solid #fff; outline-offset: -3px; border-radius: 15px; }
+
+  /* ---------------------------------------------------------------- page */
+  :where(.home) .rows { padding: 0 0 8px; min-height: 0; overflow-anchor: none; }
+  :where(.home) .dateline {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px var(--gutter) 0;
+    font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+  }
+  :where(.home) .dateline .lv { display: inline-flex; align-items: center; gap: 7px; color: var(--live-text); }
+  :where(.home) .dateline.stale .lv { color: var(--muted); }
+  :where(.home) .dateline.stale .pulse { display: none; }
+  :where(.home) .page-h { display: block; padding: 18px var(--gutter) 0; }
+  :where(.home) .page-h h1 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 40px; line-height: 1; letter-spacing: -.01em; }
+  :where(.home) .page-h .sum { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: calc(13rem / var(--rb)); color: var(--muted); }
+  :where(.home) .page-h .sum .lv { display: inline-flex; align-items: center; gap: 6px; color: var(--live-text); font-weight: 650; }
+
+  :where(.home) .row { margin: 28px 0 0; }
+  :where(.home) .dateline + .row, :where(.home) .page-h + .row, :where(.home) .note + .row { margin-top: 16px; }
+  :where(.home) .row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: nowrap; padding: 0 var(--gutter); margin-bottom: 12px; }
+  :where(.home) .row-title {
+    display: inline-flex; align-items: center; gap: 9px; min-width: 0; margin: 0;
+    font-family: var(--display); font-weight: 700; font-size: 27px; line-height: 1.05; letter-spacing: -.005em;
+  }
+  :where(.home) .row-title svg { width: 16px; height: 16px; color: var(--gold); flex: none; transform: translateY(-1px); }
+  :where(.home) .row-sub { font-size: calc(13rem / var(--rb)); font-weight: 500; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  :where(.home) .row-sub.live { color: var(--live-text); font-weight: 600; }
+  :where(.home) .kicker {
+    display: flex; align-items: center; gap: 10px; margin: 18px var(--gutter) 8px;
+    font-size: 11px; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; color: var(--muted);
+  }
+  :where(.home) .kicker::after { content: ''; flex: 1; height: 1px; background: var(--hair); }
+  :where(.home) .row-head + .kicker, :where(.home) .row > .kicker:first-child { margin-top: 0; }
+  :where(.home) .strip {
+    display: flex; flex-direction: column; gap: 8px; margin: 0 var(--gutter); padding: 0;
+    background: none; border: 0; border-radius: 0; overflow: visible; scroll-snap-type: none;
+  }
+  :where(.home) .strip + .strip { margin-top: 8px; } /* the lead's own strip, then the rest of its section */
+
+  /* ---------------------------------------------------------------- game tile */
+  :where(.home) .card.game-row {
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 78px;
+    width: 100%; height: auto; min-width: 0; min-height: 80px; padding: 0; text-align: left;
+    background: var(--card); border: 0; border-radius: 16px; overflow: hidden; color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--ring); scroll-snap-align: none;
+    transition: transform var(--tk-motion-fast) ease, background-color var(--tk-motion-fast) ease;
+    -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
+    /* keyboard focus scrolls a tile clear of the stuck strip + chips row */
+    scroll-margin-top: calc(var(--edge-h) + 64px); scroll-margin-bottom: 12px;
+  }
+  :where(.home) .card.game-row:hover, :where(.home) .card.game-row:focus { transform: none; background-color: var(--card); border-color: transparent; z-index: auto; }
+  :where(.home) .card.game-row:active { transform: scale(.985); background-color: var(--card-press); }
+  :where(.home) .card.game-row:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  :where(.home) .bars { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; display: flex; flex-direction: column; }
+  :where(.home) .bars i { flex: 1; background: var(--c, #3a3a3a); }
+  :where(.home) .t-teams { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 10px 18px 10px 16px; min-width: 0; }
+  :where(.home) .team-line { display: flex; align-items: center; gap: 11px; min-height: 30px; min-width: 0; }
+  :where(.home) .team-line .crest, :where(.home) .team-line .mono { width: 26px; height: 26px; flex: none; }
+  :where(.home) .game-row .crest { object-fit: contain; border-radius: 0; background: none; }
+  :where(.home) .mono {
+    display: grid; place-items: center; border-radius: 8px; flex: none;
+    font-size: 9.5px; font-weight: 800; letter-spacing: .02em; line-height: 1; color: #fff;
+    background: var(--mc, #262626); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+  }
+  :where(.home) .mono.m3 { font-size: 8.5px; letter-spacing: -.02em; } /* WSH, BMN: 3px+ clear of the rounded corners */
+  :where(.home) .mono.m4 { font-size: 7.5px; letter-spacing: -.03em; }
+  /* 16px while both names of a tile fit on one line; else the tile's two names drop to 14.5px
+     together and may wrap to a second line (fitTiles measures it). */
+  :where(.home) .tl-name {
+    flex: 0 1 auto; min-width: 0; font-size: calc(16rem / var(--rb)); font-weight: 600; letter-spacing: -.015em; line-height: 1.15;
+    overflow: hidden; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  }
+  /* A word too wide for the line (fitTiles finds it with .words, adds soft hyphens): up to three lines. */
+  :where(.home) .game-row.words .tl-name { overflow-wrap: normal; }
+  :where(.home) .tl-name.hy { -webkit-line-clamp: 3; }
+  :where(.home) .game-row.tight .tl-name { font-size: calc(14.5rem / var(--rb)); letter-spacing: -.02em; line-height: 1.12; }
+  :where(.home) .tl-star { flex: none; width: 12px; height: 12px; margin-left: -5px; color: var(--gold); }
+  :where(.home) .tl-score:empty { display: none; } /* no score yet: the name may use the slot */
+  :where(.home) .tl-score { flex: none; position: relative; min-width: 28px; margin-left: auto; text-align: right; font-size: 21px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  :where(.home) .team-line.trailing .tl-name { color: var(--muted); font-weight: 500; }
+  :where(.home) .team-line.trailing .tl-score { color: var(--muted); font-weight: 650; }
+  :where(.home) .team-line.trailing .crest, :where(.home) .team-line.trailing .mono { opacity: .6; }
+  :where(.home) .team-line.win .tl-score::after {
+    content: ''; position: absolute; right: -12px; top: 50%; margin-top: -4px;
+    border: 4px solid transparent; border-right: 5px solid var(--text); border-left: 0;
+  }
+
+  /* single-title events (NFL Redzone, UFC 309, a race) */
+  :where(.home) .t-single { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  :where(.home) .glyph {
+    width: 40px; height: 40px; flex: none; border-radius: 11px; display: grid; place-items: center; color: #fff;
+    background: linear-gradient(145deg, var(--g1, #2b2b2b), var(--g2, #1a1a1a)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+  }
+  :where(.home) .glyph svg { width: 22px; height: 22px; }
+  :where(.home) .glyph b { font-size: 12.5px; font-weight: 900; letter-spacing: -.01em; }
+  :where(.home) .t-tx { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  :where(.home) .game-row .single-title {
+    padding: 0; text-align: left; max-height: none; font-size: calc(17rem / var(--rb)); font-weight: 700; letter-spacing: -.02em; line-height: 1.15;
+    overflow: hidden; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  }
+  :where(.home) .t-meta { font-size: calc(13rem / var(--rb)); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* status column (the stadium board) */
+  :where(.home) .t-status {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    padding: 8px 4px; min-width: 0; border-left: 1px solid var(--hair); text-align: center;
+  }
+  :where(.home) .s-flag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--live-text); }
+  :where(.home) .s-flag::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+  :where(.home) .s-main { font-size: 17px; font-weight: 800; letter-spacing: .01em; line-height: 1; white-space: nowrap; }
+  :where(.home) .s-main.long { font-size: 14px; letter-spacing: 0; }
+  :where(.home) .game-row.brk .s-main { color: var(--break-text); }
+  /* Live in an old copy (offline): "LAST SEEN" + where it was, in grey. */
+  :where(.home) .game-row.stale .s-main { color: var(--text-2); }
+  :where(.home) .s-kick {
+    max-width: 100%; overflow: hidden; margin-right: -.06em; font-size: 11px; font-weight: 750; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--muted); white-space: nowrap;
+  }
+  :where(.home) .s-kick.long { font-size: 10px; letter-spacing: .04em; margin-right: -.04em; } /* TOMORROW, STARTING */
+  :where(.home) .s-kick.soon { color: var(--hot); }
+  :where(.home) .s-time { font-size: 18px; font-weight: 800; letter-spacing: -.02em; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  :where(.home) .s-time small { margin-left: 2px; font-size: 11px; font-weight: 700; letter-spacing: 0; color: var(--text-2); }
+  :where(.home) .s-final { font-size: 12px; font-weight: 800; letter-spacing: .12em; color: var(--text-2); }
+  :where(.home) .s-tags { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+  :where(.home) .s-hot { display: inline-flex; align-items: center; gap: 2px; color: var(--hot); }
+  :where(.home) .s-hot svg { width: 10px; height: 12px; }
+  :where(.home) .s-pro { display: inline-flex; align-items: center; gap: 2px; color: var(--gold); font-size: 11px; letter-spacing: .06em; }
+  :where(.home) .s-pro svg { width: 10px; height: 10px; }
+  :where(.home) .s-close { display: inline-flex; align-items: center; gap: 3px; color: var(--hot); font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+  :where(.home) .s-close svg { width: 9px; height: 10px; }
+  :where(.home) .s-league { max-width: 70px; font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* After the score: "4-3 pens", "aet" (the bracketed part of the site's score). */
+  :where(.home) .s-xtra { max-width: 70px; font-size: 11px; font-weight: 700; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  :where(.home) .trk { display: flex; gap: 3px; }
+  :where(.home) .trk i { width: 8px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .2); }
+  :where(.home) .trk i.d { background: rgba(255, 255, 255, .8); }
+  :where(.home) .trk i.a { background: var(--live-text); }
+  :where(.home) .brk .trk i.a, :where(.home) .lead.brk .trk i.a { background: var(--break-text); }
+  :where(.home) .mbar { width: 40px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .2); overflow: hidden; }
+  :where(.home) .mbar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, rgba(255, 255, 255, .8) calc(100% - 4px), var(--live-text) 0); }
+  :where(.home) .brk .mbar i { background: rgba(255, 255, 255, .8); } /* HT: the clock is stopped, no "playing now" tip */
+
+  /* ---------------------------------------------------------------- lead game (hero) */
+  :where(.home) .card.game-row.lead {
+    display: block; min-height: 0; border-radius: 22px; isolation: isolate; color: #fff; background: #111;
+    box-shadow: 0 22px 44px -22px var(--a1, transparent), 0 22px 44px -26px var(--a2, transparent);
+  }
+  :where(.home) .card.game-row.lead:active { transform: scale(.99); }
+  :where(.home) .lead::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1); pointer-events: none; }
+  :where(.home) .lead-bg, :where(.home) .lead-bg > i { position: absolute; inset: 0; }
+  :where(.home) .lead-bg { overflow: hidden; border-radius: inherit; }
+  :where(.home) .lead-l { background: linear-gradient(155deg, var(--h1-hi) 0%, var(--h1) 48%, var(--h1-lo) 100%); }
+  /* The split runs from 62% (top) to 42% (bottom). Text stays on its own side of it: the team
+     blocks and the summary below are capped to the seam's x at their height. */
+  :where(.home) .lead-r { background: linear-gradient(205deg, var(--h2-hi) 0%, var(--h2) 48%, var(--h2-lo) 100%); clip-path: polygon(62% 0, 100% 0, 100% 100%, 42% 100%); }
+  :where(.home) .lead-seam { background: rgba(255, 255, 255, .5); opacity: .5; clip-path: polygon(62% 0, calc(62% + 2px) 0, calc(42% + 2px) 100%, 42% 100%); }
+  :where(.home) .lead-shade { background: linear-gradient(180deg, rgba(0, 0, 0, .28) 0%, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, .5) 100%); }
+  :where(.home) .lead-in { position: relative; display: flex; flex-direction: column; padding: 14px 16px 12px; }
+  :where(.home) .lead-top { display: flex; align-items: center; gap: 8px; height: 24px; min-width: 0; }
+  /* Tag + eyebrow end 10px+ short of the diagonal at this height (it is at ~59% of the card here). */
+  :where(.home) .lead-lt { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: calc(58% - 10px); }
+  :where(.home) .lead-tag {
+    flex: none; max-width: 96px; height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px;
+    background: rgba(0, 0, 0, .35); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+    font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  :where(.home) .lead-eyebrow { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  :where(.home) .lead-eyebrow span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  :where(.home) .lead-eyebrow svg { width: 12px; height: 13px; flex: none; color: var(--hot); }
+  :where(.home) .lead-eyebrow.close { color: #fdba74; }
+  /* The state flag has its own dark ground, so it reads on any team colour (red on red, amber on gold). */
+  :where(.home) .lead-flag {
+    flex: none; margin-left: auto; height: 24px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px 0 9px;
+    border-radius: 6px; background: rgba(0, 0, 0, .58); color: #fff; font-size: 11.5px; font-weight: 850; letter-spacing: .1em;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16), 0 4px 14px rgba(0, 0, 0, .3);
+  }
+  :where(.home) .lead-flag i { position: relative; width: 7px; height: 7px; border-radius: 50%; background: #ff453a; flex: none; }
+  /* LIVE: the broadcast-red flag with a white pulse; on a red panel a dark flag with a red ring. */
+  :where(.home) .lead-flag.on { background: var(--tk-color-live); box-shadow: 0 4px 14px rgba(0, 0, 0, .3); }
+  :where(.home) .lead-flag.on i { background: #fff; }
+  :where(.home) .lead.red-panel .lead-flag.on { background: rgba(0, 0, 0, .62); box-shadow: inset 0 0 0 1.5px #ff453a, 0 4px 14px rgba(0, 0, 0, .3); }
+  :where(.home) .lead.red-panel .lead-flag.on i { background: #ff453a; }
+  :where(.home) .lead-flag.brk { color: var(--break-text); }
+  :where(.home) .lead-flag.brk i { background: var(--break-text); }
+  :where(.home) .lead-flag.quiet { padding: 0 10px; color: rgba(255, 255, 255, .9); }
+  :where(.home) .lead.stale .lead-clock b { color: rgba(255, 255, 255, .8); }
+  /* Both sides hang from one top line: the two codes share a cap line and a name that wraps to a
+     second line hangs below it (centred blocks put BMN 7px under WW when only one name wrapped). */
+  :where(.home) .lead-teams { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-top: 14px; }
+  :where(.home) .ht { display: flex; align-items: flex-start; gap: 8px; min-width: 0; flex: 0 1 auto; max-width: calc(54% - 10px); } /* 10px+ short of the seam */
+  :where(.home) .ht.r { flex-direction: row-reverse; text-align: right; max-width: calc(44.6% - 8px); }
+  :where(.home) .ht-tx { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  :where(.home) .ht.r .ht-tx { align-items: flex-end; }
+  :where(.home) .ht .crest, :where(.home) .ht .mono { width: 44px; height: 44px; flex: none; filter: drop-shadow(0 6px 12px rgba(0, 0, 0, .45)); }
+  :where(.home) .ht .mono { border-radius: 12px; font-size: 14px; }
+  :where(.home) .ht-code { font-size: 24px; font-weight: 850; letter-spacing: .01em; line-height: 1; }
+  /* The nickname ("Raiders") in the US leagues, else the name: up to two lines, never an ellipsis mid-name. */
+  :where(.home) .ht-name {
+    max-width: 100%; font-size: 12.5px; font-weight: 600; line-height: 1.2; color: rgba(255, 255, 255, .82);
+    overflow: hidden; overflow-wrap: break-word; -webkit-hyphens: auto; hyphens: auto;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  }
+  :where(.home) .lead-line { display: flex; align-items: center; justify-content: center; gap: clamp(10px, 3.4vw, 18px); margin-top: 10px; }
+  :where(.home) .lead-score {
+    min-width: 1.2em; font-size: clamp(54px, 16.4vw, 70px); font-weight: 800; letter-spacing: -.045em; line-height: .88;
+    font-variant-numeric: tabular-nums; text-shadow: 0 4px 22px rgba(0, 0, 0, .4);
+  }
+  :where(.home) .lead-score.l { text-align: right; }
+  :where(.home) .lead-score.r { text-align: left; }
+  :where(.home) .lead-score.trailing { color: rgba(255, 255, 255, .6); }
+  /* Opaque: one solid broadcast chip over the diagonal (the seam never shows through it), faintly
+     tinted with each side's colour. */
+  :where(.home) .lead-clock {
+    position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 62px; padding: 9px 10px 10px; border-radius: 11px;
+    background: #0d0d0d;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--h1-lo) 32%, #080808), color-mix(in srgb, var(--h2-lo) 32%, #080808));
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 8px 20px rgba(0, 0, 0, .35);
+  }
+  :where(.home) .lead-clock b { font-size: 17px; font-weight: 900; letter-spacing: .02em; line-height: 1; white-space: nowrap; }
+  :where(.home) .lead.brk .lead-clock b { color: var(--break-text); }
+  :where(.home) .lead-clock small { font-size: 10px; font-weight: 800; letter-spacing: .16em; line-height: 1; color: rgba(255, 255, 255, .7); }
+  :where(.home) .lead-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin-top: 12px; }
+  /* Two short lines ("Tied 13–13" / "in the 3rd") kept left of the seam. */
+  :where(.home) .lead-dek {
+    flex: 0 1 auto; min-width: 0; max-width: calc(43.4% - 10px); display: flex; flex-direction: column;
+    font-family: var(--display); font-style: italic; font-size: 18px; line-height: 1.12; color: rgba(255, 255, 255, .94);
+  }
+  :where(.home) .lead-dek span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: .2em; margin-right: -.2em; } /* room for the italic overhang */
+  :where(.home) .lead-dek span + span { color: rgba(255, 255, 255, .78); }
+  /* Next up: the kickoff time takes the scores' place, in the clock box. */
+  :where(.home) .lead.pre .lead-score { display: none; }
+  :where(.home) .lead.pre .lead-clock { min-width: 0; padding: 10px 18px 12px; gap: 7px; }
+  :where(.home) .lead.pre .lead-clock .kick { font-size: 10.5px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: rgba(255, 255, 255, .75); }
+  :where(.home) .lead.pre .lead-clock .kick.soon { color: #fdba74; }
+  :where(.home) .lead.pre .lead-clock b { font-size: clamp(38px, 11.4vw, 46px); font-weight: 800; letter-spacing: -.035em; line-height: .9; font-variant-numeric: tabular-nums; }
+  :where(.home) .lead.pre .lead-clock b small { margin-left: 5px; font-size: 15px; font-weight: 750; letter-spacing: .02em; color: rgba(255, 255, 255, .75); }
+  :where(.home) .lead.final .lead-clock b { font-size: 14px; letter-spacing: .14em; color: rgba(255, 255, 255, .92); }
+  /* Live without a score: the codes stand where the numbers go. */
+  :where(.home) .lead.noscore .lead-score { font-size: clamp(36px, 11vw, 46px); letter-spacing: -.01em; line-height: 1; }
+  :where(.home) .lead.noscore .ht-code { display: none; }
+  /* No codes (they stand where the scores go): the names sit centred on the crests. */
+  :where(.home) .lead.noscore .lead-teams, :where(.home) .lead.noscore .ht { align-items: center; }
+  :where(.home) .watch {
+    flex: none; height: 38px; display: inline-flex; align-items: center; gap: 8px; padding: 0 16px 0 13px; border-radius: 999px;
+    background: #fff; color: #0a0a0a; font-size: 14.5px; font-weight: 750; letter-spacing: -.01em; box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+  }
+  :where(.home) .watch svg { width: 12px; height: 12px; }
+  :where(.home) .watch.ghost { padding: 0 18px; background: rgba(0, 0, 0, .32); color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .55); }
+  :where(.home) .hold-hint { display: block; margin: 2px 0 4px; text-align: center; font-size: calc(12.5rem / var(--rb)); color: var(--muted); }
+
+  /* ---------------------------------------------------------------- premium teaser, note, empty */
+  :where(.home) .teaser {
+    display: block; margin: 16px var(--gutter) 0; padding: 16px; border-radius: 18px;
+    background: linear-gradient(160deg, rgba(245, 185, 66, .12), rgba(245, 185, 66, .02) 60%), var(--card);
+    box-shadow: inset 0 0 0 1px rgba(245, 185, 66, .3);
+  }
+  :where(.home) .teaser-k { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--gold); }
+  :where(.home) .teaser-k svg { width: 12px; height: 12px; }
+  :where(.home) .teaser-p { margin: 8px 0 4px; font-family: var(--display); font-size: 22px; line-height: 1.2; color: var(--text); text-wrap: pretty; }
+  :where(.home) .teaser-p em { font-style: normal; color: var(--gold); white-space: nowrap; }
+  :where(.home) .teaser-names { margin: 0 0 14px; font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; } /* whole names + "+ N more" (fitNames) */
+  :where(.home) .teaser-names.one { white-space: normal; }
+  :where(.home) .teaser-note { margin: 0 0 6px; font-size: calc(13rem / var(--rb)); line-height: 1.35; color: var(--muted); } /* signed in, no premium */
+  :where(.home) .teaser.alone { margin-top: 20px; padding: 20px 18px 18px; }
+  :where(.home) .teaser.alone .teaser-p { font-size: 26px; line-height: 1.15; }
+  :where(.home) .teaser-acts { display: flex; gap: 10px; }
+  :where(.home) .pill-btn {
+    height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 18px;
+    border: 0; border-radius: 22px; font-size: 15px; font-weight: 650; cursor: pointer;
+  }
+  :where(.home) .pill-btn.gold { background: var(--gold); color: #1a1205; }
+  :where(.home) .pill-btn.ghost { background: none; color: var(--text); box-shadow: inset 0 0 0 1px #3a3a3a; }
+  :where(.home) .pill-btn.light { background: var(--text); color: #0a0a0a; }
+  :where(.home) .note {
+    max-width: none; margin: 14px var(--gutter) 0; padding: 14px 16px; border-radius: 14px; font-size: calc(14rem / var(--rb)); line-height: 1.45; color: var(--text-2); text-wrap: pretty;
+    background: rgba(245, 185, 66, .07); box-shadow: inset 0 0 0 1px rgba(245, 185, 66, .22);
+  }
+  :where(.home) .note .link-btn { color: var(--gold); font-weight: 700; text-underline-offset: 3px; padding: 12px 0; margin: -12px 0; } /* 44px to tap, same line */
+  :where(.home) .empty { padding: 64px 32px 24px; text-align: center; color: var(--muted); font-size: calc(15rem / var(--rb)); }
+  :where(.home) .empty h3 { margin: 0 0 8px; font-family: var(--display); font-style: italic; font-weight: 400; font-size: 30px; color: var(--text); }
+  :where(.home) .empty p { margin: 0 0 20px; }
+
+  /* ---------------------------------------------------------------- footer */
+  :where(.home) .foot { display: flex; flex-direction: column; gap: 0; margin-top: 40px; padding: 0 var(--gutter) calc(28px + var(--sb)); color: var(--text); font-size: calc(16rem / var(--rb)); }
+  /* While the Add to Home Screen hint floats at the bottom, the page ends above it (the last footer
+     link stays reachable): the hint's height, its 12px from the edge, and 16px clear. */
+  :where(.home) body:has(#install-hint:not(.hidden)) .foot { padding-bottom: calc(28px + var(--sb) + var(--hint-h, 104px)); }
+  :where(.home) .foot-brand { display: flex; align-items: center; gap: 12px; padding: 0 2px 14px; }
+  :where(.home) .foot-brand img { width: 36px; height: 36px; border-radius: 9px; box-shadow: 0 0 0 1px #262626; flex: none; }
+  :where(.home) .foot-brand b { display: block; font-size: calc(15rem / var(--rb)); font-weight: 600; }
+  :where(.home) .foot-brand div div { font-size: calc(13rem / var(--rb)); color: var(--muted); }
+  :where(.home) .foot .foot-link {
+    position: relative; display: flex; align-items: center; justify-content: space-between; min-height: 50px; padding: 0 16px;
+    background: var(--card); border: 0; color: var(--text); font-size: calc(16rem / var(--rb)); text-decoration: none;
+  }
+  :where(.home) .foot a.foot-link:first-of-type { border-radius: 18px 18px 0 0; }
+  :where(.home) .foot a.foot-link:last-of-type { border-radius: 0 0 18px 18px; }
+  :where(.home) .foot .foot-link + .foot-link::before { content: ''; position: absolute; top: 0; left: 16px; right: 0; height: 1px; background: var(--hair); }
+  :where(.home) .foot .foot-link::after {
+    content: ''; flex: none; width: 8px; height: 14px; background: no-repeat center / contain
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 14' fill='none' stroke='%238c8c8c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 1.5L6.5 7l-5 5.5'/%3E%3C/svg%3E");
+  }
+  :where(.home) .foot #open-site::after {
+    width: 12px; height: 12px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%238c8c8c' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l6-6M4 3h5v5'/%3E%3C/svg%3E");
+  }
+  :where(.home) .foot .foot-link:active { background: var(--card-press); }
+  :where(.home) .foot-tip { display: block; margin: 14px 4px 0; text-align: center; font-size: calc(13rem / var(--rb)); line-height: 1.45; color: #8c8c8c; text-wrap: balance; }
+  :where(.home) body:has(.hold-hint) .foot-tip { display: none; } /* said once, under the lead, until the first long-press */
+
+  /* ---------------------------------------------------------------- long-press sheet (#menu) */
+  :where(.home) .scrim { display: block; position: fixed; inset: 0; z-index: 29; background: rgba(0, 0, 0, .6); touch-action: none; animation: fade-in var(--tk-motion-base) ease; }
+  :where(.home) .menu.sheet {
+    left: 0; right: 0; top: auto; bottom: var(--kb, 0px); min-width: 0;
+    max-height: calc(100% - var(--edge-h) - 8px); overflow: auto; overscroll-behavior: contain;
+    padding: 8px var(--gutter) calc(16px + var(--sb)); border: 0; border-radius: 26px 26px 0 0; background: var(--sheet-bg);
+    box-shadow: 0 -1px 0 rgba(255, 255, 255, .06), 0 -20px 60px rgba(0, 0, 0, .6), 0 100px 0 0 var(--sheet-bg);
+    animation: sheet-in var(--tk-motion-slow) cubic-bezier(.2, .8, .2, 1);
+  }
+  :where(.home) .sheet .grab { width: 38px; height: 5px; margin: 0 auto 14px; border-radius: 3px; background: #3a3a3a; }
+  :where(.home) .bug { display: flex; height: 52px; border-radius: 12px; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
+  :where(.home) .bug-team { flex: 1; display: flex; align-items: center; gap: 9px; min-width: 0; padding: 0 12px; color: #fff; background: linear-gradient(100deg, var(--p1, #262626), var(--p2, #1c1c1c)); }
+  :where(.home) .bug-team .crest, :where(.home) .bug-team .mono { width: 26px; height: 26px; }
+  :where(.home) .bug-team > b { font-size: 19px; font-weight: 850; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  :where(.home) .bug-team .sc { margin-left: auto; font-size: 24px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  :where(.home) .bug-team.trailing .sc { opacity: .6; }
+  /* A team code is never cut: the crest, then the gaps give way first (app.js: .big, fitBug's .tight). */
+  :where(.home) .bug-team > b.code { flex: none; overflow: visible; }
+  :where(.home) .bug-team .crest { flex: none; }
+  :where(.home) .bug.big .bug-team { gap: 7px; padding: 0 10px; }
+  :where(.home) .bug.big .bug-team .crest { width: 22px; height: 22px; }
+  :where(.home) .bug.big .bug-team .sc { font-size: 20px; letter-spacing: -.035em; }
+  :where(.home) .bug.tight .bug-team .crest { display: none; }
+  :where(.home) .bug-clock { flex: none; min-width: 72px; padding: 0 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: #050505; }
+  :where(.home) .bug-clock .s-flag { font-size: 10px; }
+  :where(.home) .bug-clock b { font-size: 14px; font-weight: 900; white-space: nowrap; }
+  :where(.home) .bug-clock .s-kick { font-size: 10px; }
+  :where(.home) .sheet-title { min-width: 0; margin: 12px 4px 16px; font-size: calc(14rem / var(--rb)); font-weight: 500; color: var(--muted); overflow-wrap: anywhere; }
+  :where(.home) .sheet-title b { color: var(--text); font-weight: 650; }
+  :where(.home) .menu.sheet .menu-title { margin: 0 4px 8px; padding: 0; font-size: 11.5px; font-weight: 800; letter-spacing: .12em; color: var(--muted); }
+  :where(.home) .sh-group { margin-bottom: 18px; border-radius: 14px; overflow: hidden; background: #222; }
+  :where(.home) .menu.sheet .sh-group button {
+    position: relative; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 0 16px;
+    border-radius: 0; background: none; color: var(--text); font-size: calc(16rem / var(--rb)); font-weight: 500; text-align: left;
+  }
+  :where(.home) .menu.sheet .sh-group button + button::before { content: ''; position: absolute; top: 0; left: 50px; right: 0; height: 1px; background: #333; }
+  :where(.home) .menu.sheet .sh-group button:active, :where(.home) .menu.sheet .sh-group button:hover { background: #2c2c2c; }
+  :where(.home) .sh-ic { width: 20px; height: 20px; flex: none; display: grid; place-items: center; color: var(--text-2); }
+  :where(.home) .sh-ic svg { width: 20px; height: 20px; }
+  :where(.home) .sh-ic.gold { color: var(--gold); }
+  :where(.home) .sh-lbl { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  :where(.home) .sh-lbl small { display: block; margin-top: 1px; font-size: calc(12.5rem / var(--rb)); color: var(--muted); }
+  :where(.home) .sh-aux { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: calc(13rem / var(--rb)); color: var(--muted); }
+  :where(.home) .sh-aux.on { color: var(--tk-color-ok); }
+  :where(.home) .sh-aux.on::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  /* A paired TV with the app closed: dimmed, and its line says what to do (a tap points at it). */
+  :where(.home) .menu.sheet .sh-group button.off { color: var(--text-2); }
+  :where(.home) .menu.sheet .sh-group button.off .sh-ic { opacity: .5; }
+  :where(.home) .menu.sheet .sh-group button.off { padding-top: 8px; padding-bottom: 8px; }
+  :where(.home) .menu.sheet .sh-group button.off .sh-lbl small { white-space: normal; text-wrap: balance; } /* the whole instruction, never "Open Styx Sports on t…" */
+  :where(.home) .menu.sheet .sh-group button.off:active, :where(.home) .menu.sheet .sh-group button.off:hover { background: none; }
+  :where(.home) .sh-lbl small.nudge { color: var(--break-text); animation: nudge 360ms ease; }
+  :where(.home) .menu.sheet .sh-group button.danger, :where(.home) .menu.sheet .sh-group button.danger .sh-ic { color: #ff6961; }
+  :where(.home) .menu.sheet > button.sh-cancel, :where(.home) .menu.sheet > button.sh-primary {
+    display: block; width: 100%; min-height: 54px; border-radius: 16px; text-align: center; font-size: calc(17rem / var(--rb)); font-weight: 650;
+  }
+  :where(.home) .menu.sheet > button.sh-cancel { background: #262626; color: var(--text); }
+  :where(.home) .menu.sheet > button.sh-primary { min-height: 50px; margin-bottom: 10px; background: var(--text); color: #0a0a0a; font-weight: 700; }
+  :where(.home) .menu.sheet > button.sh-cancel:active { background: #2e2e2e; }
+  :where(.home) .menu.sheet .menu-note { max-width: none; padding: 0 4px 14px; font-size: calc(14rem / var(--rb)); line-height: 1.45; color: var(--muted); }
+  :where(.home) .menu.sheet input.cast-code {
+    width: 100%; height: 60px; margin: 0 0 14px; border-radius: 14px; border: 1px solid #3a3a3a; background: #111; color: var(--text);
+    font: 600 28px -apple-system, system-ui, sans-serif; letter-spacing: .3em; text-align: center;
+  }
+  :where(.home) .menu.sheet input.cast-code:focus { outline: none; border-color: var(--text); }
+  :where(.home) .menu.sheet input.cast-code::placeholder { color: #454545; }
+  :where(.home) .menu.sheet .sh-err { margin: -4px 4px 14px; font-size: calc(14rem / var(--rb)); line-height: 1.4; color: #ff6961; }
+
+  /* ---------------------------------------------------------------- premium account dialog as a sheet */
+  :where(.home) .acct { align-items: flex-end; padding: 0; }
+  :where(.home) .acct-card {
+    width: 100%; max-width: none; max-height: calc(100% - var(--edge-h) - 8px); padding: 26px 18px calc(18px + var(--sb));
+    border: 0; border-radius: 26px 26px 0 0; background: var(--sheet-bg);
+    box-shadow: 0 -1px 0 rgba(255, 255, 255, .06), 0 100px 0 0 var(--sheet-bg);
+    animation: sheet-in var(--tk-motion-slow) cubic-bezier(.2, .8, .2, 1);
+  }
+  :where(.home) .acct-card::before { content: ''; position: absolute; top: 8px; left: 50%; width: 38px; height: 5px; margin-left: -19px; border-radius: 3px; background: #3a3a3a; }
+  :where(.home) .acct-title { font-family: var(--display); font-size: 26px; font-weight: 700; line-height: 1.1; }
+  :where(.home) .acct-x { display: none; } /* the grab handle (drag down), the scrim and Cancel already close it */
+  :where(.home) .acct-title { padding-right: 0; }
+  :where(.home) .acct-steps a { padding: 14px 0; } /* a bigger tap area, no layout change (inline) */
+  :where(.home) .acct-lead, :where(.home) .acct-line, :where(.home) .acct-steps, :where(.home) .acct-status { font-size: calc(15rem / var(--rb)); }
+  /* Status lines as icon rows (the phone's SVG icons): muted, green when it is good news. */
+  :where(.home) .acct-line.ic { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 12px; line-height: 1.4; }
+  :where(.home) .acct-ic { flex: none; width: 20px; height: 20px; margin-top: .5px; color: var(--muted); }
+  :where(.home) .acct-ic svg { width: 20px; height: 20px; display: block; }
+  :where(.home) .acct-line.ic.ok { color: var(--text); }
+  :where(.home) .acct-line.ic.ok .acct-ic { color: var(--tk-color-ok); }
+  :where(.home) .acct-line.ic.gold .acct-ic { color: var(--gold); }
+  :where(.home) .acct-tip { margin: 4px 0 16px; padding: 12px 14px; border-radius: 12px; background: #1f1f1f; font-size: calc(13.5rem / var(--rb)); line-height: 1.45; color: var(--muted); }
+  :where(.home) .acct-actions { flex-direction: column; align-items: stretch; gap: 10px; }
+  :where(.home) .acct-actions .btn, :where(.home) .acct-actions .btn:hover, :where(.home) .acct-actions .btn:focus-visible {
+    min-height: 50px; border: 0; border-radius: 14px; font-size: 16px; font-weight: 650;
+    background: none; color: var(--text); box-shadow: inset 0 0 0 1px #3a3a3a;
+  }
+  :where(.home) .acct-actions .btn.primary, :where(.home) .acct-actions .btn.primary:hover, :where(.home) .acct-actions .btn.primary:focus-visible { min-height: 54px; background: #262626; box-shadow: none; font-size: 17px; }
+  :where(.home) .acct-actions .btn:active { background: #2e2e2e; }
+  :where(.home) .acct-actions .btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+  /* ---------------------------------------------------------------- toast + Add to Home Screen */
+  :where(.home) .app-toast {
+    left: 50%; bottom: calc(16px + var(--sb)); transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+    width: max-content; max-width: calc(100vw - 32px); min-height: 48px; padding: 10px 18px 10px 12px; border: 0; border-radius: 24px;
+    background: var(--text); color: #0a0a0a; font-size: calc(15rem / var(--rb)); font-weight: 650; text-align: left; white-space: normal;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .5); animation: toast-in var(--tk-motion-base) var(--tk-motion-easing);
+  }
+  :where(.home) .app-toast::before {
+    content: '✓'; flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+    background: #0a0a0a; color: #fff; font-size: 13px; font-weight: 800;
+  }
+  :where(.home) .app-toast.error::before { content: '!'; background: var(--tk-color-live); }
+  :where(.home) .app-toast { text-wrap: balance; }
+  /* Two lines: the message in bold, where it went underneath in a quieter grey (6.9:1 on the pill). */
+  :where(.home) .app-toast.two { border-radius: 20px; padding: 9px 20px 9px 12px; }
+  :where(.home) .app-toast .tt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  :where(.home) .app-toast .tt b { font-weight: 650; line-height: 1.25; text-wrap: balance; }
+  :where(.home) .app-toast .tt small { font-size: calc(13rem / var(--rb)); font-weight: 500; line-height: 1.3; color: #525252; }
+  :where(.home) body:has(#install-hint:not(.hidden)) .app-toast { bottom: calc(12px + var(--sb) + var(--hint-h, 104px) + 10px); }
+  /* The Add to Home Screen hint waits while a sheet, the player or Live TV is up (it sat on Cancel). */
+  :where(.home) body:has(#menu.sheet:not(.hidden)) .install-hint, :where(.home) body:has(#acct:not(.hidden)) .install-hint,
+  :where(.home) body:has(#player:not(.hidden)) .install-hint, :where(.home) body:has(#livetv:not(.hidden)) .install-hint { display: none; }
+  :where(.home) .install-hint {
+    left: 12px; right: 12px; bottom: calc(12px + var(--sb)); gap: 12px; padding: 12px 6px 12px 12px; border: 0; border-radius: 20px;
+    background: #1c1c1c; box-shadow: inset 0 0 0 1px #2e2e2e, 0 16px 40px rgba(0, 0, 0, .6); font-size: calc(14rem / var(--rb)); line-height: 1.35; color: var(--text-2);
+    animation: rise-in var(--tk-motion-slow) var(--tk-motion-easing);
+  }
+  :where(.home) .install-hint img { width: 44px; height: 44px; border-radius: 11px; }
+  :where(.home) .install-hint b { display: block; font-size: calc(15rem / var(--rb)); color: var(--text); }
+  :where(.home) .install-hint #install-text { text-wrap: balance; }
+  :where(.home) .install-hint .hint-how { display: block; }
+  :where(.home) .install-hint .ios-share { display: inline-block; width: 13px; height: 16px; margin: 0 1px; vertical-align: -2px; color: #4da3ff; }
+  :where(.home) .install-hint .icon-btn { width: 44px; height: 44px; min-width: 44px; border: 0; background: none; color: var(--muted); font-size: 16px; }
+  :where(.home) .install-hint .btn.primary { min-height: 44px; padding: 0 16px; border-radius: 22px; }
+
+  /* ---------------------------------------------------------------- same iOS band fix elsewhere (portrait only) */
+  /* The header is taller here (it clears the status bar); keep it above the loading / error layer
+     so close (no Back gesture in an installed app) and search stay reachable. */
+  :where(.home) #livetv .lt-head { position: relative; z-index: 1; background: var(--bg); padding-top: calc(var(--edge-h) + 2px); }
+  :where(.home) #livetv .lt-msg { top: calc(var(--edge-h) + 56px); }
+  :where(.home) #livetv .lt-title { display: inline-flex; align-items: center; gap: 8px; }
+  :where(.home) #livetv .lt-title svg { display: block; width: 20px; height: 20px; flex: none; }
+  /* 44px close / reload, drawn as the phone's line icons (not the ⟳ ✕ glyphs). */
+  :where(.home) #livetv .lt-head .icon-btn {
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px; flex: none; font-size: 0; color: transparent;
+    background-color: var(--surface); background-repeat: no-repeat; background-position: center; background-size: 20px;
+  }
+  :where(.home) #lt-close { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23f5f5f5' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M5 5l10 10M15 5L5 15'/%3E%3C/svg%3E"); }
+  :where(.home) #lt-refresh { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23f5f5f5' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 10a6 6 0 11-1.76-4.24'/%3E%3Cpath d='M16 3.5v3.2h-3.2'/%3E%3C/svg%3E"); }
+  :where(.home) .hud-top { padding-top: calc(var(--edge-h) + 2px); }
+  /* Player: 44px controls, the whole status pill (the title takes the ellipsis), readable links. */
+  :where(.home) .hud .icon-btn { width: 44px; height: 44px; min-width: 44px; min-height: 44px; flex: none; }
+  :where(.home) #p-cast {
+    font-size: 0; background-repeat: no-repeat; background-position: center; background-size: 20px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23f5f5f5' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='3.5' width='16' height='11' rx='2'/%3E%3Cpath d='M7 17.5h6'/%3E%3C/svg%3E");
+  }
+  :where(.home) .hud-top #p-pill { flex: none; max-width: none; }
+  :where(.home) .hud-top .p-title { flex: 0 1 auto; min-width: 0; }
+  :where(.home) #p-actions a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+  :where(.home) #p-actions a.btn:not(:hover):not(:focus-visible) { color: var(--text); }
+  :where(.home) #p-actions .btn { min-height: 44px; }
+
+  /* ---------------------------------------------------------------- motion */
+  /* .pulse must stay position:relative: its ring is absolutely positioned and scaled 2.8x. */
+  :where(.home) .pulse { position: relative; display: inline-block; flex: none; }
+  :where(.home) .pulse::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: inherit; animation: ring 2s cubic-bezier(.2, 0, 0, 1) infinite; }
+  :where(.home) .dateline .lv i, :where(.home) .page-h .lv i { width: 7px; height: 7px; border-radius: 50%; background: var(--live-text); }
+  :where(.home) .bump { animation: bump 600ms var(--tk-motion-easing); }
+}
+
+/* Short phones (iPhone SE, Safari with toolbars): a tighter lead card so a list shows under it. */
+@media (max-width: 600px) and (max-height: 700px) {
+  :where(.home) .lead-teams { margin-top: 10px; }
+  :where(.home) .ht:not(.nocrest) .ht-name { display: none; } /* a side without a crest keeps its name (else only "WW") */
+  :where(.home) .ht .crest, :where(.home) .ht .mono { width: 38px; height: 38px; }
+  :where(.home) .ht-tx { padding-top: 7px; } /* the code centred on the 38px crest; a crestless side's name hangs below */
+  :where(.home) .lead.noscore .ht-tx { padding-top: 0; }
+  :where(.home) .lead-score { font-size: 54px; }
+  :where(.home) .lead-foot { margin-top: 8px; }
+}
+
+/* Narrow phones (Android 360, iPhone Display Zoom 320): the masthead keeps the centred wordmark
+   clear (TV link as an icon, a tighter account pill), tiles give the names a little more room. */
+@media (max-width: 389px) {
+  /* 375 (SE, mini): a slightly smaller wordmark and tighter account pill keep both 12px+ apart. */
+  :where(.home) .top .wordmark { height: 17px; }
+  :where(.home) .top #account, :where(.home) .top #account.premium { margin-right: 12px; padding: 0 11px; font-size: 14px; }
+}
+@media (max-width: 374px) {
+  :where(.home) .top .tv-link { width: 44px; padding: 0; justify-content: center; }
+  :where(.home) .top .tv-link .tv-txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  :where(.home) .top #account, :where(.home) .top #account.premium { margin-right: 12px; padding: 0 11px; font-size: 14px; }
+}
+@media (max-width: 340px) {
+  :where(.home) .top .wordmark { height: 16px; }
+  :where(.home) .top #account, :where(.home) .top #account.premium { margin-right: 10px; padding: 0 9px; font-size: 13.5px; }
+  /* 320 (Display Zoom): "★ Premium" would run into the wordmark - the gold star pill alone (the
+     word stays for screen readers). */
+  :where(.home) .top #account.premium { min-width: 44px; padding: 0 14px; justify-content: center; }
+  :where(.home) .top #account .acct-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  :where(.home) .game-row.tight .tl-name { font-size: calc(13rem / var(--rb)); letter-spacing: -.03em; }
+  :where(.home) .card.game-row { grid-template-columns: minmax(0, 1fr) 70px; }
+  :where(.home) .t-teams { padding: 10px 14px 10px 14px; }
+  :where(.home) .team-line { gap: 9px; }
+  :where(.home) .s-main.long { font-size: 13px; }
+}
+
+@keyframes ring { 0% { transform: scale(1); opacity: .6; } 70%, 100% { transform: scale(2.8); opacity: 0; } }
+@keyframes bump { 0% { transform: scale(1.3); } 100% { transform: none; } }
+@keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes nudge { 0%, 100% { transform: none; } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+@media (max-width: 600px) and (prefers-reduced-motion: reduce) {
+  :where(.home) *, :where(.home) *::before, :where(.home) *::after { animation: none !important; transition: none !important; }
 }

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="home"><!-- .home: app.css's phone Home styles apply to this page only -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -13,19 +13,27 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Styx Sports">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- Opaque bar (not black-translucent): iOS 26+ only drops its blurred band under the clock when
+       the status bar is opaque and a full-width solid fixed box (.edge) covers the top edge.
+       iOS reads this when the app is added to the Home Screen, so old installs must re-add it. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <link rel="stylesheet" href="/tokens.css">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+  <!-- Phones: the solid strip WebKit samples to colour the status-bar band (hidden elsewhere) -->
+  <div class="edge" aria-hidden="true"></div>
+
   <header class="top">
     <img class="wordmark" src="/wordmark.png" alt="Styx Sports">
     <nav class="chips" id="chips" aria-label="Sports"></nav>
+    <!-- Phones: shown while the schedule cannot be loaded (app.js updateOfflineBar) -->
+    <div class="offline-bar hidden" id="offline-bar" role="status"><span class="ob-ic" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M1.8 7.4C6.5 3.2 13.5 3.2 18.2 7.4M4.7 10.4c3-2.6 7.6-2.6 10.6 0M7.5 13.3c1.5-1.2 3.5-1.2 5 0"/><circle cx="10" cy="16.3" r="1.1" fill="currentColor" stroke="none"/><path d="M3.2 2.2l13.6 16" stroke="#141210" stroke-width="4"/><path d="M3.2 2.2l13.6 16"/></svg></span><span class="ob-tx" id="offline-text"></span><button class="ob-retry" id="offline-retry" type="button">Retry</button></div>
     <div class="top-right">
       <span class="status" id="status"></span>
       <button class="icon-btn" id="refresh" title="Refresh">⟳</button>
       <button class="apk" id="account" title="Sign in to your premium account">Sign in</button>
-      <a class="apk" href="/install" title="Install on Android TV, Fire TV or Roku"><span class="phone-hide">Get the </span>TV app</a>
+      <a class="apk tv-link" href="/install" title="Install on Android TV, Fire TV or Roku"><span class="tv-ic" hidden><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3.5" width="16" height="11" rx="2"/><path d="M7 17.5h6"/></svg></span><span class="phone-hide">Get the </span><span class="tv-txt">TV app</span></a>
     </div>
   </header>
 
@@ -38,11 +46,14 @@
   </div>
 
   <footer class="foot">
+    <!-- [hidden] phone-only parts: app.css's phone Home shows them; an older cached app.css never does -->
+    <div class="foot-brand" hidden><img src="/icon-192.png" alt=""><div><b>Styx Sports</b><div id="foot-status"></div></div></div>
     <span>Right-click or long-press a game to star a team or league.</span>
     <span>Arrow keys move · Enter plays · Esc closes · R refreshes.</span>
     <a class="foot-link" href="/stats">Active now</a>
     <a id="open-site" class="foot-link" href="#" target="_blank" rel="noopener noreferrer">Open the site ↗</a>
     <a class="foot-link" href="/install">Install on a TV</a>
+    <p class="foot-tip" hidden>Press and hold a game to star a team or send it to your TV.</p>
   </footer>
 
   <!-- Player -->
@@ -74,7 +85,8 @@
     <button class="unmute hidden" id="p-unmute">🔇 Tap to unmute</button>
   </div>
 
-  <!-- Favorites menu -->
+  <!-- Favorites menu (a bottom sheet over #scrim on phones) -->
+  <div id="scrim" class="scrim hidden" aria-hidden="true"></div>
   <div id="menu" class="menu hidden" role="menu"></div>
   <div class="p-toast app-toast hidden" id="toast" role="status"></div>
   <div class="install-hint hidden" id="install-hint" role="dialog" aria-label="Install Styx Sports">

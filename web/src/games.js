@@ -45,12 +45,24 @@ const clamp01 = (x) => Math.max(0, Math.min(1, x));
 // Teams: abbreviation + two brand colors
 // ---------------------------------------------------------------------------------------------
 
-/** "Kansas City Chiefs" -> "KCC" when the team is not in teams.json; single-word -> first 3. */
+/**
+ * "Kansas City Chiefs" -> "KCC" when the team is not in teams.json; single-word -> first 3. Accents
+ * are folded first (Beşiktaş -> BES, Fenerbahçe -> FEN); a name with no Latin letters uses its own
+ * (Ολυμπιακός -> ΟΛΥ). The web app's codeOf() (web/public/app.js) follows the same rule.
+ */
+const FOLD = { ß: 'ss', ẞ: 'SS', ø: 'o', Ø: 'O', ł: 'l', Ł: 'L', đ: 'd', Đ: 'D', æ: 'ae', Æ: 'AE', œ: 'oe', Œ: 'OE', ı: 'i', þ: 'th', Þ: 'TH', ð: 'd', Ð: 'D' };
+function nameWords(name) {
+  const f = String(name || '').normalize('NFD').replace(/\p{M}/gu, '').replace(/[ßẞøØłŁđĐæÆœŒıþÞðÐ]/g, (c) => FOLD[c]);
+  const latin = f.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+  if (latin.some((w) => /[A-Za-z]/.test(w))) return latin;
+  // Arabic names: the article "ال" would start every code.
+  return f.replace(/[^\p{L}\p{N} ]/gu, ' ').split(/\s+/).filter(Boolean).map((w) => (/^ال./u.test(w) && [...w].length > 3 ? w.slice(2) : w));
+}
 function initials(name) {
-  const words = String(name).replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+  const words = nameWords(name);
   if (words.length === 0) return '';
-  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
-  return words.slice(0, 3).map((w) => w[0]).join('').toUpperCase();
+  if (words.length === 1) return [...words[0]].slice(0, 3).join('').toUpperCase();
+  return words.slice(0, 3).map((w) => [...w][0]).join('').toUpperCase();
 }
 
 const crestColorCache = new Map(); // crest url -> ['#rrggbb', '#rrggbb'] | null (per isolate)
