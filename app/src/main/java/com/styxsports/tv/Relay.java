@@ -40,6 +40,18 @@ final class Relay {
     // Mode
     // ---------------------------------------------------------------------------------------------
 
+    /**
+     * Read the site through the Worker first on every network, with the site itself as the
+     * fallback (config.json feature "serverFirst", default on). Off: the older rule - the site
+     * first, the Worker only where this network refuses the site.
+     */
+    static boolean serverFirst(Context ctx) {
+        return RemoteConfig.load(ctx).flags(ctx).on("serverFirst", true);
+    }
+
+    /** {@link #resolve}'s state when the Worker could not be asked at all (not "no player"). */
+    static final String STATE_RELAY_FAILED = "relay-failed";
+
     /** Is the app reading the site through the Worker right now? */
     static boolean active(Context ctx) {
         return prefs(ctx).getLong(KEY_SINCE, 0) > 0;
@@ -49,8 +61,10 @@ final class Relay {
     static void set(Context ctx, boolean on) {
         boolean was = active(ctx);
         if (was == on) return;
-        Log.i(TAG, on ? "site unreachable from this network: reading it through " + BASE
-                : "site reachable again: back to reading it directly");
+        Log.i(TAG, on ? (serverFirst(ctx) ? "reading the site through " + BASE
+                        : "site unreachable from this network: reading it through " + BASE)
+                : (serverFirst(ctx) ? BASE + " failed: reading the site directly"
+                        : "site reachable again: back to reading it directly"));
         prefs(ctx).edit().putLong(KEY_SINCE, on ? System.currentTimeMillis() : 0)
                 .putLong(KEY_DIRECT_TRY, System.currentTimeMillis()).apply();
     }
@@ -228,7 +242,7 @@ final class Relay {
             return new StreamResolver.Stream(server, null, origin, null, w.state);
         } catch (Exception e) {
             Log.w(TAG, server.name + " via web failed: " + e.getMessage());
-            return new StreamResolver.Stream(server, null, origin, null, "");
+            return new StreamResolver.Stream(server, null, origin, null, STATE_RELAY_FAILED);
         }
     }
 

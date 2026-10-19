@@ -149,7 +149,8 @@ final class StreamResolver {
 
     /** Resolves one server, reusing the page HTML when it is the page's active server. */
     Stream resolve(Server server, Page page) throws IOException {
-        if (page != null && page.servers.get(page.activeIndex) == server) {
+        // A page read through the web relay has no HTML: fetch the tab's own page then.
+        if (page != null && !page.html.isEmpty() && page.servers.get(page.activeIndex) == server) {
             return resolveFromHtml(server, page.html);
         }
         return resolveFromHtml(server, Http.getText(server.pageUrl));

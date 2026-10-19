@@ -164,7 +164,23 @@ final class Prefetch {
 
     /** The stream page's server tabs: from the site, or through the web relay when this network refuses it. Blocking. */
     static StreamResolver.Page fetchPage(Context ctx, StreamResolver resolver, String pageUrl) throws IOException {
-        if (Relay.active(ctx)) return Relay.page(ctx, pageUrl);
+        if (Relay.active(ctx)) {
+            try {
+                return Relay.page(ctx, pageUrl);
+            } catch (IOException e) {
+                if (!Relay.serverFirst(ctx)) throw e;
+                // Server first, but the server could not read this page: try the site itself.
+                Log.w(TAG, "stream page via relay: " + e.getMessage() + "; trying the site directly");
+                try {
+                    return resolver.page(pageUrl);
+                } catch (IOException direct) {
+                    if (Relay.looksBlocked(e)) {
+                        throw new IOException("Couldn't reach the Styx server or the game site. Check this TV's internet connection, then Retry.", e);
+                    }
+                    throw e;
+                }
+            }
+        }
         try {
             return resolver.page(pageUrl);
         } catch (IOException e) {
@@ -196,7 +212,14 @@ final class Prefetch {
     static StreamResolver.Stream resolveServer(Context ctx, StreamResolver resolver, StreamResolver.Server s,
                                                StreamResolver.Page page, boolean leaseHeld) throws IOException {
         final boolean viaPool = s.premium && leaseHeld;
-        if (Relay.active(ctx)) return Relay.resolve(ctx, s, viaPool);
+        // A premium tab of the viewer's own account is read with this device's session (the
+        // Worker only has the shared one); a network that refuses the site sends it to the relay below.
+        final boolean ownPremium = s.premium && Account.isSignedIn(ctx);
+        if (Relay.active(ctx) && !ownPremium) {
+            StreamResolver.Stream st = Relay.resolve(ctx, s, viaPool);
+            if (!Relay.STATE_RELAY_FAILED.equals(st.state) || !Relay.serverFirst(ctx)) return st;
+            Log.i(TAG, s.name + ": the web relay could not be asked; resolving it from here");
+        }
         // No account here: this session cannot open a premium tab at all, so the Worker reads it
         // with the shared account straight away.
         if (viaPool && !Account.isSignedIn(ctx)) return Pool.resolveShared(ctx, s);

@@ -594,7 +594,7 @@ public class HomeActivity extends Activity {
         String text = getResources().getQuantityString(R.plurals.status_updated, live,
                 timeOf(snapshot.fetchedAtMs), live);
         // This network blocks the site; the app is reading it through the web version.
-        if (Relay.active(this)) text += getString(R.string.status_via_relay);
+        if (Relay.active(this) && !Relay.serverFirst(this)) text += getString(R.string.status_via_relay);
         statusText.setText(text);
     }
 
@@ -1198,6 +1198,11 @@ public class HomeActivity extends Activity {
         handler.removeCallbacks(fullTick);
         handler.postDelayed(statusTick, STATUS_INTERVAL_MS);
         handler.postDelayed(fullTick, FULL_REFRESH_INTERVAL_MS);
+        // Back from a game while the schedule is still failing: keep retrying soon, not in 5 min.
+        if (offlineFailures > 0) {
+            handler.removeCallbacks(offlineRetry);
+            handler.postDelayed(offlineRetry, 30_000L);
+        }
         bindAccountButton();
         // The launcher keeps this activity alive for days; a new release must not need a force-stop.
         if (CrashLog.pendingReport(this) == null) updates.checkIfDue();

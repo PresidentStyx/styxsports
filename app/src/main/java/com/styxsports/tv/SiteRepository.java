@@ -53,10 +53,31 @@ final class SiteRepository {
     }
 
     /**
-     * Full refresh. From the site when it answers; through the web relay ({@link Relay}) when
-     * this network refuses it. Once on the relay, the site is retried directly now and then.
+     * Full refresh. Through the web relay ({@link Relay}) first, the site itself when the relay
+     * fails ({@link Relay#serverFirst}). With that flag off: from the site when it answers,
+     * through the relay when this network refuses it, retrying the site now and then.
      */
     Snapshot fetch(RemoteConfig cfg) throws IOException {
+        if (Relay.serverFirst(ctx)) {
+            IOException viaServer;
+            try {
+                Snapshot s = Relay.schedule(ctx);
+                Relay.set(ctx, true);
+                remember(s.sourceBaseUrl.isEmpty() ? cfg.dataBaseUrl : s.sourceBaseUrl, s);
+                return s;
+            } catch (IOException e) {
+                viaServer = e;
+                Log.w(TAG, "relay failed (" + e.getMessage() + "); trying the site directly");
+            }
+            try {
+                Snapshot s = fetchDirect(cfg);
+                Relay.set(ctx, false); // pages and servers follow the schedule to the site
+                return s;
+            } catch (IOException direct) {
+                Log.w(TAG, "site failed too: " + direct.getMessage());
+                throw viaServer;
+            }
+        }
         boolean relay = Relay.active(ctx);
         IOException relayFailure = null;
         if (relay && !Relay.dueForDirectTry(ctx)) {
