@@ -158,7 +158,10 @@
     async send(tv, e) {
       try {
         await api('/api/cast/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: clientId(), tv: tv.id, cmd: 'open', event: e }) });
-        appToast(`Sent to ${tv.name}`);
+        // Handed off: the phone stops playing that game (and gives back any premium slot).
+        const here = !$('player').classList.contains('hidden') && player.event && player.event.id === e.id;
+        if (here) player.close();
+        appToast(here ? `Now playing on ${tv.name}` : `Sent to ${tv.name}`);
         return true;
       } catch (err) {
         appToast(err.message);
