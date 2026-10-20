@@ -161,6 +161,12 @@ button.apk { cursor: pointer; }
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   background: #fff; color: #000; border: 0; border-radius: 30px; padding: 14px 24px; font-weight: 700; font-size: 16px; cursor: pointer;
 }
+/* The phone player's own nodes (.p-yt) exist only for it (see "phone player (YouTube-style)" at the
+   end); .p-stage has the player's box, and the title wrapper is no box at all, so the TV / desktop
+   player renders exactly as it always has. */
+.p-yt { display: none; }
+.p-stage { position: absolute; inset: 0; }
+.p-tblock { display: contents; }
 
 /* ---------------------------------------------------------------- favorites menu */
 .menu {
@@ -1112,4 +1118,625 @@ button.apk { cursor: pointer; }
 
 @media (max-width: 600px) and (prefers-reduced-motion: reduce) {
   :where(.home) *, :where(.home) *::before, :where(.home) *::after { animation: none !important; transition: none !important; }
+}
+
+/* =================================================================================================
+   Phone player (YouTube-style). app.js puts .yt on #player only on a touch phone (either way up) or
+   a window 600px wide or less - never on a TV or a desktop - so every rule here starts with
+   .player.yt and the TV / desktop player above is untouched. Views: .v-watch (portrait: the video
+   under the status bar, the game's page under it), .v-fs (sideways), .v-fsrot (the iPhone's
+   CSS-rotated full screen), .v-mini (minimised over Home).
+   ================================================================================================= */
+.player.yt {
+  --pst: var(--safe-top, env(safe-area-inset-top, 0px));
+  --psb: var(--safe-bottom, env(safe-area-inset-bottom, 0px));
+  --psl: var(--safe-left, env(safe-area-inset-left, 0px));
+  --psr: var(--safe-right, env(safe-area-inset-right, 0px));
+  --p-top: calc(var(--pst) + clamp(12px, calc(var(--pst) * 100), 44px)); /* = the Home's --edge-h */
+  --p-vh: min(56.25vw, 45vh);
+  --red: #dc2626; --red-text: #ff5a52; --amber-text: #f5a524; --pgold: #f5b942; --ok: #22c55e;
+  --bub: rgba(0, 0, 0, .32);
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  /* Sideways: clear of the notch and the home indicator. */
+  --L: max(16px, var(--psl)); --R: max(16px, var(--psr)); --B: max(12px, var(--psb)); --T: max(8px, var(--pst));
+  --tb: 12px; /* the scrubber track's distance from its box's bottom */
+  background: #0a0a0a; color: #f5f5f5; overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
+}
+.player.yt.entering { animation: p-up 280ms var(--ease); }
+.player.yt.vdrag .hud, .player.yt.vdrag .p-ctl, .player.yt.vdrag .p-bar, .player.yt.vdrag .p-scrim { opacity: 0; }
+
+/* ---------------------------------------------------------------- the stage (the video box) */
+.player.yt .p-stage { z-index: 2; background: #000; }
+.player.yt video { background: transparent; }
+.player.yt video::-webkit-media-controls-start-playback-button { display: none !important; -webkit-appearance: none; }
+.player.yt.fill.v-fs video, .player.yt.fill.v-fsrot video { object-fit: cover; }
+/* A server picked by hand: the last frame holds (a little dimmed) while the next one connects. */
+.player.yt .p-freeze { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.player.yt.frozen .p-freeze { display: block; filter: brightness(.7); }
+.player.yt.fill.v-fs .p-freeze, .player.yt.fill.v-fsrot .p-freeze { object-fit: cover; }
+.player.yt.frozen.connecting .p-backdrop { opacity: 0; transition: none; }
+.player.yt .hud-bottom, .player.yt #p-embed-note { display: none; }
+
+/* Team colours (the lead card's diagonal split) until the first frame; a dead stream keeps them. */
+.player.yt .p-backdrop {
+  display: block; position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity 200ms ease;
+  background: linear-gradient(155deg, var(--h1-hi, #2a3140), var(--h1, #222833) 48%, var(--h1-lo, #161a22));
+}
+.player.yt .p-backdrop::after {
+  content: ''; position: absolute; inset: 0; clip-path: polygon(61% 0, 100% 0, 100% 100%, 39% 100%);
+  background: linear-gradient(205deg, var(--h2-hi, #2d2a26), var(--h2, #23211e) 48%, var(--h2-lo, #181715));
+}
+.player.yt .p-backdrop.ch { background: #1c1c1c; }
+.player.yt .p-backdrop.ch::after { display: none; }
+.player.yt.connecting .p-backdrop, .player.yt.dead .p-backdrop { opacity: 1; }
+.player.yt .bd-side { position: absolute; z-index: 1; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; display: grid; place-items: center; }
+.player.yt .bd-side.l { left: 18%; }
+.player.yt .bd-side.r { left: 82%; }
+.player.yt .bd-side img { width: 48px; height: 48px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .4)); }
+.player.yt .bd-side b { font-size: 22px; font-weight: 850; letter-spacing: .01em; color: #fff; text-shadow: 0 2px 6px rgba(0, 0, 0, .4); }
+.player.yt.dead .bd-side, .player.yt.dead .bd-logo { display: none; } /* only the colours behind the explanation */
+.player.yt .bd-logo { position: absolute; left: 50%; top: 50%; width: 64px; height: 44px; margin: -74px 0 0 -32px; object-fit: contain; }
+.player.yt.v-mini .bd-side, .player.yt.v-mini .bd-logo { display: none; }
+
+/* Picture in picture: the stage says where the video went. */
+.player.yt.pip .p-pipnote { display: grid; position: absolute; inset: 0; z-index: 1; place-items: center; background: #111; color: #9e9e9e; font-size: 14px; }
+
+/* The gesture surface over the picture (taps, double taps, swipes, pinch). */
+.player.yt .p-gest {
+  display: block; position: absolute; inset: 0; z-index: 1; touch-action: none;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.player.yt.embed .p-gest, .player.yt.v-mini .p-gest { display: none; }
+.player.yt .p-scrim { display: block; position: absolute; inset: 0; z-index: 2; background: rgba(0, 0, 0, .4); pointer-events: none; transition: opacity 150ms ease; }
+.player.yt.idle .p-scrim, .player.yt.connecting .p-scrim, .player.yt.embed .p-scrim, .player.yt.dead .p-scrim, .player.yt.v-mini .p-scrim { opacity: 0; transition-duration: 200ms; }
+
+/* ---------------------------------------------------------------- controls (shown, then they fade) */
+.player.yt .hud { transition: opacity 150ms ease; }
+.player.yt.idle .hud, .player.yt.idle .p-ctl, .player.yt.idle .p-fsrow { opacity: 0; transition-duration: 200ms; }
+.player.yt.idle .hud > *, .player.yt.idle .p-ctl > *, .player.yt.idle .p-fsrow > * { pointer-events: none; }
+/* Connecting, a dead stream, the site's player: the top row stays (minimise, Settings at once). */
+.player.yt.connecting .hud-top, .player.yt.dead .hud-top, .player.yt.embed .hud-top { opacity: 1; }
+.player.yt.connecting .hud-top > *, .player.yt.dead .hud-top > *, .player.yt.embed .hud-top > * { pointer-events: auto; }
+.player.yt.connecting .hud-mid, .player.yt.dead .hud-mid, .player.yt.embed .hud-mid,
+.player.yt.connecting .p-ctl, .player.yt.dead .p-ctl, .player.yt.embed .p-ctl,
+.player.yt.connecting .p-bar, .player.yt.dead .p-bar, .player.yt.embed .p-bar,
+.player.yt.connecting .p-fsrow { display: none; }
+/* The scrubber a tap just brought up: not draggable for the double-tap window (app.js toggleControls). */
+.player.yt.reveal .p-bar { pointer-events: none; }
+/* The whole player is the drag handle (YouTube): a press on a control that travels up or down becomes the
+   swipe (app.js gest.armCtl), so the browser must not take it for a pan of its own. */
+.player.yt .hud button, .player.yt .p-ctl button, .player.yt .p-fsrow button, .player.yt .unmute { touch-action: none; }
+
+.player.yt .hud-top {
+  z-index: 5; top: 0; left: 0; right: 0; height: 52px; padding: 4px 4px 0; gap: 0; align-items: center; background: none;
+}
+.player.yt .hud-top #p-pill, .player.yt .hud-top .p-score, .player.yt #p-fs, .player.yt #p-close, .player.yt .p-tblock { display: none; }
+.player.yt .hud .icon-btn, .player.yt #p-fsx {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0;
+  border: 0; border-radius: 50%; color: #fff; cursor: pointer; font-size: 0;
+  background: radial-gradient(circle 18px at 50% 50%, var(--ibub, var(--bub)) 97%, transparent 100%);
+}
+.player.yt .hud .icon-btn svg, .player.yt #p-fsx svg { width: 22px; height: 22px; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .35)); }
+.player.yt .hud .icon-btn:active, .player.yt #p-fsx:active { background: radial-gradient(circle 18px at 50% 50%, rgba(255, 255, 255, .18) 97%, transparent 100%); }
+.player.yt .hud .icon-btn:focus-visible, .player.yt #p-fsx:focus-visible, .player.yt .p-play:focus-visible, .player.yt .p-skip:focus-visible,
+.player.yt .p-live:focus-visible, .player.yt .p-mbtn:focus-visible { outline: 3px solid #fff; outline-offset: -4px; }
+/* Send to TV keeps its 📺 text for the TV: drawn here as the line icon over the bubble. */
+.player.yt #p-cast {
+  color: transparent;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23f5f5f5' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='3.5' width='16' height='11' rx='2'/%3E%3Cpath d='M7 17.5h6'/%3E%3C/svg%3E") center / 22px no-repeat,
+    radial-gradient(circle 18px at 50% 50%, var(--ibub, var(--bub)) 97%, transparent 100%);
+}
+.player.yt #p-cast:active {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23f5f5f5' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='3.5' width='16' height='11' rx='2'/%3E%3Cpath d='M7 17.5h6'/%3E%3C/svg%3E") center / 22px no-repeat,
+    radial-gradient(circle 18px at 50% 50%, rgba(255, 255, 255, .18) 97%, transparent 100%);
+}
+.player.yt.ch #p-cast { display: none; }
+
+.player.yt .hud-mid {
+  display: flex; position: absolute; z-index: 4; inset: 0; align-items: center; justify-content: center; gap: 40px;
+  padding: 0; background: none; pointer-events: none;
+}
+.player.yt .p-play, .player.yt .p-skip { display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; color: #fff; cursor: pointer; }
+.player.yt .p-play { width: 64px; height: 64px; background: rgba(0, 0, 0, .45); }
+.player.yt .p-play svg { width: 30px; height: 30px; }
+.player.yt .p-play:active { background: rgba(255, 255, 255, .2); }
+.player.yt .p-skip { display: none; width: 48px; height: 48px; background: var(--bub); }
+.player.yt .p-skip svg { width: 24px; height: 24px; }
+.player.yt.ch .p-skip { display: grid; }
+.player.yt.buffering .p-play, .player.yt.buffering .p-skip { visibility: hidden; }
+
+.player.yt .p-ctl {
+  display: flex; position: absolute; z-index: 5; left: 8px; right: 4px; bottom: 14px; height: 44px; align-items: center;
+  pointer-events: none; transition: opacity 150ms ease;
+}
+.player.yt .p-ctl > * { pointer-events: auto; }
+.player.yt .p-ctl > .hud-spacer { pointer-events: none; }
+.player.yt .p-live {
+  position: relative; isolation: isolate; height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px;
+  border: 0; background: none; color: #fff; font-size: 12px; font-weight: 800; letter-spacing: .06em;
+  font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer;
+}
+.player.yt .p-live::before { content: ''; position: absolute; z-index: -1; inset: 8px 0; border-radius: 14px; background: rgba(0, 0, 0, .45); }
+.player.yt .p-live.none { visibility: hidden; }
+.player.yt .p-live.vod { letter-spacing: 0; font-weight: 700; cursor: default; }
+.player.yt .p-live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex: none; }
+.player.yt .p-live .dot.off { background: #9e9e9e; }
+.player.yt .p-live .tm { margin-right: 4px; letter-spacing: .01em; font-weight: 700; }
+.player.yt .p-live .lv.off { color: rgba(255, 255, 255, .8); }
+.player.yt #p-fsx { display: grid; }
+
+/* ---------------------------------------------------------------- scrubber */
+.player.yt .p-bar { display: block; position: absolute; z-index: 4; left: 0; right: 0; bottom: -12px; height: 40px; touch-action: none; cursor: pointer; transition: opacity 150ms ease; outline: none; }
+.player.yt .p-track { position: absolute; left: 0; right: 0; bottom: var(--tb); height: 3px; background: rgba(255, 255, 255, .3); transition: height 120ms ease; }
+.player.yt .p-fill { height: 100%; width: calc(var(--f, 1) * 100%); background: var(--red); transition: width 150ms ease; }
+/* The bar's box takes the touches; its 3px line is drawing only (Chrome's touch adjustment scores a thin
+   line a finger covers as a perfect hit, and would pull a touch on the page under the video onto it). */
+.player.yt .p-track, .player.yt .p-fill { pointer-events: none; }
+.player.yt .p-thumb {
+  position: absolute; left: calc(var(--f, 1) * 100%); bottom: calc(var(--tb) + 1.5px - 6.5px); width: 13px; height: 13px; margin-left: -6.5px;
+  border-radius: 50%; background: var(--red); transition: opacity 150ms ease, transform 120ms ease, left 150ms ease; pointer-events: none;
+}
+.player.yt .p-bubble {
+  position: absolute; left: 0; bottom: calc(var(--tb) + 3px + 10px); transform: translateX(-50%); padding: 4px 8px; border-radius: 8px;
+  background: rgba(0, 0, 0, .75); color: #fff; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+  opacity: 0; pointer-events: none;
+}
+/* Portrait: its touch area stops at the video's edge, so the page under the video scrolls from its first
+   pixel; a sideways drag that starts just under the edge still scrubs (app.js: the page's top strip). */
+.player.yt.v-watch .p-bar { bottom: 0; height: 28px; --tb: 0px; }
+.player.yt:not(.dvr):not(.vod) .p-bar { pointer-events: none; }
+.player.yt:not(.dvr):not(.vod) .p-thumb { opacity: 0; }
+.player.yt .p-bar:focus-visible .p-thumb { box-shadow: 0 0 0 3px #fff; }
+/* Controls hidden: only a stream behind live (or a replay) keeps a thin played line. */
+.player.yt.idle .p-bar { opacity: 0; pointer-events: none; }
+.player.yt.idle .p-thumb { opacity: 0; }
+.player.yt.idle .p-track { height: 2px; }
+.player.yt.idle.dvr.behind .p-bar, .player.yt.idle.vod .p-bar { opacity: 1; }
+/* Double-tap seeking: the bar on its own, with its thumb. */
+.player.yt.seeking .p-bar { opacity: 1; }
+.player.yt.seeking .p-thumb { opacity: 1; }
+.player.yt.dragging .p-track { height: 5px; }
+.player.yt.dragging .p-thumb { transform: scale(1.46); }
+.player.yt.dragging .p-thumb, .player.yt.dragging .p-fill { transition: none; }
+.player.yt.dragging .p-bubble { opacity: 1; }
+/* Scrubbing: the picture and the bar; the play button and the badge step aside. */
+.player.yt.dragging .hud-mid, .player.yt.dragging .p-ctl, .player.yt.dragging .p-fsrow { opacity: 0; pointer-events: none; }
+
+/* ---------------------------------------------------------------- double-tap seek */
+.player.yt .p-seekfx { display: block; position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity 400ms ease; }
+.player.yt .p-seekfx.on { opacity: 1; transition-duration: 120ms; }
+.player.yt .p-seekfx .arc {
+  position: absolute; top: 0; bottom: 0; width: 42%; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: rgba(255, 255, 255, .12); color: #fff;
+}
+.player.yt .p-seekfx .arc.l { left: 0; border-radius: 0 50% 50% 0 / 0 50% 50% 0; }
+.player.yt .p-seekfx .arc.r { right: 0; border-radius: 50% 0 0 50% / 50% 0 0 50%; }
+.player.yt .p-seekfx .chev { display: flex; gap: 2px; }
+.player.yt .p-seekfx .arc.l .chev { transform: scaleX(-1); }
+.player.yt .p-seekfx .chev svg { width: 10px; height: 12px; opacity: .3; }
+.player.yt .p-seekfx .arc:not(.anim) .chev { display: none; }
+.player.yt .p-seekfx .arc.anim .chev svg { animation: p-chev 750ms linear infinite; }
+.player.yt .p-seekfx .arc.anim .chev svg:nth-child(2) { animation-delay: 150ms; }
+.player.yt .p-seekfx .arc.anim .chev svg:nth-child(3) { animation-delay: 300ms; }
+.player.yt .p-seekfx .lbl { font-size: 13px; font-weight: 650; text-shadow: 0 1px 2px rgba(0, 0, 0, .5); white-space: nowrap; }
+.player.yt .p-seekfx .ripple {
+  position: absolute; width: 80px; height: 80px; margin: -40px 0 0 -40px; border-radius: 50%; background: rgba(255, 255, 255, .22);
+  animation: p-ripple 450ms ease-out forwards;
+}
+
+/* ---------------------------------------------------------------- loading, buffering, errors */
+.player.yt .panel { z-index: 3; gap: 12px; padding: 0 24px; background: transparent; text-align: center; }
+.player.yt.dead .panel { background: rgba(0, 0, 0, .72); }
+.player.yt .spinner { width: 32px; height: 32px; border: 3px solid rgba(255, 255, 255, .25); border-top-color: #fff; }
+.player.yt .panel-msg {
+  max-width: min(100%, 300px); font-size: 13px; font-weight: 600; line-height: 1.35; color: rgba(255, 255, 255, .85);
+  white-space: normal; text-wrap: balance; text-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+}
+.player.yt .panel-msg:empty { display: none; }
+.player.yt .panel > .panel-msg, .player.yt .panel > .spinner { pointer-events: none; } /* swipes and taps go through to the video */
+.player.yt .panel-msg.late { animation: p-late 200ms 1.2s both; }
+/* The spinner is the stage's centre - the crests', the play button's - and its words hang under it out of
+   the flow, so the late label moves nothing (an empty actions row takes no gap either). */
+.player.yt .panel-actions:empty { display: none; }
+.player.yt .panel > .spinner:not(.hidden) + .panel-msg {
+  position: absolute; top: calc(50% + 28px); left: 50%; transform: translateX(-50%); width: max-content; max-width: min(calc(100% - 48px), 300px);
+}
+.player.yt.frozen .panel > .spinner:not(.hidden) + .panel-msg { top: calc(50% + 32px); }
+.player.yt .panel-msg.two b { display: block; font-weight: 650; color: #fff; }
+.player.yt .panel-msg.two small { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, .72); }
+.player.yt .p-err-ic { display: block; width: 28px; height: 28px; margin: 0 auto 8px; color: rgba(255, 255, 255, .85); }
+.player.yt .p-err-ic.gold { width: 24px; height: 24px; color: var(--pgold); }
+.player.yt .p-err-ic svg { display: block; width: 100%; height: 100%; }
+.player.yt .p-err-title { display: block; font-size: 16px; font-weight: 650; color: #fff; }
+.player.yt .p-err-title.gold { color: var(--pgold); }
+.player.yt .p-err-sub { display: block; margin-top: 4px; font-size: 13px; font-weight: 500; color: #a8a8a8; text-shadow: none; }
+.player.yt .panel-actions { gap: 8px; }
+.player.yt .p-btn {
+  position: relative; isolation: isolate; height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px;
+  border: 0; background: none; color: #fff; font-size: 14px; font-weight: 650; text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.player.yt .p-btn::before { content: ''; position: absolute; z-index: -1; inset: 2px 0; border-radius: 20px; }
+.player.yt .p-btn svg { width: 16px; height: 16px; }
+.player.yt .p-btn.light { color: #0a0a0a; }
+.player.yt .p-btn.light::before { background: #fff; }
+.player.yt .p-btn.ghost::before { box-shadow: inset 0 0 0 1px #3a3a3a; background: rgba(0, 0, 0, .3); }
+.player.yt .p-btn.gold { color: #1a1205; }
+.player.yt .p-btn.gold::before { background: var(--pgold); }
+.player.yt .p-btn:active::before { filter: brightness(.88); }
+.player.yt .p-btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; border-radius: 20px; }
+/* Buffering after the first frame: a spinner over the frozen picture, no dimming; words after 3 s. */
+.player.yt .p-buf { display: none; position: absolute; inset: 0; z-index: 3; flex-direction: column; align-items: center; justify-content: center; gap: 10px; pointer-events: none; }
+.player.yt.buffering .p-buf { display: flex; }
+.player.yt.v-mini .p-buf, .player.yt.connecting .p-buf, .player.yt.dead .p-buf { display: none; }
+.player.yt .p-buf .spinner { width: 40px; height: 40px; background: rgba(0, 0, 0, .4); box-shadow: 0 0 0 9px rgba(0, 0, 0, .4); }
+.player.yt .p-buf span {
+  position: absolute; top: calc(50% + 37px); left: 50%; transform: translateX(-50%); white-space: nowrap; /* under the disc, out of the flow */
+  padding: 3px 8px; border-radius: 10px; background: rgba(0, 0, 0, .55);
+  font-size: 12px; font-weight: 600; color: #fff; opacity: 0;
+}
+/* The connecting spinner and its words over a held frame: the same backing. */
+.player.yt.frozen .panel > .spinner { background: rgba(0, 0, 0, .4); box-shadow: 0 0 0 8px rgba(0, 0, 0, .4); }
+.player.yt.frozen .panel-msg { padding: 4px 10px; border-radius: 10px; background: rgba(0, 0, 0, .55); text-shadow: none; }
+.player.yt.buf-late .p-buf span { animation: p-late 200ms both; }
+
+/* Snackbar ("Switched to Server 2 for a steadier stream"): over the top of the video. */
+.player.yt .p-toast {
+  z-index: 6; top: 10px; bottom: auto; left: 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center;
+  width: max-content; max-width: calc(100% - 32px); min-height: 32px; padding: 6px 13px; border: 0; border-radius: 16px;
+  background: rgba(23, 23, 23, .92); box-shadow: inset 0 0 0 1px #343434, 0 6px 20px rgba(0, 0, 0, .35);
+  color: #fff; font-size: 13px; font-weight: 600; line-height: 1.3; text-align: center; white-space: normal; text-wrap: balance;
+  animation: p-toast-in 200ms var(--ease); transition: top 150ms ease;
+}
+/* Controls up: under the top row (clear of minimise / Send to TV / Settings). */
+.player.yt:not(.idle) .p-toast, .player.yt.connecting .p-toast, .player.yt.dead .p-toast { top: 46px; }
+/* The watch page: a snackbar at the foot of the screen (YouTube), clear of every control on the picture
+   and of the score; fixed, so it is placed against the screen, not the video box. A solid bar the width
+   of the screen: it sits over the "Live now" tiles, whose own text must not show through it. */
+.player.yt.v-watch .p-toast, .player.yt.v-watch:not(.idle) .p-toast {
+  position: fixed; top: auto; bottom: calc(12px + var(--psb)); left: 8px; right: 8px; transform: none;
+  width: auto; max-width: none; min-height: 48px; justify-content: flex-start; padding: 12px 16px; border-radius: 12px;
+  background: #2c2c2c; box-shadow: inset 0 0 0 1px #3d3d3d, 0 8px 24px rgba(0, 0, 0, .55);
+  font-size: 14px; font-weight: 500; text-align: left; text-wrap: pretty; animation-name: p-snack-in;
+}
+@keyframes p-snack-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.player.yt .unmute {
+  z-index: 6; top: 4px; left: 8px; transform: none; height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px 0 10px;
+  border-radius: 0; background: none; color: #0a0a0a; font-size: 14px; font-weight: 650; isolation: isolate; transition: left 150ms ease;
+}
+.player.yt .unmute::before { content: ''; position: absolute; z-index: -1; inset: 4px 0; border-radius: 18px; background: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
+.player.yt .unmute svg { width: 18px; height: 18px; }
+.player.yt:not(.idle) .unmute, .player.yt.connecting .unmute { left: 56px; }
+.player.yt.v-mini .unmute { display: none; }
+
+/* ---------------------------------------------------------------- portrait: the watch page */
+.player.yt.v-watch::before { content: ''; position: absolute; z-index: 3; top: 0; left: 0; right: 0; height: var(--p-top); background: #000; }
+.player.yt.v-watch .p-stage { top: var(--p-top); bottom: auto; height: var(--p-vh); }
+.player.yt .p-watch { display: none; }
+.player.yt.v-watch .p-watch {
+  display: block; position: absolute; z-index: 1; left: 0; right: 0; top: calc(var(--p-top) + var(--p-vh)); bottom: 0;
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(24px + var(--psb));
+  background:
+    radial-gradient(90% 200px at 15% 0, var(--wa, transparent), transparent 100%),
+    radial-gradient(90% 200px at 85% 0, var(--wb, transparent), transparent 100%), #0a0a0a;
+}
+.player.yt .p-watch.fade-in { animation: fade-in 200ms 80ms both; }
+/* The site's own player (embed): the top row gets a black strip of its own above the page, so it never
+   sits on the site's logo or its corner links (often its own close / full screen); the page keeps the
+   16:9 box under the strip. Sideways the same, under the title row. */
+.player.yt.v-watch.embed { --p-vh: calc(min(56.25vw, 45vh) + 44px); }
+.player.yt.v-watch.embed .hud-top { height: 44px; padding: 0 4px; background: #000; }
+.player.yt.v-watch.embed .embed { top: 44px; height: calc(100% - 44px); }
+.player.yt.v-fs.embed .hud-top, .player.yt.v-fsrot.embed .hud-top { height: calc(var(--T) + 44px); background: #000; }
+.player.yt.v-fs.embed .embed, .player.yt.v-fsrot.embed .embed { top: calc(var(--T) + 44px); height: calc(100% - var(--T) - 44px); }
+/* (and the sideways pill row would sit on the site player's own control bar: Server and Send to TV are in
+   Settings, the rest is upright) */
+.player.yt.v-fs.embed .p-fsrow, .player.yt.v-fsrot.embed .p-fsrow { display: none; }
+.player.yt .wh { padding-top: 16px; }
+.player.yt .wh .bug { margin: 0 16px; }
+.player.yt .bug.xl { height: 60px; border-radius: 14px; }
+.player.yt .bug.xl .bug-team { gap: 10px; padding: 0 14px; }
+.player.yt .bug.xl .bug-team .crest, .player.yt .bug.xl .bug-team .mono { width: 30px; height: 30px; }
+.player.yt .bug.xl .bug-team > b { font-size: 21px; font-weight: 850; }
+.player.yt .bug.xl .bug-team .sc { font-size: 28px; font-weight: 800; }
+.player.yt .bug.xl .bug-clock { min-width: 80px; }
+.player.yt .bug.xl .bug-clock b { font-size: 15px; font-weight: 900; }
+.player.yt .bug.xl.big .bug-team .crest { width: 24px; height: 24px; }
+.player.yt .bug.xl.big .bug-team .sc { font-size: 24px; }
+.player.yt .wh-title {
+  margin: 12px 16px 0; font-size: 18px; font-weight: 700; line-height: 1.25; letter-spacing: -.01em; color: #f5f5f5;
+  overflow-wrap: anywhere; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.player.yt .wh-meta { margin: 4px 16px 0; font-size: 13px; font-weight: 500; color: #9e9e9e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.yt .wh-meta .lv { color: var(--red-text); font-weight: 700; }
+.player.yt .wh-meta .lv i { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
+.player.yt .wh-meta .brk { color: var(--amber-text); font-weight: 600; }
+.player.yt .wh-meta .hot { color: var(--tk-color-hot, #fb923c); font-weight: 600; }
+.player.yt .wh-meta .hot svg { display: inline-block; width: 9px; height: 11px; margin-right: 3px; vertical-align: -1px; }
+.player.yt .wh-note {
+  display: flex; align-items: flex-start; gap: 8px; margin: 12px 16px 0; padding: 10px 12px; border-radius: 12px;
+  background: #171717; color: #dddddd; font-size: 13px; line-height: 1.4;
+}
+.player.yt .wh-note svg { flex: none; width: 16px; height: 16px; margin-top: 1px; color: #9e9e9e; }
+.player.yt .wh-ch { display: flex; align-items: center; gap: 14px; margin: 0 16px; }
+.player.yt .wh-ch .wh-title, .player.yt .wh-ch .wh-meta { margin: 0; }
+.player.yt .wh-ch .wh-meta { margin-top: 3px; }
+.player.yt .wh-tx { min-width: 0; flex: 1; }
+.player.yt .wh-logo { width: 56px; height: 40px; flex: none; object-fit: contain; border-radius: 8px; background: #171717; }
+.player.yt .wh-logo.ph, .player.yt .p-chrow .lg.ph {
+  display: grid; place-items: center; overflow: hidden; color: #9e9e9e; font-size: 13px; font-weight: 800; letter-spacing: .02em; line-height: 1; white-space: nowrap;
+}
+.player.yt .wh-logo.ph { background: #1f1f1f; box-shadow: inset 0 0 0 1px #2c2c2c; }
+
+.player.yt .p-pills {
+  display: flex; gap: 8px; margin-top: 14px; padding: 0 16px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+}
+.player.yt .p-pills::-webkit-scrollbar { display: none; }
+.player.yt .p-pills.at-end { -webkit-mask-image: none; mask-image: none; }
+.player.yt .pp {
+  position: relative; isolation: isolate; flex: none; height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px;
+  border: 0; background: none; color: #f5f5f5; font: inherit; font-size: 14px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; cursor: pointer;
+}
+.player.yt .pp::before { content: ''; position: absolute; z-index: -1; inset: 4px 0; border-radius: 999px; background: #1f1f1f; box-shadow: inset 0 0 0 1px #2c2c2c; }
+.player.yt .pp:active::before { background: #2a2a2a; }
+.player.yt .pp:focus-visible { outline: 3px solid #fff; outline-offset: -3px; border-radius: 999px; }
+.player.yt .pp svg { width: 18px; height: 18px; flex: none; }
+.player.yt .pp svg.caret { width: 10px; height: 10px; margin-left: -1px; color: #9e9e9e; }
+.player.yt .pp.gold { color: var(--pgold); }
+.player.yt .pp .spin { width: 14px; height: 14px; margin: 0 2px; flex: none; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: spin .8s linear infinite; }
+
+.player.yt .p-row { margin-top: 28px; }
+.player.yt .p-row .row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.player.yt .p-strip { display: flex; flex-direction: column; gap: 8px; margin: 0 16px; }
+.player.yt .p-chlist { margin: 0 16px; border-radius: 18px; overflow: hidden; background: #171717; }
+.player.yt .p-chrow {
+  position: relative; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 56px; padding: 0 14px;
+  border: 0; background: none; color: #f5f5f5; font: inherit; text-align: left; cursor: pointer;
+}
+.player.yt .p-chrow + .p-chrow::before { content: ''; position: absolute; top: 0; left: 72px; right: 0; height: 1px; background: #262626; }
+.player.yt .p-chrow:active { background: #1f1f1f; }
+.player.yt .p-chrow:focus-visible { outline: 3px solid #fff; outline-offset: -3px; }
+.player.yt .p-chrow .lg { width: 44px; height: 32px; flex: none; object-fit: contain; border-radius: 6px; }
+.player.yt .p-chrow .lg.ph { background: #262626; font-size: 11px; }
+.player.yt .p-chrow .nm { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.yt .p-chrow .tag { display: none; flex: none; font-size: 12px; font-weight: 700; color: var(--red-text); }
+.player.yt .p-chrow.on .tag { display: inline; }
+.player.yt .p-chmore {
+  display: block; height: 44px; margin: 12px auto 0; padding: 0 18px; border: 0; border-radius: 22px; background: none;
+  box-shadow: inset 0 0 0 1px #3a3a3a; color: #f5f5f5; font: inherit; font-size: 15px; font-weight: 650; cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- mini-player */
+.player.yt .p-mini { display: none; }
+.player.yt.v-mini {
+  top: auto; height: calc(72px + var(--psb)); background: #161616; touch-action: none;
+  box-shadow: inset 0 1px 0 #262626, 0 -12px 32px rgba(0, 0, 0, .45);
+}
+.player.yt.v-mini.mini-in { animation: p-mini-in 200ms ease; }
+.player.yt.v-mini.mini-in .p-mini { animation: fade-in 200ms 80ms both; } /* (never text over the Home tiles before the bar) */
+.player.yt.v-mini .p-stage { left: 8px; top: 4.5px; right: auto; bottom: auto; width: 112px; height: 63px; border-radius: 8px; overflow: hidden; }
+.player.yt.v-mini .p-mini { display: flex; position: absolute; z-index: 3; left: 132px; right: 0; top: 0; height: 72px; align-items: center; padding-right: 4px; }
+.player.yt.v-mini .hud, .player.yt.v-mini .p-ctl, .player.yt.v-mini .p-bar, .player.yt.v-mini .p-seekfx, .player.yt.v-mini .p-fsrow,
+.player.yt.v-mini .p-toast, .player.yt.v-mini .panel-msg, .player.yt.v-mini .panel-actions { display: none; }
+.player.yt.v-mini .panel { background: transparent; }
+.player.yt.v-mini .spinner { width: 20px; height: 20px; border-width: 2px; }
+.player.yt.v-mini.dead .panel { background: rgba(0, 0, 0, .45); }
+.player.yt .p-mline { position: absolute; left: -132px; right: 0; top: 0; height: 2px; background: #343434; }
+.player.yt .p-mline i { display: block; height: 100%; width: 0; background: var(--red); }
+.player.yt .p-mtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-right: 4px; }
+.player.yt .p-mtext b { font-size: 14px; font-weight: 600; color: #f5f5f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.yt #p-msub { display: block; font-size: 12px; font-weight: 500; line-height: 16px; color: #9e9e9e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.yt #p-msub svg { display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: -2px; }
+.player.yt #p-msub .lv { color: var(--red-text); font-weight: 700; }
+.player.yt #p-msub .lv::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
+.player.yt .p-mbtn { flex: none; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: none; color: #f5f5f5; cursor: pointer; }
+.player.yt .p-mbtn svg { width: 24px; height: 24px; }
+.player.yt .p-mbtn:active { background: rgba(255, 255, 255, .1); }
+.player.yt.embed #p-mplay, .player.yt.dead #p-mplay, .player.yt.connecting #p-mplay { display: none; }
+/* Home sideways (the TV layout): a small floating card, bottom right. */
+.player.yt.v-mini.land {
+  top: auto; left: auto; right: max(16px, var(--psr)); bottom: max(12px, var(--psb)); width: 256px; height: 144px;
+  border-radius: 14px; overflow: hidden; background: #000; box-shadow: 0 16px 40px rgba(0, 0, 0, .6), 0 0 0 1px rgba(255, 255, 255, .08);
+}
+.player.yt.v-mini.land .p-stage { left: 0; top: 0; right: 0; bottom: 0; width: auto; height: auto; border-radius: 0; }
+.player.yt.v-mini.land .p-mini { left: 0; right: 0; top: 0; height: 48px; padding: 0 2px; justify-content: space-between; background: linear-gradient(rgba(0, 0, 0, .55), transparent); }
+.player.yt.v-mini.land .p-mtext, .player.yt.v-mini.land .p-mline { display: none; }
+.player.yt.v-mini.land .p-mbtn { background: radial-gradient(circle 14px at 50% 50%, rgba(0, 0, 0, .45) 97%, transparent 100%); }
+.player.yt.v-mini.land .p-mbtn svg { width: 18px; height: 18px; }
+.player.yt.v-mini.land #p-mclose { margin-left: auto; }
+
+/* ---------------------------------------------------------------- sideways: full screen */
+.player.yt.v-fs .p-stage, .player.yt.v-fsrot .p-stage { inset: 0; height: auto; }
+.player.yt.v-fsrot {
+  top: 0; left: 0; right: auto; bottom: auto; width: var(--rot-w, 100vh); height: var(--rot-h, 100vw);
+  transform-origin: 0 0; transform: translateX(var(--rot-h, 100vw)) rotate(90deg);
+  /* the phone's top (status bar) is the content's left, its bottom (home indicator) the right */
+  --L: max(16px, var(--pst)); --R: max(16px, var(--psb)); --T: 8px; --B: 12px;
+}
+.player.yt.v-fs .p-scrim, .player.yt.v-fsrot .p-scrim {
+  background: linear-gradient(rgba(0, 0, 0, .6), transparent 140px), linear-gradient(transparent calc(100% - 180px), rgba(0, 0, 0, .7)), rgba(0, 0, 0, .2);
+}
+/* A 16:9 picture on a 19.5:9 phone leaves black bars at the sides, and the edge controls (placed by the
+   safe area, as YouTube's) sit across the picture's edge: no dark discs or pill to be cut in half there -
+   white glyphs and words on the scrim's gradients, as on YouTube. */
+.player.yt.v-fs, .player.yt.v-fsrot { --ibub: transparent; }
+.player.yt.v-fs .hud .icon-btn svg, .player.yt.v-fsrot .hud .icon-btn svg, .player.yt.v-fsrot #p-fsx svg { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .55)); }
+.player.yt.v-fs .p-live, .player.yt.v-fsrot .p-live { padding: 0 10px 0 0; text-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
+.player.yt.v-fs .p-live::before, .player.yt.v-fsrot .p-live::before { display: none; }
+.player.yt.v-fs .p-live .dot, .player.yt.v-fsrot .p-live .dot { box-shadow: 0 1px 3px rgba(0, 0, 0, .45); }
+.player.yt.v-fs .p-live:focus-visible, .player.yt.v-fsrot .p-live:focus-visible { outline-offset: 2px; border-radius: 8px; }
+.player.yt.v-fs .hud-top, .player.yt.v-fsrot .hud-top { height: calc(var(--T) + 52px); padding: var(--T) var(--R) 0 var(--L); }
+.player.yt.v-fs .p-tblock, .player.yt.v-fsrot .p-tblock { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; margin-left: 4px; text-shadow: 0 1px 3px rgba(0, 0, 0, .5); }
+.player.yt.v-fs #p-title, .player.yt.v-fsrot #p-title { font-size: 16px; font-weight: 650; line-height: 1.25; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.yt.v-fs #p-sub, .player.yt.v-fsrot #p-sub { display: block; font-size: 13px; font-weight: 500; line-height: 1.3; color: rgba(255, 255, 255, .75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.yt.v-fs .hud-mid, .player.yt.v-fsrot .hud-mid { gap: 56px; }
+.player.yt.v-fs .p-play, .player.yt.v-fsrot .p-play { width: 72px; height: 72px; }
+.player.yt.v-fs .p-play svg, .player.yt.v-fsrot .p-play svg { width: 34px; height: 34px; }
+.player.yt.v-fs .p-skip, .player.yt.v-fsrot .p-skip { width: 52px; height: 52px; }
+.player.yt.v-fs .p-ctl, .player.yt.v-fsrot .p-ctl { left: var(--L); right: var(--R); bottom: calc(var(--B) + 44px + 30px); }
+.player.yt.v-fs #p-fsx { display: none; }
+.player.yt.v-fs.elfs #p-fsx { display: grid; } /* Android's element full screen held upright (no orientation lock) */
+.player.yt.v-fs .p-bar, .player.yt.v-fsrot .p-bar { --tb: 14.5px; left: var(--L); right: var(--R); bottom: calc(var(--B) + 44px); height: 32px; }
+.player.yt .p-fsrow { display: none; }
+.player.yt.v-fs .p-fsrow, .player.yt.v-fsrot .p-fsrow {
+  display: flex; position: absolute; z-index: 5; left: var(--L); right: var(--R); bottom: var(--B); height: 44px; gap: 8px; align-items: center;
+  pointer-events: none; transition: opacity 150ms ease;
+}
+.player.yt .p-fsrow > * { pointer-events: auto; }
+.player.yt .p-fsrow .pp { height: 44px; padding: 0 14px; color: #fff; }
+.player.yt .p-fsrow .pp::before { inset: 4px 0; background: rgba(255, 255, 255, .14); box-shadow: none; }
+.player.yt .p-fsrow .pp:active::before { background: rgba(255, 255, 255, .24); }
+.player.yt .p-fsrow .pp.gold { color: var(--pgold); }
+.player.yt .p-fsrow .pp svg.caret { color: rgba(255, 255, 255, .7); }
+.player.yt.v-fs .p-toast, .player.yt.v-fsrot .p-toast { top: calc(var(--T) + 64px); max-width: 60%; font-size: 14px; min-height: 36px; padding: 8px 14px; border-radius: 18px; }
+.player.yt.v-fs .unmute, .player.yt.v-fsrot .unmute { top: calc(var(--T) + 4px); left: calc(var(--L) + 44px); }
+.player.yt.v-fs:not(.idle) .unmute, .player.yt.v-fsrot:not(.idle) .unmute { top: calc(var(--T) + 56px); }
+
+/* "More live" in full screen: swiped up from the bottom, a row of scoreboard cards. */
+.player.yt .p-tray {
+  display: flex; position: absolute; z-index: 7; left: 0; right: 0; bottom: 0; height: 46%; min-height: 150px;
+  flex-direction: column; justify-content: flex-end; gap: 10px; padding-bottom: var(--B);
+  background: linear-gradient(transparent, rgba(0, 0, 0, .88) 28%); animation: p-tray-in 220ms var(--ease);
+}
+.player.yt .p-fsrow .pp.more { margin-left: auto; }
+.player.yt.tray .hud, .player.yt.tray .hud-mid, .player.yt.tray .p-ctl, .player.yt.tray .p-bar, .player.yt.tray .p-fsrow, .player.yt.tray .p-scrim { opacity: 0; pointer-events: none; }
+.player.yt.tray .hud > *, .player.yt.tray .p-ctl > *, .player.yt.tray .p-fsrow > * { pointer-events: none; }
+.player.yt .tr-k { padding: 0 var(--R) 0 var(--L); font-size: 11px; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; color: #a8a8a8; }
+.player.yt .tr-row {
+  display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; padding: 0 var(--R) 0 var(--L); scroll-padding: 0 var(--L);
+  scroll-snap-type: x mandatory; scrollbar-width: none; touch-action: pan-x;
+}
+.player.yt.v-fsrot .tr-row { touch-action: manipulation; }
+.player.yt .tr-row::-webkit-scrollbar { display: none; }
+.player.yt .tr-card {
+  position: relative; flex: none; width: 236px; height: 88px; display: grid; grid-template-columns: minmax(0, 1fr) 66px; padding: 0;
+  border: 0; border-radius: 14px; overflow: hidden; scroll-snap-align: start; cursor: pointer; text-align: left; color: #f5f5f5; font: inherit;
+  background: #1c1c1c; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07);
+}
+.player.yt .tr-card:active { background: #262626; }
+.player.yt .tr-card:focus-visible { outline: 3px solid #fff; outline-offset: -3px; }
+.player.yt .tr-card .bars { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; display: flex; flex-direction: column; }
+.player.yt .tr-card .bars i { flex: 1; background: var(--c, #3a3a3a); }
+.player.yt .tr-lines { display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; padding: 0 12px 0 16px; }
+.player.yt .tr-line { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.player.yt .tr-line .crest, .player.yt .tr-line .mono { width: 24px; height: 24px; flex: none; object-fit: contain; }
+.player.yt .tr-line .mono { display: grid; place-items: center; border-radius: 7px; background: var(--mc, #262626); font-size: 8.5px; font-weight: 800; color: #fff; }
+.player.yt .tr-line b { font-size: 16px; font-weight: 800; letter-spacing: .01em; }
+.player.yt .tr-sc { margin-left: auto; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.player.yt .tr-line.trailing b, .player.yt .tr-line.trailing .tr-sc { color: #9e9e9e; }
+.player.yt .tr-single { font-size: 15px; font-weight: 700; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.player.yt .tr-st { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-left: 1px solid #2a2a2a; text-align: center; }
+.player.yt .tr-st .lv { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; letter-spacing: .1em; color: var(--red-text); }
+.player.yt .tr-st .lv::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.player.yt .tr-st b { font-size: 13px; font-weight: 800; white-space: nowrap; }
+.player.yt .tr-st b.brk { color: var(--amber-text); }
+.player.yt .tr-kick { font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; color: #9e9e9e; }
+
+/* ---------------------------------------------------------------- the player's sheet */
+.player.yt .p-sscrim { display: block; position: absolute; inset: 0; z-index: 8; background: rgba(0, 0, 0, .5); touch-action: none; animation: fade-in 200ms ease; }
+.player.yt .p-sheet {
+  display: block; position: absolute; z-index: 9; left: 0; right: 0; bottom: 0; max-height: calc(100% - var(--p-top) - 8px);
+  overflow: auto; overscroll-behavior: contain; padding: 8px 16px calc(16px + var(--psb)); border-radius: 26px 26px 0 0;
+  background: #161616; color: #f5f5f5; font-size: 16px; line-height: 1.3;
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, .06), 0 -20px 60px rgba(0, 0, 0, .6);
+  animation: sheet-in 320ms var(--ease);
+}
+.player.yt.v-fs .p-sheet, .player.yt.v-fsrot .p-sheet { margin: 0 auto; width: min(480px, calc(100% - 32px)); max-height: 92%; padding-bottom: calc(4px + var(--B)); }
+/* Sideways (393pt tall): 44px rows and no Cancel (the scrim, a swipe and Back close it), so it all fits. */
+.player.yt.v-fs .p-sheet .grab, .player.yt.v-fsrot .p-sheet .grab { margin-bottom: 10px; }
+.player.yt.v-fs .p-sheet .sh-group, .player.yt.v-fsrot .p-sheet .sh-group { margin-bottom: 12px; }
+.player.yt.v-fs .p-sheet .sh-group button, .player.yt.v-fsrot .p-sheet .sh-group button { min-height: 44px; }
+.player.yt.v-fs .p-sheet .sh-lbl, .player.yt.v-fsrot .p-sheet .sh-lbl { padding: 5px 0; }
+.player.yt.v-fs .p-sheet .sh-note, .player.yt.v-fsrot .p-sheet .sh-note { margin: -4px 4px 12px; }
+.player.yt.v-fs .p-sheet .sh-cancel, .player.yt.v-fsrot .p-sheet .sh-cancel { display: none; }
+.player.yt .p-sheet .grab { width: 38px; height: 5px; margin: 0 auto 14px; border-radius: 3px; background: #3a3a3a; }
+.player.yt .p-sheet .sh-head { display: flex; align-items: center; gap: 2px; min-height: 20px; margin: 0 4px 10px; }
+.player.yt .p-sheet .sh-back { width: 44px; height: 44px; margin: -12px 0 -12px -14px; display: grid; place-items: center; padding: 0; border: 0; background: none; color: #f5f5f5; cursor: pointer; }
+.player.yt .p-sheet .sh-back svg { width: 20px; height: 20px; }
+.player.yt .p-sheet .menu-title { margin: 0; padding: 0; font-size: 11.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #9e9e9e; }
+.player.yt .p-sheet .sh-group { margin-bottom: 18px; border-radius: 14px; overflow: hidden; background: #222; }
+.player.yt .p-sheet .sh-group button {
+  position: relative; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 0 16px;
+  border: 0; border-radius: 0; background: none; color: #f5f5f5; font: inherit; font-size: 16px; font-weight: 500; text-align: left; cursor: pointer;
+}
+.player.yt .p-sheet .sh-group button + button::before { content: ''; position: absolute; top: 0; left: 50px; right: 0; height: 1px; background: #333; }
+.player.yt .p-sheet .sh-group button:active { background: #2c2c2c; }
+.player.yt .p-sheet .sh-group button:focus-visible { outline: 3px solid #fff; outline-offset: -3px; }
+.player.yt .p-sheet .sh-group button.dim .sh-lbl, .player.yt .p-sheet .sh-group button.dim .sh-ic { opacity: .55; }
+.player.yt .p-sheet .sh-ic { width: 20px; height: 20px; flex: none; display: grid; place-items: center; color: #dddddd; }
+.player.yt .p-sheet .sh-ic svg { width: 20px; height: 20px; }
+.player.yt .p-sheet .sh-ic.gold { color: var(--pgold); }
+.player.yt .p-sheet .sh-ic.ok { color: var(--ok); }
+.player.yt .p-sheet .sh-lbl { flex: 1; min-width: 0; padding: 8px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.yt .p-sheet .sh-lbl.gold { color: var(--pgold); }
+.player.yt .p-sheet .sh-lbl small { display: block; margin-top: 1px; font-size: 12.5px; font-weight: 500; color: #9e9e9e; }
+.player.yt .p-sheet .sh-lbl small.ok { color: var(--ok); }
+.player.yt .p-sheet .sh-lbl small.nudge { color: var(--amber-text); animation: nudge 360ms ease; }
+.player.yt .p-sheet .sh-aux { flex: none; display: inline-flex; align-items: center; gap: 6px; max-width: 45%; font-size: 13px; color: #9e9e9e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.yt .p-sheet .sh-aux.gold { color: var(--pgold); }
+.player.yt .p-sheet .sh-aux.on { color: var(--ok); }
+.player.yt .p-sheet .sh-aux.on::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.player.yt .p-sheet .sh-chev { flex: none; width: 8px; height: 14px; margin-left: -4px; color: #6b6b6b; }
+.player.yt .p-sheet .sh-group button.off { color: #dddddd; padding-top: 8px; padding-bottom: 8px; }
+.player.yt .p-sheet .sh-group button.off .sh-ic { opacity: .5; }
+.player.yt .p-sheet .sh-group button.off .sh-lbl small { white-space: normal; text-wrap: balance; }
+.player.yt .p-sheet .sh-group button.off:active { background: none; }
+.player.yt .p-sheet .sh-switch { position: relative; flex: none; width: 44px; height: 26px; border-radius: 13px; background: #3a3a3a; transition: background 150ms ease; }
+.player.yt .p-sheet .sh-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform 150ms ease; }
+.player.yt .p-sheet [aria-checked="true"] .sh-switch { background: var(--ok); }
+.player.yt .p-sheet [aria-checked="true"] .sh-switch::after { transform: translateX(18px); }
+.player.yt .p-sheet .sh-note { margin: -6px 4px 16px; font-size: 13px; line-height: 1.4; color: #9e9e9e; }
+.player.yt .p-sheet .sh-cancel {
+  display: block; width: 100%; min-height: 54px; border: 0; border-radius: 16px; background: #262626; color: #f5f5f5;
+  font: inherit; font-size: 17px; font-weight: 650; text-align: center; cursor: pointer;
+}
+.player.yt .p-sheet .sh-cancel:active { background: #2e2e2e; }
+.player.yt .p-sheet .sh-cancel:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+/* 375 (SE, mini): the big score bug a little tighter, so its crests stay. */
+@media (max-width: 389px) {
+  .player.yt .bug.xl .bug-team { gap: 8px; padding: 0 11px; }
+  .player.yt .bug.xl .bug-team .crest, .player.yt .bug.xl .bug-team .mono { width: 26px; height: 26px; }
+  .player.yt .bug.xl .bug-team > b { font-size: 20px; }
+  .player.yt .bug.xl .bug-team .sc { font-size: 26px; }
+  .player.yt .bug.xl .bug-clock { min-width: 70px; }
+}
+/* Narrow phones (320 Display Zoom). */
+@media (max-width: 359px) {
+  .player.yt .p-play { width: 56px; height: 56px; }
+  .player.yt .p-play svg { width: 26px; height: 26px; }
+}
+
+/* The install hint never covers the phone player (sideways too, where Home is the TV layout). */
+body:has(#player.yt:not(.hidden)) .install-hint { display: none; }
+/* Home sideways with the floating mini: the page scrolls clear of the card (footer links, the last channels). */
+:where(.home) body:has(#player.yt.v-mini.land:not(.hidden)) .foot {
+  padding-bottom: calc(28px + 144px + max(12px, var(--safe-bottom, env(safe-area-inset-bottom, 0px))) + 12px);
+}
+:where(.home) body:has(#player.yt.v-mini.land:not(.hidden)) #livetv .lt-channels {
+  padding-bottom: calc(40px + 144px + max(12px, var(--safe-bottom, env(safe-area-inset-bottom, 0px))));
+}
+
+/* Home while a mini-player is docked: the page ends above it, the toast sits over it. */
+@media (max-width: 600px) {
+  :where(.home) body:has(#player.v-mini:not(.land):not(.hidden)) { --mini-h: calc(72px + var(--sb, 0px)); }
+  :where(.home) body:has(#player.v-mini:not(.land):not(.hidden)) .foot { padding-bottom: calc(28px + var(--mini-h)); }
+  :where(.home) body:has(#player.v-mini:not(.land):not(.hidden)) .app-toast { bottom: calc(12px + var(--mini-h)); }
+  :where(.home) body:has(#player.v-mini:not(.land):not(.hidden)) #livetv .lt-channels { padding-bottom: calc(40px + var(--mini-h)); }
+}
+
+@keyframes p-up { from { transform: translateY(100%); } }
+@keyframes p-late { from { opacity: 0; } to { opacity: 1; } }
+@keyframes p-toast-in { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes p-chev { 0%, 100% { opacity: .3; } 30% { opacity: 1; } 60% { opacity: .3; } }
+@keyframes p-ripple { from { transform: scale(0); opacity: .5; } to { transform: scale(2.6); opacity: 0; } }
+@keyframes p-mini-in { from { background-color: transparent; box-shadow: none; } }
+@keyframes p-tray-in { from { transform: translateY(40px); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .player.yt *, .player.yt *::before, .player.yt *::after { animation-duration: 1ms !important; transition: none !important; }
+  /* (the phone Home's own rule stops every animation; a spinner still says "working") */
+  .player.yt .spinner, .player.yt .pp .spin { animation: spin .8s linear infinite !important; }
+  .player.yt.entering { animation: fade-in 150ms ease; }
 }

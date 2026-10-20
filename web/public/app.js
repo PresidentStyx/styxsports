@@ -25,7 +25,7 @@
   const DEGRADE_ERROR_WINDOW_MS = 60_000;
   const STANDBY_TIMEOUT_MS = 40_000;
   /** Shown to the flag service and telemetry; bump with the 4.0 release train. */
-  const WEB_VERSION = '3.9';
+  const WEB_VERSION = '3.10';
   const FLAGS_MS = 6 * 3600_000;
   const TELEMETRY_MS = 60_000;
 
@@ -104,6 +104,13 @@
   let lastLayoutKey = '';
   const cardsById = new Map(); // id -> [card elements]
   let focusedId = null;
+  /** The phone player hands focus back to a card without moving Home (a card's focus otherwise scrolls it into view). */
+  let quietFocus = false;
+  function focusQuietly(node) {
+    if (!node || !node.isConnected) return;
+    quietFocus = true;
+    try { node.focus({ preventScroll: true }); } finally { quietFocus = false; }
+  }
 
   /**
    * The viewer's site account (Account.java). The Worker holds the site cookies in an encrypted
@@ -209,7 +216,8 @@
    * `sub` (phones): a quieter second line under the message ("Now in Your teams").
    */
   function appToast(text, kind, sub) {
-    if (!$('player').classList.contains('hidden')) return player.toast(text);
+    // A docked phone mini-player leaves Home on screen: the Home toast (lifted above the bar) says it.
+    if (!$('player').classList.contains('hidden') && !(player.yt && player.view === 'mini')) return player.toast(text);
     const t = $('toast');
     if (sub && isPhone()) {
       const tx = el('span', 'tt');
@@ -490,6 +498,7 @@
         renderChips(s); // after buildRows, which drops a saved filter that no longer applies
         renderPhone(s, rows, filter, premiumOnly);
         refreshPhoneSheet();
+        if (player.open && player.yt) player.refreshWatch(); // the watch page's "Live now" follows Home
       } catch (err) {
         lastLayoutKey = '';
         $('overlay').classList.add('hidden');
@@ -694,6 +703,31 @@
     check: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M6.6 10.3l2.3 2.3 4.5-4.9"/></svg>',
     info: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 9v4.6"/><circle cx="10" cy="6.4" r=".4" fill="currentColor"/></svg>',
     share: '<svg viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Share"><path d="M5.2 7.5H3.5A1.5 1.5 0 002 9v8a1.5 1.5 0 001.5 1.5h9A1.5 1.5 0 0014 17V9a1.5 1.5 0 00-1.5-1.5h-1.7"/><path d="M8 1.5v10.5M5 4.5l3-3 3 3"/></svg>',
+    // The phone player's controls.
+    chevD: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7.5L10 13l5.5-5.5"/></svg>',
+    chevL: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5"/></svg>',
+    chevR: '<svg viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 7l-5 5.5"/></svg>',
+    sliders: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M15 6h2M3 14h2M9 14h8"/><circle cx="13" cy="6" r="2"/><circle cx="7" cy="14" r="2"/></svg>',
+    playL: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 001.5.86l10.5-6.5a1 1 0 000-1.72L9.5 4.64A1 1 0 008 5.5z"/></svg>',
+    pauseL: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg>',
+    fsIn: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5"/></svg>',
+    fsOut: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 3v4.5H3M17 7.5h-4.5V3M12.5 17v-4.5H17M3 12.5h4.5V17"/></svg>',
+    server: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3.5" width="14" height="5" rx="1.5"/><rect x="3" y="11.5" width="14" height="5" rx="1.5"/><path d="M6 6h.01M6 14h.01" stroke-width="2.2" stroke-linecap="round"/></svg>',
+    pip: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3.5" width="16" height="13" rx="2"/><rect x="10" y="10" width="6" height="4.5" rx="1" fill="currentColor" stroke="none"/></svg>',
+    muted: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8v4h3l4 3.5v-11L6 8H3z" fill="currentColor"/><path d="M13.5 8l4 4M17.5 8l-4 4"/></svg>',
+    retry: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 10a6 6 0 11-1.76-4.24"/><path d="M16 3.5v3.2h-3.2"/></svg>',
+    close: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg>',
+    prev: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6h2v12H6zM9.5 12L18 6v12z"/></svg>',
+    next: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 6h2v12h-2zM14.5 12L6 18V6z"/></svg>',
+    caret: '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.5L5 6.5l3-3"/></svg>',
+    caretUp: '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6.5L5 3.5l3 3"/></svg>',
+    alert: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 6v4.8"/><circle cx="10" cy="13.6" r=".5" fill="currentColor"/></svg>',
+    tick: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg>',
+    tri: '<svg viewBox="0 0 10 12" aria-hidden="true"><path d="M1 1l8 5-8 5z" fill="currentColor"/></svg>',
+    zoom: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M6 8V7h2M14 8V7h-2M6 12v1h2M14 12v1h-2"/></svg>',
+    phone: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="2" width="9" height="16" rx="2"/><path d="M9 15.5h2"/></svg>',
+    audio: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8v4h3l4 3.5v-11L6 8H3z"/><path d="M13 7.5a3.5 3.5 0 010 5M15.5 5a7 7 0 010 10"/></svg>',
+    cc: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="16" height="12" rx="2"/><path d="M8.5 8.3a2.2 2.2 0 100 3.4M14.5 8.3a2.2 2.2 0 100 3.4"/></svg>',
   };
 
   /** The lead (hero) game's id, kept while it still qualifies (see pickLead). */
@@ -891,6 +925,25 @@
     if (w.length === 1) return first3(w[0]).toUpperCase();
     return w.slice(0, 3).map((x) => [...x][0]).join('').toUpperCase();
   }
+  /** A channel with no logo, in its logo box: a short name ("ESPN", "FS1", "SKY", "BEIN"). Text only. */
+  const CH_NOISE = /^(hd|fhd|uhd|sd|hq|4k|8k|hevc|h265|backup|feed|alt|live|tv|channel|east|west|us|usa|uk|ca)$/i;
+  function chMark(name) {
+    const w = nameWords(String(name || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' '));
+    const k = w.filter((x) => !CH_NOISE.test(x));
+    const v = k.length ? k : w;
+    if (!v.length) return '';
+    if ([...v[0]].length <= 4) return v[0].toUpperCase();
+    if (v.length === 1) return first3(v[0]).toUpperCase();
+    if (/^\d{1,2}$/.test(v[1])) return (first3(v[0]) + v[1]).toUpperCase(); // Eurosport 1 -> EUR1
+    return v.slice(0, 3).map((x) => [...x][0]).join('').toUpperCase();
+  }
+  /** The logo box of a channel without a (working) logo. */
+  function chLogoBox(cls, name) {
+    const b = el('span', cls + ' ph', chMark(name));
+    b.setAttribute('aria-hidden', 'true');
+    return b;
+  }
+
   /** Both sides got the same code (two "NY"s, two "MAN"s): codes built from the nickname instead. */
   function distinctCodes(a, b) {
     const tries = (name) => {
@@ -1166,6 +1219,19 @@
       : mins <= 0 ? `any moment now, at ${at}` : mins <= 60 ? `in ${mins} minutes, at ${at}`
         : `${(dayWord(d.getTime()) || d.toLocaleDateString([], { weekday: 'long' })).toLowerCase()} at ${at}`;
     return { kick, hm, ap, soon: !late && mins <= 60, late, mins, text };
+  }
+  /**
+   * The player's line for a game not live yet, from the same parts as its score bug and Home tile:
+   * "Due Sun 11:00 PM" / "Due 9:38 PM" once overdue, "Starting 9:38 PM" in its first minutes, and
+   * "Starts …" only ahead of time - a day only when it is not today (`long`: "Wednesday", not "Wed").
+   */
+  function startLine(ts, long) {
+    ts = phoneTs(ts);
+    if (!ts) return 'Upcoming';
+    const d = new Date(ts * 1000), sp = startParts(ts), at = timeFormat.format(d);
+    if (sp.late || sp.mins <= 0) return `${sp.late ? sp.kick : 'Starting'} ${at}`;
+    const day = dayDiff(d.getTime()) === 0 ? '' : (dayWord(d.getTime()) || d.toLocaleDateString([], { weekday: long ? 'long' : 'short' })) + ' ';
+    return `Starts ${day}${at}`;
   }
   function groupOf(e) {
     if (e.ended) return 'Final';
@@ -2545,14 +2611,14 @@
    * row is dimmed and says what to do; a tap keeps the sheet up and points at that line (no send, no
    * error toast - the TV cannot take it until Styx Sports is open on it).
    */
-  function tvRow(tv, e) {
+  function tvRow(tv, e, onDone = hideMenu) {
     const off = !tv.online;
     const b = sheetButton(I.tv, tv.name, off ? 'Open Styx Sports on the TV first' : 'Plays there, stops here', off ? 'off' : null);
     b.dataset.tv = tv.id;
     b.appendChild(el('span', 'sh-aux' + (off ? '' : ' on'), off ? 'App closed' : 'Online'));
     if (off) b.setAttribute('aria-disabled', 'true');
     b.onclick = () => {
-      if (!off) { hideMenu(); cast.send(tv, e); return; }
+      if (!off) { onDone(); cast.send(tv, e); return; }
       const sub = b.querySelector('.sh-lbl small');
       sub.classList.remove('nudge');
       void sub.offsetWidth; // restart the nudge on every tap
@@ -2720,7 +2786,7 @@
     }
     card.addEventListener('focus', () => {
       focusedId = e.id;
-      card.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+      if (!quietFocus) card.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
       prefetch.focus(card._event || e);
     });
     card.addEventListener('blur', () => { if (prefetch.wanted === e.id) prefetch.blur(); });
@@ -2778,7 +2844,10 @@
 
   function restoreFocus() {
     if (focusedId && cardsById.has(focusedId) && document.activeElement && document.activeElement.classList.contains('card')) {
-      cardsById.get(focusedId)[0].focus({ preventScroll: true });
+      const c = cardsById.get(focusedId)[0];
+      // (A phone's rebuilt Home keeps the reader's place: the card's focus must not scroll it back.)
+      if (isPhone() || (player.open && player.yt)) focusQuietly(c);
+      else c.focus({ preventScroll: true });
     }
   }
 
@@ -2925,11 +2994,11 @@
    * Phones: a bottom sheet follows a downward drag that starts on its header (grab handle, score
    * bug, titles) and closes past 80px or on a flick; otherwise it springs back.
    */
-  function dragToDismiss(sheet, canStart, close) {
+  function dragToDismiss(sheet, canStart, close, enabled = isPhone) {
     let y0 = 0, t0 = 0, dy = 0, active = false;
     const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
     sheet.addEventListener('touchstart', (ev) => {
-      if (!isPhone() || ev.touches.length !== 1 || sheet.scrollTop > 0 || !canStart(ev)) return;
+      if (!enabled() || ev.touches.length !== 1 || sheet.scrollTop > 0 || !canStart(ev)) return;
       active = true; dy = 0; y0 = ev.touches[0].clientY; t0 = Date.now();
       sheet.style.transition = 'none';
     }, { passive: true });
@@ -2976,7 +3045,8 @@
       if (ev.key === 'Escape') acct.close();
       return;
     }
-    if (!$('player').classList.contains('hidden')) return player.onKey(ev);
+    // A docked phone mini-player leaves Home (or Live TV) in charge of the keys.
+    if (!$('player').classList.contains('hidden') && !(player.yt && player.view === 'mini')) return player.onKey(ev);
     if (liveTv.isOpen()) return liveTv.onKey(ev);
     const a = document.activeElement;
     if ((ev.key === 'r' || ev.key === 'R') && !(a && a.tagName === 'INPUT')) { // the app's Menu key
@@ -3085,8 +3155,10 @@
         if (r.max) pool.max = r.max;
         if (!r.granted) return own;
         this.slot = clientId();
+        this.slotLabel = label;
         this.clearTimer('hbTimer');
-        this.hbTimer = setInterval(() => this.beatSlot(label), 20_000);
+        // The label follows a game switched in place on a phone (switchGame keeps the lease).
+        this.hbTimer = setInterval(() => this.beatSlot(this.slotLabel || label), 20_000);
         return true;
       } catch {
         return own;
@@ -3126,6 +3198,14 @@
     },
 
     openFor(e) {
+      // Phones: a game tapped while the player is already up (the mini-player over Home, or a tile
+      // in "Live now" under the video) plays in place - same history entry, same pool lease.
+      const inPlace = this.open && this.yt;
+      if (inPlace && !this.channelMode && this.event && this.event.id === e.id) {
+        if (this.view === 'mini') this.expand(); else this.watchTop();
+        return;
+      }
+      if (inPlace) this.teardown();
       this.event = e;
       this.channelMode = false;
       this.servers = [];
@@ -3153,44 +3233,59 @@
       $('p-servers').replaceChildren();
       $('p-unmute').classList.add('hidden');
       this.primeForSound();
+      this.yt = isYt();
+      if (this.yt) this.ytOpen(inPlace);
       this.updateHud();
       this.status('Connecting…', true);
       this.root.focus();
-      history.pushState({ player: true }, '');
+      if (!this.yt) history.pushState({ player: true }, '');
       this.resolvePage();
     },
 
-    close(fromHistory) {
-      if (!this.open) return;
-      this.open = false;
+    /** Stops what is playing, without closing anything (a close, or a switch in place on a phone). */
+    teardown() {
       this.generation++;
       this.clearTimers();
       this.dropStandby();
       this.stopPlayback();
       telemetry.flush();
       this.hideEmbed();
-      this.root.classList.add('hidden');
+    },
+
+    close(fromHistory, slideOut) {
+      if (!this.open) return;
+      this.open = false;
+      this.teardown();
+      const yt = this.yt;
+      if (yt) this.ytClose(fromHistory, slideOut);
+      else this.root.classList.add('hidden');
       document.body.style.overflow = '';
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       // (A phone sheet closed a moment ago may still be going back over its own entry: pop ours too.)
-      if (!fromHistory && history.state && (history.state.player || (history.state.sheet && ownPops > 0))) popOwnEntry();
+      if (!yt && !fromHistory && history.state && (history.state.player || (history.state.sheet && ownPops > 0))) popOwnEntry();
       if (this.channelMode) {
         this.channelMode = false;
         liveTv.render(); // "Recently watched" may have gained this channel
-        liveTv.focusCurrent(); // the Live TV screen is still open underneath
+        liveTv.focusCurrent(yt); // the Live TV screen is still open underneath (a phone's grid stays where it was)
+        // A phone's mini-player outlives Live TV: closed after it, nothing else holds the 'tv' slot.
+        if (yt && !liveTv.isOpen()) this.dropSlot();
         return;
       }
-      this.dropSlot();
+      // (Live TV open underneath - only possible with a phone's mini-player - still needs the slot.)
+      if (!liveTv.isOpen()) this.dropSlot();
       lastLayoutKey = '';
       if (isPhone() && this.event) phoneAnchorId = this.event.id; // its card stays where the viewer left it
       render();
       const cards = cardsById.get(this.event && this.event.id);
-      if (cards) cards[0].focus({ preventScroll: false });
+      if (cards && yt) focusQuietly(cards[0]); // (a phone's Home stays exactly where the viewer left it)
+      else if (cards) cards[0].focus({ preventScroll: yt });
     },
 
     // --- Live TV channel mode (LiveTvActivity -> NativePlayerActivity channel intent) ---------
 
     openChannel(list, idx, groupName) {
+      const inPlace = this.open && this.yt;
+      if (inPlace) this.teardown();
       this.event = null;
       this.channelMode = true;
       this.channels = list;
@@ -3211,8 +3306,10 @@
       document.body.style.overflow = 'hidden';
       $('p-unmute').classList.add('hidden');
       this.primeForSound();
+      this.yt = isYt();
+      if (this.yt) this.ytOpen(inPlace);
       this.root.focus();
-      history.pushState({ player: true }, '');
+      if (!this.yt) history.pushState({ player: true }, '');
       this.tuneTo(idx);
     },
 
@@ -3266,6 +3363,11 @@
       this.clearTimers();
       this.stopPlayback();
       this.everPlayed = false;
+      if (this.yt) {
+        const acts = [{ label: 'Try again', icon: I.retry, kind: 'light', fn: () => this.tuneTo(this.current) }];
+        if (this.channels.length > 1) acts.push({ label: 'Next channel', kind: 'ghost', fn: () => this.tuneTo(this.current + 1) });
+        return this.ytDead({ icon: I.alert, title: `${ch ? ch.n : 'This channel'} isn’t responding`, actions: acts });
+      }
       this.status(`${ch ? ch.n : 'This channel'} isn’t responding.`, false);
       const actions = $('p-actions');
       actions.replaceChildren();
@@ -3298,8 +3400,11 @@
       const own = usesOwnAccount();
       const poolOk = !account.signedIn && pool.shared && pool.sharedPremium !== false;
       const wantPremium = all.some((s) => s.premium) && (own || poolOk);
+      // Phones switch games in place, keeping the lease: a game that needs none gives it back.
+      if (this.yt && !wantPremium && this.slot && !this.channelMode && !liveTv.isOpen()) this.dropSlot();
       if (wantPremium) {
         const title = this.event.away ? `${this.event.home} vs ${this.event.away}` : this.event.home;
+        if (this.slot) this.slotLabel = title;
         const got = await this.takeSlot('game', title);
         if (gen !== this.generation) return;
         if (!got) this.status(`Premium is full (${pool.used}/${pool.max}). Using a free server.`, false);
@@ -3328,6 +3433,7 @@
 
     /** Every server is premium and none is available to us. */
     premiumOnly() {
+      if (this.yt) return this.ytPremiumOnly();
       if (account.signedIn) {
         return this.allFailed('This stream is for the site’s premium members only.\nPick another game from the home screen.', false);
       }
@@ -3359,6 +3465,7 @@
       if (this.channelMode) {
         const n = this.channels.length;
         box.appendChild(el('span', 'hint', `Channel ${this.current + 1} of ${n} · ${this.channelGroup}`));
+        if (this.yt) this.renderYt();
         return;
       }
       this.servers.forEach((s, i) => {
@@ -3376,6 +3483,7 @@
       // On phones the list scrolls sideways; keep the playing server in view.
       const cur = box.querySelector('.server.current');
       if (cur && box.scrollWidth > box.clientWidth) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
+      if (this.yt) this.renderYt();
     },
 
     async switchTo(index, manual) {
@@ -3502,6 +3610,7 @@
       if (server && this.pre && this.pre.has(server.pageUrl)) tele.pre = true;
       this.teleCurrent = tele;
       this.health = { stalls: [], long: 0, errors: [] };
+      if (this.yt) this.ytAttempt();
       const ctx = { gen, tele, t0, started: false, stallAt: 0 };
       ctx.fail = (why) => {
         if (gen !== this.generation) return;
@@ -3568,23 +3677,30 @@
         this.clearTimer('startTimer');
         this.clearTimer('stallTimer');
         this.hideStatus();
+        const first = !this.everPlayed;
+        // (Phones: the server sheet still says which servers did not answer.)
+        if (first && this.yt) for (const i of this.failed) this.notResp.add(i);
         if (!this.everPlayed) {
           this.everPlayed = true;
           this.failed.clear();
           this.renderServers();
           if (this.manual && this.event && this.servers[this.current]) store.set('server_' + this.event.id, this.servers[this.current].name);
         }
-        this.showHud();
+        // (Phones: controls come up with the first frame, not after every stall or seek.)
+        if (this.yt) { this.notResp.delete(this.current); this.ytPlaying(first); if (first) this.showHud(); }
+        else this.showHud();
       };
       v.onwaiting = () => {
         if (gen !== this.generation) return;
-        if (ctx.started && !ctx.stallAt) {
+        // Phones seek (double tap, the scrubber): the wait for a seek's segments is not a stall.
+        const seek = this.yt && (v.seeking || performance.now() - this.userSeekAt < 3000);
+        if (ctx.started && !ctx.stallAt && !seek) {
           ctx.stallAt = performance.now();
           this.health.stalls.push(ctx.stallAt);
           this.health.stalls = this.health.stalls.filter((t) => ctx.stallAt - t <= DEGRADE_WINDOW_MS);
           this.checkHealth();
         }
-        if (this.everPlayed) this.status('Buffering…', true);
+        if (this.everPlayed) { if (this.yt) this.buffering(true); else this.status('Buffering…', true); }
         this.clearTimer('stallTimer');
         this.stallTimer = setTimeout(() => { if (gen === this.generation) this.onFailure('stalled'); }, STALL_MS);
       };
@@ -3614,6 +3730,7 @@
 
     checkHealth() {
       if (this.channelMode || this.embedMode || !this.everPlayed || this.migrating || this.standby) return;
+      if (this.yt && (this.native || document.pictureInPictureElement || this.video.webkitPresentationMode === 'picture-in-picture')) return;
       const h = this.health;
       const why = h.stalls.length >= DEGRADE_STALLS ? 'stalls' : h.long >= DEGRADE_LONG_STALLS ? 'long-stalls' : h.errors.length >= DEGRADE_ERRORS ? 'errors' : null;
       if (why) this.migrate(why);
@@ -3723,6 +3840,7 @@
       telemetry.push({ kind: 'start', ...tele, ttff: Math.round(performance.now() - mig.askedAt) });
       this.watchStart = Date.now();
       this.hideStatus();
+      if (this.yt) this.buffering(false);
       this.showHud();
       this.toast(`Switched to ${to.name} for a steadier stream`);
     },
@@ -3760,13 +3878,15 @@
       return true;
     },
 
-    toast(text) {
+    toast(text, ms = 4000) {
+      if (this.yt && this.view === 'mini') return appToast(text, 'ok');
       const t = $('p-toast');
       if (!t) return;
       t.textContent = text;
       t.classList.remove('hidden');
+      if (this.yt) { t.style.animation = 'none'; void t.offsetWidth; t.style.animation = ''; } // slides in again
       this.clearTimer('toastTimer');
-      this.toastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
+      this.toastTimer = setTimeout(() => t.classList.add('hidden'), ms);
     },
 
     /**
@@ -3793,6 +3913,7 @@
       requestAnimationFrame(() => { if (gen === this.generation) frame.src = stream.embed; });
       frame.classList.remove('hidden');
       $('p-embed-note').classList.remove('hidden');
+      if (this.yt) this.ytEmbed();
       this.showHud();
       if (this.manual) store.set('server_' + this.event.id, server.name);
     },
@@ -3803,6 +3924,7 @@
       frame.classList.add('hidden');
       if (frame.src && frame.src !== 'about:blank') frame.src = 'about:blank';
       $('p-embed-note').classList.add('hidden');
+      if (this.yt) this.syncState();
     },
 
     firstEmbeddable() {
@@ -3814,6 +3936,7 @@
 
     tryPlay() {
       const v = this.video;
+      const gen = this.generation;
       v.muted = false;
       const p = v.play();
       if (p && p.catch) {
@@ -3821,8 +3944,9 @@
           if (err && err.name === 'NotAllowedError') {
             // Autoplay with sound was blocked (the click was too long ago): start muted.
             v.muted = true;
-            v.play().catch(() => {});
+            v.play().catch((e2) => { if (this.yt && gen === this.generation && e2 && e2.name === 'NotAllowedError') this.autoplayRefused(); });
             $('p-unmute').classList.remove('hidden');
+            if (this.yt) this.syncState();
           }
         });
       }
@@ -3877,7 +4001,7 @@
       }
       this.failed.add(this.current);
       this.everPlayed = false;
-      const next = this.nextIndex(this.current);
+      let next = this.nextIndex(this.current);
       if (next < 0) {
         // Nothing plays cleanly. If any server has an embeddable player, use it (viewer's IP).
         const embIdx = this.firstEmbeddable();
@@ -3889,6 +4013,12 @@
         if (gated) return this.premiumOnly();
         if (this.event) telemetry.push({ kind: 'fail', game: this.event.id, code: 'no server played' });
         return this.allFailed('None of the servers are responding right now.', true);
+      }
+      if (this.yt && this.manual && this.manualFrom >= 0) {
+        // Phones: a server picked in the sheet that does not answer goes back to the one that was
+        // playing, and the snackbar says so once the picture is back (ytPlaying).
+        if (this.manualFrom !== this.current && !this.failed.has(this.manualFrom)) next = this.manualFrom;
+        this.pickFail = { name: s.name, from: this.manualFrom };
       }
       this.status(`${s.name} isn't responding — trying ${this.servers[next].name}`, true);
       telemetry.push({ kind: 'switch', from: s.name, to: this.servers[next].name, reason: why });
@@ -3907,6 +4037,13 @@
     allFailed(msg, showRetry) {
       this.clearTimers();
       this.stopPlayback();
+      if (this.yt) {
+        const acts = [];
+        if (showRetry) acts.push({ label: 'Try again', icon: I.retry, kind: 'light', fn: () => { this.failed.clear(); this.resolved.clear(); if (this.pre) this.pre.clear(); this.switchTo(this.current < 0 ? 0 : this.current, true); } });
+        if (this.event && this.event.url) acts.push({ label: 'Open on the site', kind: 'ghost', href: this.event.url });
+        // (The title already says "right now".)
+        return this.ytDead({ icon: I.alert, title: 'Can’t play this game right now', sub: String(msg).split('\n')[0].replace(/ right now\.$/, '.'), actions: acts });
+      }
       this.status(msg, false);
       const actions = $('p-actions');
       actions.replaceChildren();
@@ -3928,6 +4065,7 @@
     },
 
     status(text, spinner) {
+      if (this.yt) return this.ytStatus(text, spinner);
       $('p-panel').classList.remove('hidden');
       $('p-msg').textContent = text;
       $('p-spinner').classList.toggle('hidden', !spinner);
@@ -3935,7 +4073,10 @@
       this.root.classList.remove('idle');
     },
 
-    hideStatus() { $('p-panel').classList.add('hidden'); },
+    hideStatus() {
+      $('p-panel').classList.add('hidden');
+      if (this.yt) { this.unfreeze(); this.root.classList.remove('dead'); this.syncState(); }
+    },
 
     updateHud() {
       if (!this.open) return;
@@ -3946,6 +4087,7 @@
         pill.classList.add('live');
         $('p-title').textContent = ch ? ch.n : '';
         $('p-score').textContent = this.channelGroup || '';
+        if (this.yt) this.renderYt();
         return;
       }
       if (!this.event) return;
@@ -3956,9 +4098,11 @@
       else { pill.textContent = startLabel(e.startTs); pill.classList.remove('live'); }
       $('p-title').textContent = e.away ? `${e.home} vs ${e.away}` : e.home;
       $('p-score').textContent = e.score ? e.score.replace(' - ', '–') : '';
+      if (this.yt) this.renderYt();
     },
 
     showHud() {
+      if (this.yt) return this.ytShowHud();
       this.root.classList.remove('idle');
       this.clearTimer('hudTimer');
       // Pointer events over the embedded (cross-origin) player never reach us, so an auto-hidden
@@ -3970,6 +4114,7 @@
     },
 
     togglePause() {
+      if (this.yt) return this.ytTogglePause();
       if (this.embedMode) { this.showHud(); return; } // can't reach into the cross-origin player
       const v = this.video;
       if (v.paused) { v.play().catch(() => {}); this.hideStatus(); }
@@ -3979,6 +4124,7 @@
 
     manualSwitch(delta) {
       if (this.channelMode) { if (this.channels.length > 1) this.tuneTo(this.current + delta); return; }
+      if (this.servers.length < 2 && this.yt) { this.toast('This game has only one server', 2000); return; }
       if (this.servers.length < 2) { this.status('This game has only one server', false); setTimeout(() => this.everPlayed && this.hideStatus(), 1500); return; }
       this.failed.clear();
       const from = this.servers[this.current], to = this.servers[(this.current + delta + this.servers.length) % this.servers.length];
@@ -3987,6 +4133,7 @@
     },
 
     onKey(ev) {
+      if (this.yt && this.ytKey(ev)) return;
       const panelButtons = !$('p-panel').classList.contains('hidden') && $('p-actions').children.length;
       switch (ev.key) {
         case 'Escape': case 'Backspace': case 'MediaStop': ev.preventDefault(); this.close(); return;
@@ -4009,6 +4156,7 @@
     },
 
     toggleFullscreen() {
+      if (this.yt) { if (this.view === 'fs' || this.view === 'fsrot') this.exitFs(); else this.enterFs(); return; }
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       else if (this.root.requestFullscreen) this.root.requestFullscreen().catch(() => {});
       else if (this.video.webkitEnterFullscreen) this.video.webkitEnterFullscreen();
@@ -4016,6 +4164,2129 @@
 
     clearTimer(name) { if (this[name]) { clearTimeout(this[name]); this[name] = null; } },
     clearTimers() { for (const t of ['hudTimer', 'stallTimer', 'startTimer', 'impatience']) this.clearTimer(t); },
+  };
+
+  // =============================================================================================
+  // Phone player (YouTube-style): only while player.yt, set from isYt() when the player opens - a
+  // touch phone either way up, or a window 600px wide or less. A TV or a desktop never runs any of
+  // this: the player above keeps its own HUD, chips, keys and "Paused" panel there.
+  //   watch  portrait: the video under the status bar at 16:9, the game's page scrolling under it
+  //   fs     landscape (the phone turned, or Android's element full screen)
+  //   fsrot  portrait phone, CSS-rotated full screen (the iPhone has no element full screen)
+  //   mini   minimised: a bar docked over Home (a small floating card when Home is sideways)
+  // =============================================================================================
+
+  const ytMq = matchMedia('(max-width: 600px), ((max-height: 500px) and (orientation: landscape) and (hover: none) and (pointer: coarse))');
+  const coarseMq = matchMedia('(pointer: coarse)');
+  const landMq = matchMedia('(orientation: landscape)');
+  /** The phone's way up (an Android keyboard can make a portrait viewport wider than tall). */
+  const isLandscape = () => (coarseMq.matches && screen.orientation && screen.orientation.type
+    ? screen.orientation.type.startsWith('landscape') : landMq.matches);
+  /**
+   * The phone player - unless an older cached index.html lacks its markup (then the TV player). Wider
+   * than 600px it is only ever the sideways full screen: a short viewport on a device held upright (a
+   * foldable's inner screen under its keyboard) has no portrait watch page that fits it.
+   */
+  const isYt = () => ytMq.matches && !!$('p-watch') && (innerWidth <= 600 || isLandscape());
+  const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const YT_HUD_MS = 3000;
+  const SEEK_STEP = 10;
+  /** "0:24", "1:02:05". */
+  const fmtTime = (sec) => {
+    sec = Math.max(0, Math.round(sec || 0));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+  };
+  const psbPx = () => parseFloat(getComputedStyle(player.root).getPropertyValue('--psb')) || 0;
+  /** The click a touch leaves behind once its tap already did something (it would land on what moved in under it). */
+  function swallowClick() {
+    const kill = (e) => { e.stopPropagation(); e.preventDefault(); };
+    window.addEventListener('click', kill, { capture: true, once: true });
+    setTimeout(() => window.removeEventListener('click', kill, { capture: true }), 450);
+  }
+  /**
+   * A tap that put new content under the finger (the player came up, opened from the mini, went to
+   * the mini, closed, switched game, a sheet opened or closed): for `ms` the quick second tap of a
+   * double tap - or an impatient re-tap - presses nothing, as on YouTube; for `spotMs` nothing at
+   * the spot that tap was on (a slower second tap lands where the first did). Only taps: a
+   * keyboard's click (detail 0) still goes through. The phone player calls it; a TV or desktop never does.
+   */
+  let tapGuardUntil = 0, spotGuard = null, lastDown = null;
+  function guardTaps(ms = 450, spotMs = 0) {
+    const now = performance.now();
+    tapGuardUntil = Math.max(tapGuardUntil, now + ms);
+    if (spotMs && lastDown && now - lastDown.t < 1000) spotGuard = { x: lastDown.x, y: lastDown.y, until: now + spotMs };
+  }
+  const tapGuarded = (x, y) => {
+    const now = performance.now();
+    if (now < tapGuardUntil) return true;
+    return !!spotGuard && now < spotGuard.until && x != null && Math.hypot(x - spotGuard.x, y - spotGuard.y) <= 44;
+  };
+  window.addEventListener('pointerdown', (ev) => { lastDown = { x: ev.clientX, y: ev.clientY, t: performance.now() }; }, { capture: true, passive: true });
+  window.addEventListener('click', (ev) => {
+    if (ev.detail === 0 || !tapGuarded(ev.clientX, ev.clientY)) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+  }, true);
+
+  /** "3rd quarter", "Halftime", "67'", "Top of the 5th" for the watch page's meta line. */
+  function periodText(e) {
+    if (!e.live || e.ended) return null;
+    const pv = periodView(e);
+    const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+    if (pv.brk) {
+      if (pv.main === 'HALF' || pv.main === 'HT') return { text: 'Halftime', brk: true };
+      const ph = pv.phrase || '';
+      if (/^after /.test(ph)) return { text: 'End of ' + ph.replace(/^after /, ''), brk: true };
+      if (/^in a delay/.test(ph)) return { text: pv.main === 'PPD' ? 'Postponed' : pv.main === 'SUSP' ? 'Suspended' : 'Delayed', brk: true };
+      return ph ? { text: cap(ph.replace(/^(in|at) (the )?/, '')), brk: true } : null;
+    }
+    const L = leagueName(catName(e));
+    const m = /^in the (\d+)(st|nd|rd|th)$/.exec(pv.phrase || '');
+    if (m) {
+      const unit = FOOTBALL.has(L) || BASKETBALL.has(L) ? ' quarter' : HOCKEY.has(L) ? ' period' : '';
+      return { text: `${m[1]}${m[2]}${unit}${/^\d{1,2}:\d{2}$/.test(pv.unit) ? ' · ' + pv.unit : ''}` };
+    }
+    if (pv.unit === 'MIN') return { text: pv.main };
+    if (pv.unit === 'INN') return { text: cap(pv.phrase) };
+    if (pv.main === 'OT') return { text: 'Overtime' };
+    if (pv.main === 'SO') return { text: 'Shootout' };
+    return pv.main ? { text: pv.main } : null;
+  }
+
+  /**
+   * Where the stream is, read fresh each time from player.video / player.hls (a self-heal swap
+   * changes both). hls.js reports seekable as [0, end] for live, so the window comes from the level
+   * details; native HLS (iOS before 17.1) has the real window in seekable.
+   */
+  const live = {
+    read() {
+      const p = player, v = p.video;
+      const r = { ok: false, start: 0, end: 0, edge: 0, td: 6, behind: 0, atLive: true, rewind: 0, dvr: false, vod: false, frac: 1, cur: 0, dur: 0 };
+      if (!p.open || p.embedMode || !v || !p.everPlayed) return r;
+      const cur = p.seekTarget != null ? p.seekTarget : v.currentTime;
+      r.cur = cur;
+      if (p.hls) {
+        const lv = p.hls.levels && p.hls.levels[Math.max(0, p.hls.currentLevel)];
+        const d = lv && lv.details;
+        if (!d || !d.fragments || !d.fragments.length) return r;
+        if (d.live === false) r.vod = true;
+        else {
+          r.start = d.fragments[0].start;
+          const last = d.fragments[d.fragments.length - 1];
+          r.end = last.start + last.duration;
+          r.td = d.targetduration || 6;
+          const sync = p.hls.liveSyncPosition;
+          r.edge = sync != null && isFinite(sync) ? sync : r.end - 3 * r.td;
+        }
+      } else if (isFinite(v.duration) && v.duration > 0) r.vod = true;
+      else if (v.seekable && v.seekable.length) {
+        r.start = v.seekable.start(0);
+        r.end = v.seekable.end(v.seekable.length - 1);
+        r.edge = r.end - (p.baseLatency || 0);
+      } else return r;
+      if (r.vod) {
+        r.dur = v.duration;
+        r.ok = isFinite(r.dur) && r.dur > 0;
+        r.frac = r.ok ? clamp01(cur / r.dur) : 0;
+        r.atLive = false;
+        return r;
+      }
+      r.ok = true;
+      r.edge = Math.max(r.start, Math.min(r.edge, r.end));
+      r.behind = Math.max(0, r.edge - cur);
+      r.atLive = r.behind <= Math.max(3, 1.5 * r.td);
+      r.rewind = r.edge - (r.start + 1);
+      r.dvr = r.rewind >= 20;
+      r.frac = r.dvr ? clamp01((cur - r.start - 1) / r.rewind) : 1;
+      return r;
+    },
+  };
+
+  /** A "Live now" tile under the video: the Home tile, playing in place when tapped. */
+  function playerTile(e) {
+    const card = el('button', 'card game-row');
+    card.type = 'button';
+    card._event = e;
+    card.dataset.pid = e.id;
+    card._phone = { lead: false, mixed: true };
+    buildTile(card, e, looks(e));
+    bindTile(card, e);
+    card.onclick = () => player.switchGame(card._event);
+    return card;
+  }
+  /** A compact scoreboard card for the full-screen tray (the Home tile's styles are portrait-only). */
+  function trayCard(e) {
+    const L = looks(e);
+    const b = el('button', 'tr-card');
+    b.type = 'button';
+    const bars = el('span', 'bars');
+    bars.setAttribute('aria-hidden', 'true');
+    for (const side of e.away ? [L.home, L.away] : [L.home]) { const i = el('i'); i.style.setProperty('--c', side.accent); bars.appendChild(i); }
+    const sc = scoreOf(e);
+    const show = !!sc && (!!e.live || !!e.ended);
+    const lines = el('span', 'tr-lines');
+    if (e.away) {
+      const line = (t, url, score, trailing) => {
+        const l = el('span', 'tr-line' + (trailing ? ' trailing' : ''));
+        l.append(crestEl(t, url), el('b', null, t.code), el('span', 'tr-sc', show ? String(score) : ''));
+        return l;
+      };
+      const lead = show ? Math.sign(sc.home - sc.away) : 0;
+      lines.append(line(L.home, e.crestHome, show && sc.home, lead < 0), line(L.away, e.crestAway, show && sc.away, lead > 0));
+    } else lines.appendChild(el('span', 'tr-single', e.home));
+    const stc = el('span', 'tr-st');
+    const pv = periodView(e);
+    if (e.ended) stc.appendChild(el('b', null, 'FINAL'));
+    else if (e.live) { stc.appendChild(el('span', 'lv', 'LIVE')); if (pv.main) stc.appendChild(el('b', 'tr-pv' + (pv.brk ? ' brk' : ''), pv.main)); }
+    else { const sp = startParts(e.startTs); stc.append(el('span', 'tr-kick', sp.kick), el('b', null, sp.hm ? `${sp.hm}${sp.ap ? ' ' + sp.ap : ''}` : '')); }
+    b.append(bars, lines, stc);
+    b.setAttribute('aria-label', (e.away ? `${e.home}${show ? ' ' + sc.home : ''}, ${e.away}${show ? ' ' + sc.away : ''}` : e.home) + ', ' + spokenStatus(e, pv));
+    b.onclick = () => { player.trayClose(); player.switchGame(e); };
+    return b;
+  }
+  function bindTile(card, e) {
+    bindPhone(card, e);
+    const a = card.getAttribute('aria-label');
+    if (a) card.setAttribute('aria-label', a.replace(' Press and hold for options.', ''));
+  }
+  const pillEdges = (box) => box.classList.toggle('at-end', box.scrollLeft >= box.scrollWidth - box.clientWidth - 1);
+
+  Object.assign(player, {
+    yt: false, view: 'tv', entry: false, fsEntry: false, userPaused: false, autoplayBlocked: false,
+    baseLatency: 0, slotLabel: '', wake: null, wakePending: false, native: false, seekTarget: null, userSeekAt: 0,
+    tickTimer: null, bufTimer: null, flipTimer: null, outTimer: null, enterTimer: null, wasLand: false,
+    rewindToldFor: '', msSig: '', dragging: false, barDrag: null, wasPaused: false, wasConnecting: null, notResp: new Set(), trayTimer: null,
+    manualFrom: -1, pickFail: null,
+
+    // --- open / close ------------------------------------------------------------------------
+
+    /** openFor / openChannel on a phone (`inPlace`: the player was already up). */
+    ytOpen(inPlace, keepEntry) {
+      const r = this.root;
+      if (this.outTimer) { clearTimeout(this.outTimer); this.outTimer = null; this.resetYt(); }
+      r.style.transition = ''; r.style.transform = ''; r.style.opacity = '';
+      r.classList.add('yt');
+      for (const c of ['dead', 'buffering', 'buf-late', 'paused', 'seeking', 'dragging', 'pip', 'dvr', 'behind', 'vod']) r.classList.remove(c);
+      this.unfreeze();
+      this.manualFrom = -1; this.pickFail = null;
+      this.userPaused = false; this.autoplayBlocked = false; this.seekTarget = null; this.native = false;
+      this.wasPaused = false; this.wasConnecting = null;
+      this.notResp = new Set();
+      gest.reset();
+      try { r.classList.toggle('fill', sessionStorage.getItem('yt_fill') === '1'); } catch { /* storage off */ }
+      // iOS keeps sound per element: the standby (self-heal) element gets this tap's activation too.
+      const v2 = this.video2;
+      try { v2.muted = false; const p = v2.play(); if (p && p.catch) p.catch(() => {}); } catch { /* no source yet */ }
+      v2.muted = true;
+      $('p-unmute').replaceChildren(icon(I.muted), 'Tap to unmute');
+      for (const [id, mk] of [['p-gear', I.sliders], ['p-mclose', I.close], ['p-prev', I.prev], ['p-next', I.next]]) {
+        const b = $(id);
+        if (b && !b.firstChild) b.appendChild(icon(mk));
+      }
+      this.paintBackdrop();
+      this.buildWatch();
+      if (inPlace && this.view === 'mini') {
+        history.pushState({ player: true }, '');
+        this.entry = true;
+        this.expand(true);
+      } else if (inPlace) {
+        this.syncState();
+        this.watchTop();
+      } else {
+        if (!keepEntry) history.pushState({ player: true }, ''); // (the TV player's own entry, when a window narrowed)
+        this.entry = true;
+        this.fsEntry = false;
+        this.wasLand = isLandscape();
+        this.setView(this.wasLand ? 'fs' : 'watch');
+        guardTaps(500, 800); // the watch page slides up under the tap that opened it
+        if (!reducedMotion()) {
+          r.classList.add('entering');
+          clearTimeout(this.enterTimer);
+          this.enterTimer = setTimeout(() => r.classList.remove('entering'), 320);
+        }
+      }
+      clearInterval(this.tickTimer);
+      this.tickTimer = setInterval(() => { if (!document.hidden) this.tick(); }, 500);
+      this.setupMediaSession();
+    },
+
+    /** close() on a phone: history, timers, sheet; a mini closed by a swipe slides away first. */
+    ytClose(fromHistory, slideOut) {
+      const r = this.root;
+      if (fromHistory !== true) guardTaps(450, 800); // Home comes back under the tap (the mini's ✕, Close player)
+      let n = 0;
+      if (psheet.entry) { psheet.entry = false; n++; }
+      psheet.hide();
+      if (this.entry) n++;
+      if (this.fsEntry) n++;
+      this.entry = false;
+      this.fsEntry = false;
+      if (!fromHistory && n) popOwnEntries(n);
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
+      this.clearTimer('toastTimer');
+      $('p-toast').classList.add('hidden');
+      this.releaseWake();
+      this.clearMediaSession();
+      if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+      gest.reset();
+      this.barDrag = null;
+      this.dragging = false;
+      clearTimeout(this.bufTimer);
+      const finish = () => {
+        this.outTimer = null;
+        r.classList.add('hidden');
+        r.style.transition = ''; r.style.transform = ''; r.style.opacity = '';
+        this.resetYt();
+        this.yt = false;
+      };
+      if (slideOut && this.view === 'mini' && !reducedMotion()) {
+        r.style.transition = 'transform 200ms cubic-bezier(.4, 0, 1, 1), opacity 200ms ease';
+        r.style.transform = slideOut === 'down' ? 'translateY(100%)' : `translateX(${slideOut === 'left' ? '-' : ''}100%)`;
+        if (slideOut !== 'down') r.style.opacity = '0';
+        clearTimeout(this.outTimer);
+        this.outTimer = setTimeout(finish, 210);
+      } else finish();
+    },
+
+    resetYt() {
+      const r = this.root;
+      for (const c of ['yt', 'v-watch', 'v-fs', 'v-fsrot', 'v-mini', 'land', 'connecting', 'paused', 'buffering', 'buf-late', 'dead',
+        'embed', 'ch', 'dvr', 'behind', 'vod', 'seeking', 'dragging', 'fill', 'muted', 'pip', 'entering', 'mini-in', 'elfs', 'vdrag', 'tray', 'reveal']) r.classList.remove(c);
+      this.unfreeze();
+      this.trayClose();
+      this.clearRot();
+      $('p-stage').style.cssText = '';
+      $('p-watch').style.opacity = '';
+      $('p-unmute').textContent = '🔇 Tap to unmute';
+      this.view = 'tv';
+    },
+
+    /** Every play() attempt starts unpaused, at the live edge. */
+    ytAttempt() {
+      this.userPaused = false;
+      this.autoplayBlocked = false;
+      this.seekTarget = null;
+      this.baseLatency = 0;
+      this.buffering(false);
+    },
+
+    /** bind().onplaying: the first frame, or playing again after a stall / pause. */
+    ytPlaying(first) {
+      this.buffering(false);
+      this.unfreeze();
+      this.autoplayBlocked = false;
+      if (first && this.pickFail) {
+        const pf = this.pickFail, cur = this.servers[this.current];
+        this.pickFail = null;
+        if (cur) this.toast(`${pf.name} isn’t responding — ${this.current === pf.from ? 'back on' : 'switched to'} ${cur.name}`);
+      }
+      if (first) this.manualFrom = -1;
+      const v = this.video;
+      if ((first || !this.baseLatency) && !this.hls && v.seekable && v.seekable.length) {
+        this.baseLatency = clampN(v.seekable.end(v.seekable.length - 1) - v.currentTime, 0, 40);
+      }
+      if (!this.userPaused) this.requestWake();
+      this.syncState();
+      this.renderYt();
+      this.tick();
+    },
+
+    /** Autoplay refused even muted (Low Power Mode): no spinner forever - the big play button. */
+    autoplayRefused() {
+      if (!this.open || this.everPlayed) return;
+      this.autoplayBlocked = true;
+      this.clearTimer('startTimer');
+      $('p-panel').classList.add('hidden');
+      this.syncState();
+      this.showHud();
+    },
+
+    switchGame(e) {
+      if (!e || !e.url) return;
+      guardTaps(500, 800); // the list changes (and goes to the top) under the finger
+      if (!this.channelMode && this.event && this.event.id === e.id) return this.watchTop();
+      recents.record(e);
+      prefetch.blur();
+      prefetch.handOff(e.id);
+      this.openFor(e);
+      this.watchTop(true);
+    },
+
+    /** The watch page back to the top: at once for a new game or channel (YouTube), else smoothly. */
+    watchTop(now) {
+      const w = $('p-watch');
+      if (w && w.scrollTop) w.scrollTo({ top: 0, behavior: now || reducedMotion() ? 'auto' : 'smooth' });
+    },
+
+    // --- views ---------------------------------------------------------------------------------
+
+    setView(v) {
+      const r = this.root;
+      if (v !== this.view && psheet.isOpen()) psheet.close();
+      if (v !== this.view) this.trayClose();
+      for (const c of ['v-watch', 'v-fs', 'v-fsrot', 'v-mini']) r.classList.remove(c);
+      this.view = v;
+      r.classList.add('v-' + v);
+      r.classList.toggle('land', isLandscape());
+      if (v !== 'fsrot') this.clearRot();
+      document.body.style.overflow = v === 'mini' && !liveTv.isOpen() ? '' : 'hidden';
+      if (v === 'mini') this.hideHud(); else this.showHud();
+      this.syncState();
+      this.tick();
+      const w = $('p-watch');
+      if (v === 'watch' && w && w._needFit) requestAnimationFrame(() => this.fitWatch());
+    },
+
+    /** Animates the video box from where it was (`from`, a rect) to where the new view put it. */
+    flip(from) {
+      const s = $('p-stage');
+      clearTimeout(this.flipTimer);
+      s.style.transition = ''; s.style.transform = ''; s.style.transformOrigin = '';
+      if (!from || reducedMotion()) return;
+      const to = s.getBoundingClientRect();
+      if (!to.width || !from.width) return;
+      s.style.transition = 'none';
+      s.style.transformOrigin = '0 0';
+      s.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width})`;
+      s.getBoundingClientRect();
+      s.style.transition = 'transform 280ms cubic-bezier(.2, .8, .2, 1)';
+      s.style.transform = '';
+      this.flipTimer = setTimeout(() => { s.style.transition = ''; s.style.transformOrigin = ''; s.style.transform = ''; }, 320);
+    },
+
+    /** Swipe down on the watch page: the page follows the finger, Home shows above it. */
+    dragFollow(dy, release) {
+      const r = this.root, w = $('p-watch');
+      if (release) {
+        r.classList.remove('vdrag');
+        if (!r.style.transform) return;
+        const rm = reducedMotion();
+        r.style.transition = rm ? 'none' : 'transform 200ms cubic-bezier(.2, .8, .2, 1)';
+        w.style.transition = rm ? 'none' : 'opacity 200ms ease';
+        r.style.transform = '';
+        w.style.opacity = '';
+        setTimeout(() => { r.style.transition = ''; w.style.transition = ''; }, 220);
+        return;
+      }
+      r.classList.add('vdrag');
+      r.style.transition = 'none';
+      r.style.transform = dy ? `translateY(${dy}px)` : '';
+      w.style.transition = 'none';
+      w.style.opacity = String(Math.max(0, 1 - 1.2 * (dy / (0.6 * innerHeight))));
+    },
+
+    minimise(fromHistory) {
+      if (!this.open || !this.yt || this.view === 'mini') return;
+      if (fromHistory !== true) guardTaps(450, 800); // Home comes back under the chevron (its "TV app" link)
+      // A dead stream (every server failed, premium only): nothing to keep playing, so it closes.
+      if (this.root.classList.contains('dead')) { this.dragFollow(0, true); return this.close(fromHistory); }
+      let n = 0;
+      if (psheet.entry) { psheet.entry = false; n++; }
+      psheet.hide();
+      if (this.entry) n++;
+      if (this.fsEntry) n++;
+      this.entry = false;
+      this.fsEntry = false;
+      const extra = fromHistory ? n - 1 : n;
+      if (extra > 0) popOwnEntries(extra);
+      if (document.fullscreenElement) { try { screen.orientation.unlock(); } catch { /* none */ } document.exitFullscreen().catch(() => {}); }
+      gest.endSeek(true);
+      const r = this.root, w = $('p-watch');
+      const from = $('p-stage').getBoundingClientRect();
+      r.classList.remove('vdrag');
+      r.style.transition = ''; r.style.transform = '';
+      w.style.transition = ''; w.style.opacity = '';
+      this.setView('mini');
+      this.flip(from);
+      if (!reducedMotion()) { r.classList.add('mini-in'); setTimeout(() => r.classList.remove('mini-in'), 300); }
+      if (this.channelMode) {
+        // Over the Live TV grid: "Recently watched" gains the channel, and the D-pad starts from its cell.
+        if (liveTv.isOpen()) { liveTv.render(); liveTv.focusCurrent(true); }
+        return;
+      }
+      // Home underneath: its card stays where the viewer left it, and takes the focus (without scrolling).
+      lastLayoutKey = '';
+      if (this.event && isPhone()) phoneAnchorId = this.event.id;
+      render();
+      const cards = this.event && cardsById.get(this.event.id);
+      if (cards) focusQuietly(cards[0]);
+    },
+
+    /** Mini -> the watch page (or full screen, held sideways). `historyDone`: the entry is pushed already. */
+    expand(historyDone) {
+      if (!this.open || !this.yt || this.view !== 'mini') return;
+      guardTaps(500, 800); // the watch page comes up under the tap on the mini
+      if (!historyDone) { history.pushState({ player: true }, ''); this.entry = true; }
+      const r = this.root, from = $('p-stage').getBoundingClientRect();
+      r.style.transition = ''; r.style.transform = ''; r.style.opacity = '';
+      this.wasLand = isLandscape();
+      this.setView(this.wasLand ? 'fs' : 'watch');
+      this.flip(from);
+      const w = $('p-watch');
+      if (!reducedMotion()) { w.classList.remove('fade-in'); void w.offsetWidth; w.classList.add('fade-in'); }
+      r.focus({ preventScroll: true });
+    },
+
+    enterFs() {
+      if (!this.open || !this.yt || this.view === 'mini' || this.view === 'fs' || this.view === 'fsrot') return;
+      // Android: real full screen, turned sideways (Back leaves it by itself, no history entry). The page
+      // goes full screen rather than #player: the browser's own full-screen style would undo #player's
+      // CSS turn, which stands in when the orientation lock is refused.
+      const d = document.documentElement;
+      if (document.fullscreenEnabled && d.requestFullscreen) {
+        d.requestFullscreen({ navigationUI: 'hide' }).then(() => {
+          if (!this.open) return;
+          this.wasLand = isLandscape();
+          this.setView('fs');
+          const turn = () => setTimeout(() => {
+            if (this.open && this.yt && this.view === 'fs' && document.fullscreenElement && !isLandscape()) { this.setRot(); this.setView('fsrot'); }
+          }, 300);
+          if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(turn);
+          else turn();
+        }).catch(() => this.enterRot());
+        return;
+      }
+      this.enterRot();
+    },
+
+    /** The iPhone: the player turned a quarter clockwise in CSS; the viewer turns the phone. */
+    enterRot() {
+      if (!this.open || this.view === 'fsrot') return;
+      this.setRot();
+      this.setView('fsrot');
+      if (!this.fsEntry) { history.pushState({ fs: true }, ''); this.fsEntry = true; }
+    },
+
+    exitFs(fromHistory) {
+      if (document.fullscreenElement) {
+        try { screen.orientation.unlock(); } catch { /* none */ }
+        document.exitFullscreen().catch(() => {});
+        return; // fullscreenchange picks the view
+      }
+      if (this.view !== 'fsrot') return;
+      this.wasLand = isLandscape();
+      this.setView(this.wasLand ? 'fs' : 'watch');
+      if (this.fsEntry) { this.fsEntry = false; if (fromHistory !== true) popOwnEntries(1); }
+    },
+
+    setRot() {
+      this.root.style.setProperty('--rot-w', innerHeight + 'px');
+      this.root.style.setProperty('--rot-h', innerWidth + 'px');
+    },
+    clearRot() {
+      this.root.style.removeProperty('--rot-w');
+      this.root.style.removeProperty('--rot-h');
+    },
+
+    /** The phone turned (or the window changed shape). */
+    syncOrientation() {
+      if (!this.open || !this.yt) return;
+      if (this.view === 'fsrot') this.setRot();
+      const land = isLandscape();
+      this.root.classList.toggle('land', land);
+      this.renderMiniText(); // (the docked bar's title fits the new width)
+      if (land === this.wasLand) return;
+      this.wasLand = land;
+      if (this.view === 'watch' && land) this.setView('fs');
+      else if (this.view === 'fsrot' && land) this.setView('fs'); // iOS animates the turn itself
+      else if (this.view === 'fs' && !land && !document.fullscreenElement) {
+        this.setView('watch');
+        if (this.fsEntry) { this.fsEntry = false; popOwnEntries(1); }
+      } else if (this.view === 'fs' && !land) { this.setRot(); this.setView('fsrot'); } // full screen, no lock: turned in CSS
+    },
+
+    /** The window crossed the phone layout's edge while open (a desktop window resized). */
+    syncYt() {
+      if (!this.open) return;
+      const want = isYt();
+      if (want === this.yt) return;
+      // A touch screen showing the TV player only gets shorter or narrower for a while - its keyboard
+      // (Pair a TV), split screen, a pop-up window: the player it opened with stays (the 'desktop
+      // window resized' case is a mouse's). The other way - a foldable opened up wide - still switches,
+      // as the phone player has no layout for that width.
+      if (want && coarseMq.matches) return;
+      if (!want) {
+        if (this.view === 'mini') { history.pushState({ player: true }, ''); }
+        psheet.close();
+        if (this.fsEntry) { this.fsEntry = false; popOwnEntries(1); }
+        clearInterval(this.tickTimer);
+        this.releaseWake();
+        this.clearMediaSession();
+        this.root.style.transform = ''; this.root.style.opacity = '';
+        this.resetYt();
+        this.yt = false;
+        document.body.style.overflow = 'hidden';
+        if (this.embedMode) $('p-embed-note').classList.remove('hidden');
+        this.updateHud();
+        this.renderServers();
+        this.showHud();
+        return;
+      }
+      this.yt = true;
+      if (this.everPlayed && !$('p-actions').children.length) $('p-panel').classList.add('hidden'); // the TV's "Paused"
+      this.ytOpen(false, true);
+      this.updateHud();
+      this.renderServers();
+    },
+
+    // --- state -----------------------------------------------------------------------------------
+
+    /** Classes and glyphs from the player's state (connecting, paused, dead...). */
+    syncState() {
+      if (!this.yt) return;
+      const r = this.root, v = this.video;
+      const dead = r.classList.contains('dead');
+      const panelOn = !$('p-panel').classList.contains('hidden');
+      const spin = panelOn && !$('p-spinner').classList.contains('hidden');
+      const connecting = !dead && !this.embedMode && !this.autoplayBlocked && (spin || !this.everPlayed);
+      r.classList.toggle('connecting', connecting);
+      r.classList.toggle('embed', this.embedMode);
+      r.classList.toggle('ch', this.channelMode);
+      const paused = !connecting && !dead && !this.embedMode && (this.autoplayBlocked || (this.everPlayed && !!v.paused));
+      r.classList.toggle('paused', paused);
+      r.classList.toggle('muted', !!v.muted && !this.embedMode);
+      if (connecting || dead) { clearTimeout(this.bufTimer); r.classList.remove('buffering', 'buf-late'); }
+      const glyph = (b, play) => {
+        const k = play ? 'play' : 'pause';
+        if (!b || b._g === k) return;
+        b._g = k;
+        b.replaceChildren(icon(play ? I.playL : I.pauseL));
+        b.setAttribute('aria-label', play ? 'Play' : 'Pause');
+      };
+      glyph($('p-play'), paused);
+      glyph($('p-mplay'), paused);
+      const mb = $('p-min'), mode = dead ? 'x' : this.view === 'fsrot' ? 'exit' : 'min';
+      if (mb._m !== mode) {
+        mb._m = mode;
+        mb.replaceChildren(icon(dead ? I.close : I.chevD));
+        mb.setAttribute('aria-label', dead ? 'Close player' : mode === 'exit' ? 'Exit full screen' : 'Minimise player');
+      }
+      r.classList.toggle('elfs', !!document.fullscreenElement);
+      const fx = $('p-fsx'), fm = this.view === 'fsrot' || document.fullscreenElement ? 'out' : 'in';
+      if (fx._m !== fm) {
+        fx._m = fm;
+        fx.replaceChildren(icon(fm === 'out' ? I.fsOut : I.fsIn));
+        fx.setAttribute('aria-label', fm === 'out' ? 'Exit full screen' : 'Full screen');
+      }
+      if (dead || (paused && this.userPaused)) this.releaseWake();
+      // Paused by iOS itself (another app took the audio, AirPods out): the controls come up.
+      if (paused && !this.wasPaused) this.showHud();
+      this.wasPaused = paused;
+      if (connecting !== this.wasConnecting) { this.wasConnecting = connecting; this.renderPills(); }
+      this.renderMiniText();
+    },
+
+    buffering(on) {
+      const r = this.root;
+      clearTimeout(this.bufTimer);
+      if (!on) { r.classList.remove('buffering', 'buf-late'); this.renderMiniText(); return; }
+      if (r.classList.contains('buffering')) return;
+      r.classList.add('buffering');
+      this.bufTimer = setTimeout(() => r.classList.add('buf-late'), 3000);
+      this.renderMiniText();
+    },
+
+    /**
+     * A server picked in the Server sheet (YouTube's quality change): the last frame stays up while it
+     * connects, and a server that does not answer hands back to the one that was playing (onFailure).
+     */
+    pickServer(i) {
+      const to = this.servers[i];
+      if (!to) return;
+      telemetry.push({ kind: 'switch', from: this.servers[this.current] ? this.servers[this.current].name : '', to: to.name, reason: 'manual' });
+      this.failed.clear();
+      this.manualFrom = this.everPlayed && !this.embedMode && this.current >= 0 ? this.current : -1;
+      this.pickFail = null;
+      this.freeze();
+      this.switchTo(i, true);
+    },
+    /** Holds the picture on screen (a canvas over the stage) while the next stream connects. */
+    freeze() {
+      const v = this.video, c = $('p-freeze');
+      if (!c || this.embedMode || !v.videoWidth || v.readyState < 2) return;
+      try {
+        c.width = v.videoWidth;
+        c.height = v.videoHeight;
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        this.root.classList.add('frozen');
+      } catch { this.unfreeze(); }
+    },
+    unfreeze() {
+      if (!this.root.classList.contains('frozen')) return;
+      this.root.classList.remove('frozen');
+      const c = $('p-freeze');
+      if (c) { c.width = 0; c.height = 0; } // (a 1080p frame is 8 MB)
+    },
+
+    /** status() on a phone: one short line, the spinner's line only after 1.2 s. */
+    ytStatus(text, spinner) {
+      text = String(text || '');
+      // A passing remark, not a state: the snackbar says it.
+      if (/^Premium is full|^This game has only one server/.test(text)) { this.toast(text); return; }
+      const r = this.root;
+      r.classList.remove('dead');
+      this.buffering(false);
+      let main = text.split('\n\n')[0].replace(/'/g, '’');
+      // "Server 3 isn't responding — trying Server 1" is followed at once by "Connecting to Server 1…":
+      // the fail-over line stays up for that connection, so it can be read.
+      if (main.includes(' — ')) this.failNote = { at: performance.now(), text: main };
+      else if (spinner && this.failNote && /^Connecting to /.test(main) && performance.now() - this.failNote.at < 3000) main = this.failNote.text;
+      else this.failNote = null;
+      $('p-panel').classList.remove('hidden');
+      $('p-spinner').classList.toggle('hidden', !spinner);
+      if (spinner) $('p-actions').replaceChildren();
+      const msg = $('p-msg');
+      msg.classList.remove('late', 'two');
+      const parts = main.split(' — ');
+      if (parts.length > 1) {
+        // "Server 3 isn't responding" / "Trying Server 1…": at once, on two lines.
+        const t = parts.slice(1).join(' — ');
+        msg.replaceChildren(el('b', null, parts[0]), el('small', null, t.charAt(0).toUpperCase() + t.slice(1) + (spinner ? '…' : '')));
+        msg.classList.add('two');
+      } else {
+        msg.textContent = main;
+        if (spinner) { void msg.offsetWidth; msg.classList.add('late'); }
+      }
+      this.syncState();
+    },
+
+    /**
+     * Nothing plays (every server failed, premium only, a channel down): an icon, a title, a line,
+     * and pill buttons. The top-left control turns into ✕ (CSS .dead), so there is no Back button.
+     */
+    ytDead({ icon: mk, gold, title, sub, actions }) {
+      this.buffering(false);
+      this.unfreeze();
+      this.manualFrom = -1; this.pickFail = null;
+      $('p-panel').classList.remove('hidden');
+      $('p-spinner').classList.add('hidden');
+      const msg = $('p-msg');
+      msg.classList.remove('late', 'two');
+      const ic = el('span', 'p-err-ic' + (gold ? ' gold' : ''));
+      ic.appendChild(icon(mk));
+      msg.replaceChildren(ic, el('b', 'p-err-title' + (gold ? ' gold' : ''), title), ...(sub ? [el('span', 'p-err-sub', sub)] : []));
+      const acts = $('p-actions');
+      acts.replaceChildren();
+      for (const a of actions || []) {
+        if (a.href && !/^https?:\/\//i.test(a.href)) continue; // links come from the scraped site
+        const b = el(a.href ? 'a' : 'button', 'p-btn ' + (a.kind || 'ghost'));
+        if (a.href) { b.href = a.href; b.target = '_blank'; b.rel = 'noopener noreferrer'; } else b.type = 'button';
+        if (a.icon) b.appendChild(icon(a.icon));
+        b.append(a.label);
+        if (a.fn) b.onclick = a.fn;
+        acts.appendChild(b);
+      }
+      this.root.classList.add('dead');
+      this.releaseWake();
+      this.syncState();
+      this.showHud();
+      this.renderYt();
+      const f = acts.firstChild;
+      if (f) f.focus({ preventScroll: true });
+    },
+
+    ytPremiumOnly() {
+      this.clearTimers();
+      this.stopPlayback();
+      const base = { icon: I.star, gold: true, title: 'Premium game' };
+      if (account.signedIn) return this.ytDead({ ...base, sub: 'Your account doesn’t include premium. Pick another game.' });
+      if (pool.shared) {
+        return this.ytDead({ ...base, sub: `All ${pool.max} shared premium connections are in use. Try again in a minute.`, actions: [{ label: 'Try again', icon: I.retry, kind: 'light', fn: () => {
+          this.failed.clear(); this.resolved.clear(); if (this.pre) this.pre.clear();
+          this.generation++;
+          this.status('Connecting…', true);
+          this.resolvePage();
+        } }] });
+      }
+      return this.ytDead({ ...base, sub: 'This stream is only on the site’s premium servers.', actions: [{ label: 'Sign in', kind: 'gold', fn: () => this.premiumSignIn() }] });
+    },
+
+    /** premiumOnly's Sign in: the account sheet takes over the player's history entry (no back/push race). */
+    premiumSignIn() {
+      const st = history.state;
+      if (isPhone() && st && (st.player || st.fs) && !psheet.entry) {
+        this.close(true);
+        history.replaceState({ acct: true }, '');
+        acct.entry = true;
+      } else this.close();
+      acct.open();
+    },
+
+    ytEmbed() {
+      this.syncState();
+      this.refreshWatch();
+      if (this.view === 'fs' || this.view === 'fsrot') this.toast('Site player · it may show ads. Tap the video if it doesn’t start.');
+    },
+
+    // --- controls ----------------------------------------------------------------------------------
+
+    ytShowHud() {
+      this.root.classList.remove('idle');
+      this.clearTimer('hudTimer');
+      if (this.embedMode) return; // taps on the cross-origin player never reach us
+      this.hudTimer = setTimeout(() => {
+        this.hudTimer = null;
+        if (this.canAutoHide()) this.root.classList.add('idle');
+      }, YT_HUD_MS);
+    },
+    canAutoHide() {
+      const r = this.root;
+      if (this.view === 'mini' || this.embedMode || this.dragging) return false;
+      if (['paused', 'seeking', 'connecting', 'dead'].some((c) => r.classList.contains(c))) return false;
+      if (psheet.isOpen()) return false;
+      const a = document.activeElement;
+      // A keyboard (or VoiceOver) user on the controls keeps them up.
+      if (a && a !== r && a.closest && a.closest('#player .hud, #p-ctl, #p-bar, #p-fsrow') && a.matches(':focus-visible')) return false;
+      return true;
+    },
+    hideHud() {
+      this.clearTimer('hudTimer');
+      this.root.classList.add('idle');
+    },
+    toggleControls() {
+      const r = this.root;
+      if (!r.classList.contains('idle')) { this.hideHud(); return; }
+      this.showHud();
+      // Just revealed: for the double-tap window the scrubber lets taps through to the picture (a quick
+      // second tap seeks, it does not scrub); the buttons' side of this is the click filter in the wiring.
+      r.classList.add('reveal');
+      clearTimeout(this.revealTimer);
+      this.revealTimer = setTimeout(() => r.classList.remove('reveal'), 320);
+    },
+
+    ytTogglePause() {
+      if (this.embedMode) { this.showHud(); return; }
+      const v = this.video;
+      if (v.paused || this.autoplayBlocked) {
+        this.userPaused = false;
+        const blocked = this.autoplayBlocked;
+        this.autoplayBlocked = false;
+        // Refused autoplay: this tap is the gesture that lets it play with sound.
+        if (blocked) { v.muted = false; $('p-unmute').classList.add('hidden'); }
+        const L = live.read();
+        // No replay room, or the window slid past where it stopped: back at the live edge.
+        if (!blocked && L.ok && !L.vod && (!L.dvr || v.currentTime < L.start + 2)) this.jumpToLive(true);
+        else this.resume();
+      } else {
+        v.pause();
+        this.userPaused = true;
+        this.releaseWake();
+      }
+      this.syncState();
+      this.showHud();
+    },
+
+    resume() {
+      const v = this.video;
+      const p = v.play();
+      if (p && p.catch) {
+        p.catch((err) => {
+          if (err && err.name === 'NotAllowedError' && !v.muted) {
+            v.muted = true;
+            v.play().catch(() => {});
+            $('p-unmute').classList.remove('hidden');
+            this.syncState();
+          }
+        });
+      }
+    },
+
+    seekTo(t) {
+      const v = this.video;
+      if (!isFinite(t)) return;
+      this.userSeekAt = performance.now();
+      try { v.currentTime = t; } catch { /* not seekable yet */ }
+      this.tick();
+    },
+
+    jumpToLive(play = true) {
+      const v = this.video, L = live.read();
+      let moved = 0;
+      if (L.ok && !L.vod) {
+        moved = L.edge - v.currentTime;
+        if (Math.abs(moved) > 0.5) this.seekTo(L.edge);
+      }
+      if (play && v.paused) { this.userPaused = false; this.resume(); }
+      if (moved > 10) this.toast('Back to live', 2000);
+      this.tick();
+    },
+
+    liveBadgeTap() {
+      const L = live.read();
+      if (!L.ok || L.vod) return;
+      if (L.atLive && !this.video.paused) this.toast('You’re watching live', 2000);
+      else this.jumpToLive(true);
+      this.syncState();
+      this.showHud();
+    },
+
+    // --- full screen: "More live", swiped up from the bottom (YouTube's "More videos") ----------------
+
+    trayOpen() {
+      const t = $('p-tray');
+      if (!t || !this.yt || this.channelMode || (this.view !== 'fs' && this.view !== 'fsrot')) return;
+      const { liveL, soon } = this.moreLive();
+      const list = liveL.concat(soon);
+      if (!list.length) { this.toast('Nothing else is on right now', 2000); return; }
+      const row = el('div', 'tr-row');
+      for (const e of list) { try { row.appendChild(trayCard(e)); } catch (err) { console.error('Styx Sports: game', e && e.id, err); } }
+      row.addEventListener('scroll', () => this.trayArm(), { passive: true });
+      t.replaceChildren(el('div', 'tr-k', liveL.length ? 'More live' : 'Coming up'), row);
+      t.classList.remove('hidden');
+      this.root.classList.add('tray');
+      this.hideHud();
+      this.trayArm();
+      const f = row.firstChild;
+      if (f) f.focus({ preventScroll: true });
+    },
+    trayArm() {
+      clearTimeout(this.trayTimer);
+      this.trayTimer = setTimeout(() => this.trayClose(), 8000);
+    },
+    /** True when it was open. */
+    trayClose() {
+      clearTimeout(this.trayTimer);
+      const t = $('p-tray');
+      this.root.classList.remove('tray');
+      if (!t || t.classList.contains('hidden')) return false;
+      t.classList.add('hidden');
+      t.replaceChildren();
+      return true;
+    },
+
+    pinchEnd(scale) {
+      if (this.view !== 'fs' && this.view !== 'fsrot') return;
+      const on = this.root.classList.contains('fill');
+      if (scale >= 1.12 && !on) { this.setFill(true); this.toast('Zoomed to fill', 2000); }
+      else if (scale <= 0.9 && on) { this.setFill(false); this.toast('Original', 2000); }
+    },
+    setFill(on) {
+      this.root.classList.toggle('fill', on);
+      try { sessionStorage.setItem('yt_fill', on ? '1' : ''); } catch { /* storage off */ }
+    },
+
+    /** Keys on a phone-sized player (narrow desktop windows, Bluetooth keyboards). True when handled. */
+    ytKey(ev) {
+      if (psheet.isOpen()) {
+        if (ev.key === 'Escape' || ev.key === 'Backspace') { ev.preventDefault(); psheet.close(); }
+        return true; // the sheet's own buttons take Enter / Space / Tab
+      }
+      const bar = $('p-bar');
+      if (document.activeElement === bar && bar.tabIndex === 0) {
+        const L = live.read();
+        if ((ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && L.ok) {
+          ev.preventDefault();
+          const lo = L.vod ? 0 : L.start + 1, hi = L.vod ? L.dur : L.edge;
+          this.seekTo(clampN(this.video.currentTime + (ev.key === 'ArrowLeft' ? -SEEK_STEP : SEEK_STEP), lo, hi));
+          this.showHud();
+          return true;
+        }
+        if (ev.key === 'End') { ev.preventDefault(); this.jumpToLive(false); return true; }
+      }
+      switch (ev.key) {
+        case 'Escape': case 'Backspace':
+          ev.preventDefault();
+          if (this.view === 'fsrot' || document.fullscreenElement) this.exitFs();
+          else if (this.root.classList.contains('dead')) this.close();
+          else this.minimise();
+          return true;
+        case 'f': ev.preventDefault(); this.toggleFullscreen(); return true;
+        default: return false;
+      }
+    },
+
+    // --- the live badge, the scrubber, the mini line ----------------------------------------------
+
+    tick() {
+      if (!this.open || !this.yt) return;
+      const L = live.read();
+      const r = this.root;
+      r.classList.toggle('dvr', L.ok && L.dvr && !L.vod);
+      r.classList.toggle('vod', L.ok && L.vod);
+      r.classList.toggle('behind', L.ok && !L.vod && !L.atLive);
+      this.renderBadge(L);
+      if (!this.dragging) this.setBar(L.ok ? L.frac : this.everPlayed ? 1 : 0);
+      const ml = $('p-mini').querySelector('.p-mline i');
+      if (ml) {
+        const f = !this.everPlayed ? 0 : !L.ok ? 1 : (L.vod || (L.dvr && !L.atLive)) ? L.frac : 1;
+        ml.style.width = (f * 100).toFixed(2) + '%';
+      }
+      const bar = $('p-bar');
+      const interactive = L.ok && (L.dvr || L.vod);
+      bar.tabIndex = interactive ? 0 : -1;
+      if (interactive) {
+        bar.removeAttribute('aria-disabled');
+        if (L.vod) {
+          bar.setAttribute('aria-valuemin', '0');
+          bar.setAttribute('aria-valuemax', String(Math.round(L.dur)));
+          bar.setAttribute('aria-valuenow', String(Math.round(L.cur)));
+          bar.setAttribute('aria-valuetext', `${fmtTime(L.cur)} of ${fmtTime(L.dur)}`);
+        } else {
+          bar.setAttribute('aria-valuemin', '0');
+          bar.setAttribute('aria-valuemax', String(Math.round(L.rewind)));
+          bar.setAttribute('aria-valuenow', String(Math.round(Math.max(0, L.rewind - L.behind))));
+          bar.setAttribute('aria-valuetext', L.atLive ? 'Live' : `${Math.round(L.behind)} seconds behind live`);
+        }
+      } else bar.setAttribute('aria-disabled', 'true');
+    },
+
+    renderBadge(L) {
+      const b = $('p-live');
+      if (!b) return;
+      const v = this.video;
+      let kind;
+      if (!L.ok) kind = 'none';
+      else if (L.vod) kind = 'vod';
+      else if (L.atLive && !v.paused) kind = 'live';
+      else if (L.dvr && !L.atLive) kind = 'behind';
+      else kind = 'off';
+      const sig = kind + '|' + (kind === 'vod' ? fmtTime(L.cur) + '/' + fmtTime(L.dur) : kind === 'behind' ? fmtTime(L.behind) : kind === 'off' ? String(v.paused) : '');
+      if (b._sig === sig) return;
+      b._sig = sig;
+      b.className = 'p-live ' + kind;
+      const dot = (off) => el('i', 'dot' + (off ? ' off' : ''));
+      b.removeAttribute('aria-disabled');
+      b.tabIndex = 0;
+      if (kind === 'none') { b.replaceChildren(); return; }
+      if (kind === 'vod') {
+        b.replaceChildren(el('span', 'tm', `${fmtTime(L.cur)} / ${fmtTime(L.dur)}`));
+        b.setAttribute('aria-label', `${fmtTime(L.cur)} of ${fmtTime(L.dur)}`);
+        b.setAttribute('aria-disabled', 'true');
+        b.tabIndex = -1;
+      } else if (kind === 'live') {
+        b.replaceChildren(dot(false), el('span', 'lv', 'LIVE'));
+        b.setAttribute('aria-label', 'Live');
+      } else if (kind === 'behind') {
+        b.replaceChildren(el('span', 'tm', '−' + fmtTime(L.behind)), dot(true), el('span', 'lv off', 'LIVE'));
+        b.setAttribute('aria-label', `${Math.round(L.behind)} seconds behind live. Go to live`);
+      } else {
+        b.replaceChildren(dot(true), el('span', 'lv off', 'LIVE'));
+        b.setAttribute('aria-label', v.paused ? 'Paused. Go to live' : 'Behind live. Go to live');
+      }
+    },
+
+    setBar(f) {
+      const bar = $('p-bar');
+      const v = Math.max(0, Math.min(1, f || 0)).toFixed(4);
+      if (bar._f !== v) { bar._f = v; bar.style.setProperty('--f', v); }
+    },
+
+    /** The scrubber's x in its own layout px (the rotated full screen swaps the screen's axes). */
+    barX(ev) {
+      const t = $('p-bar').querySelector('.p-track');
+      if (this.view === 'fsrot') {
+        let x = 0;
+        for (let n = t; n && n !== this.root; n = n.offsetParent) x += n.offsetLeft;
+        return ev.clientY - x;
+      }
+      return ev.clientX - t.getBoundingClientRect().left;
+    },
+
+    /**
+     * A press on the scrubber - or, portrait, on the page just under the video (`below`: nothing is
+     * taken from the page until the drag turns out sideways). Only a mostly sideways drag scrubs; up or
+     * down it is the swipe on the video (minimise, full screen) or the page's scroll, never a seek.
+     */
+    barDown(ev, below = false) {
+      if (!this.yt || (this.barDrag && this.barDrag.drag) || tapGuarded(ev.clientX, ev.clientY)) return;
+      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+      const L = live.read();
+      if (!L.ok || !(L.dvr || L.vod)) return;
+      const pt = gest.raw(ev), o = gest.origin(), now = performance.now();
+      this.barDrag = {
+        id: ev.pointerId, x0: this.barX(ev), drag: false, far: false, snapped: false, cancel: false, target: null, below,
+        g: { id: ev.pointerId, x0: pt.x, y0: pt.y, lx: pt.x - o.x, ly: pt.y - o.y, t0: now, s: [[now, pt.x, pt.y]] },
+      };
+      if (below) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      try { $('p-bar').setPointerCapture(ev.pointerId); } catch { /* gone */ }
+      this.showHud();
+    },
+    barMove(ev) {
+      const d = this.barDrag;
+      if (!d || ev.pointerId !== d.id) return;
+      const x = this.barX(ev);
+      if (!d.drag) {
+        const pt = gest.raw(ev), g = d.g, now = performance.now();
+        g.s.push([now, pt.x, pt.y]);
+        while (g.s.length > 2 && now - g.s[0][0] > 80) g.s.shift();
+        const dx = x - d.x0, dy = pt.y - g.y0;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 4) return;
+        if (Math.abs(dx) <= Math.abs(dy)) {
+          // Up or down: not a scrub. On the video it is the swipe; under it, the page scrolls on its own.
+          this.barDrag = null;
+          if (!d.below) {
+            try { $('p-bar').releasePointerCapture(ev.pointerId); } catch { /* gone */ }
+            gest.takeOver(g, pt.x - g.x0, dy);
+          }
+          return;
+        }
+        d.drag = true;
+        this.dragging = true;
+        this.root.classList.add('dragging');
+        this.clearTimer('hudTimer');
+        if (d.below) { try { $('p-bar').setPointerCapture(ev.pointerId); } catch { /* gone */ } }
+      }
+      const L = live.read();
+      if (!L.ok) return;
+      const w = $('p-bar').querySelector('.p-track').offsetWidth || 1;
+      let f = clamp01(x / w);
+      if (Math.abs(x - d.x0) > 8) d.far = true;
+      d.cancel = d.far && Math.abs(x - d.x0) <= 8;
+      let label, snapped = false;
+      if (L.vod) {
+        d.target = f * L.dur;
+        label = fmtTime(d.target);
+      } else {
+        d.target = L.start + 1 + f * L.rewind;
+        snapped = L.edge - d.target <= 3 || f >= 0.98;
+        if (snapped) { f = 1; d.target = L.edge; label = 'LIVE'; } else label = '−' + fmtTime(L.edge - d.target);
+        if (snapped && !d.snapped && navigator.vibrate) { try { navigator.vibrate(8); } catch { /* none */ } }
+      }
+      d.snapped = snapped;
+      if (d.cancel) label = 'Release to cancel';
+      this.setBar(f);
+      const bar = $('p-bar'), bub = bar.querySelector('.p-bubble');
+      bub.textContent = label;
+      // Centred on the thumb, kept 8px inside the video.
+      const bw = bub.offsetWidth, bl = bar.offsetLeft, sw = $('p-stage').offsetWidth;
+      bub.style.left = (clampN(bl + f * w, bw / 2 + 8, sw - bw / 2 - 8) - bl) + 'px';
+    },
+    barUp(ev) {
+      const d = this.barDrag;
+      if (!d || ev.pointerId !== d.id) return;
+      this.barDrag = null;
+      if (!d.drag) return; // a tap on the bar seeks nowhere (as on YouTube)
+      if (d.below) swallowClick(); // (a tile under the finger is not opened by the scrub)
+      this.dragging = false;
+      this.root.classList.remove('dragging');
+      if (ev.type !== 'pointercancel' && !d.cancel && d.target != null) {
+        if (d.snapped) this.jumpToLive(false); else this.seekTo(d.target);
+      }
+      this.tick();
+      this.showHud();
+    },
+
+    // --- the page under the video -------------------------------------------------------------------
+
+    paintBackdrop() {
+      const b = $('p-backdrop');
+      if (!b) return;
+      b.replaceChildren();
+      b.classList.toggle('ch', this.channelMode);
+      if (this.channelMode) {
+        const ch = this.channels[this.current];
+        b._for = ch ? ch.u : '';
+        if (ch && ch.l && /^https:/i.test(ch.l)) {
+          const img = el('img', 'bd-logo');
+          img.alt = '';
+          img.referrerPolicy = 'no-referrer';
+          img.onerror = () => img.remove();
+          img.src = ch.l;
+          b.appendChild(img);
+        }
+        return;
+      }
+      const e = byId(this.event.id) || this.event;
+      const L = looks(e);
+      // The lead card's diagonal split, in the same colours.
+      const neutral = !L.home.base && !(L.away && L.away.base);
+      const set = (k, base) => {
+        b.style.setProperty(`--${k}`, deepOf(base, 0.02));
+        b.style.setProperty(`--${k}-hi`, deepOf(base, 0.12));
+        b.style.setProperty(`--${k}-lo`, deepOf(base, -0.1));
+      };
+      set('h1', L.home.base || (neutral ? [214, 0.14, 0.25] : null));
+      set('h2', e.away ? ((L.away && L.away.base) || (neutral ? [30, 0.08, 0.14] : null)) : (L.home.base || [214, 0.14, 0.25]));
+      if (!e.away) return;
+      const side = (t, url, cls) => {
+        const s = el('span', 'bd-side ' + cls);
+        if (url) {
+          const img = el('img');
+          img.alt = '';
+          img.referrerPolicy = 'no-referrer';
+          img.onerror = () => img.replaceWith(el('b', null, t.code));
+          img.src = url;
+          s.appendChild(img);
+        } else s.appendChild(el('b', null, t.code));
+        return s;
+      };
+      b.append(side(L.home, e.crestHome, 'l'), side(L.away, e.crestAway, 'r'));
+    },
+
+    buildWatch() {
+      const w = $('p-watch');
+      if (!w) return;
+      w.replaceChildren();
+      w._head = el('div', 'wh');
+      w._pills = el('div', 'p-pills');
+      w._more = el('div', 'p-more');
+      w._key = null;
+      w._tiles = [];
+      w._chList = null;
+      w._chAll = false;
+      w._pills.addEventListener('scroll', () => pillEdges(w._pills), { passive: true });
+      w.append(w._head, w._pills, w._more);
+      // An ambient glow in the teams' colours (the Home lead's hues, quieter).
+      if (this.channelMode) { w.style.setProperty('--wa', 'transparent'); w.style.setProperty('--wb', 'transparent'); }
+      else {
+        const e = byId(this.event.id) || this.event;
+        const L = looks(e);
+        const g = (b, l, a) => (b ? hsla(b[0], Math.min(b[1], 0.85), l, a) : 'rgba(255, 255, 255, .04)');
+        w.style.setProperty('--wa', g(L.home.base, 0.42, 0.2));
+        w.style.setProperty('--wb', e.away ? g(L.away.base, 0.5, 0.16) : 'transparent');
+      }
+      w.scrollTop = 0;
+      this.refreshWatch(true);
+    },
+
+    /** The watch page follows the schedule polls: header, pills, "Live now" (rebuilt only when its games change). */
+    refreshWatch(force) {
+      if (!this.open || !this.yt) return;
+      const w = $('p-watch');
+      if (!w || !w._head) return;
+      this.renderWatchHead();
+      this.renderPills();
+      if (this.channelMode) { this.renderChannelList(); return; }
+      const { liveL, soon, stale } = this.moreLive();
+      const key = liveL.map((e) => e.id).join(',') + '|' + soon.map((e) => e.id).join(',') + '|' + stale;
+      if (!force && key === w._key) {
+        for (const c of w._tiles) bindTile(c, byId(c._event.id) || c._event);
+        return;
+      }
+      w._key = key;
+      w._more.replaceChildren();
+      w._tiles = [];
+      const section = (title, sub, subLive, list) => {
+        const sec = el('section', 'row p-row');
+        sec.setAttribute('aria-label', title);
+        const head = el('div', 'row-head');
+        head.append(el('h2', 'row-title', title), el('span', 'row-sub' + (subLive ? ' live' : ''), sub));
+        const strip = el('div', 'p-strip');
+        for (const e of list) {
+          try { const c = playerTile(e); strip.appendChild(c); w._tiles.push(c); } catch (err) { console.error('Styx Sports: game', e && e.id, err); }
+        }
+        sec.append(head, strip);
+        w._more.appendChild(sec);
+      };
+      if (liveL.length) section(stale ? 'Last seen live' : 'Live now', stale ? '' : `${liveL.length} more live`, !stale, liveL);
+      if (soon.length) section('Coming up', 'Next 6 hours', false, soon);
+      this.fitWatch();
+    },
+
+    fitWatch() {
+      const w = $('p-watch');
+      if (!w) return;
+      if (this.view !== 'watch') { w._needFit = true; return; }
+      w._needFit = false;
+      fitTiles(w._tiles || []);
+      const bug = w.querySelector('.bug');
+      if (bug) fitBug(bug);
+    },
+
+    moreLive() {
+      if (!snapshot) return { liveL: [], soon: [], stale: false };
+      const hidden = premiumHidden();
+      const cur = this.channelMode || !this.event ? null : this.event.id;
+      const ok = (e) => e.id !== cur && !!e.url && !(hidden && e.premium);
+      const liveL = favoritesFirst(snapshot.events.filter((e) => ok(e) && e.live && !e.ended).sort(phoneOrder)).slice(0, 12);
+      const now = Date.now();
+      const soon = snapshot.events
+        .filter((e) => ok(e) && !e.live && !e.ended && phoneTs(e.startTs) && e.startTs * 1000 > now - OVERDUE_MIN * 6e4 && e.startTs * 1000 - now <= 6 * 3600e3)
+        .sort((a, b) => a.startTs - b.startTs).slice(0, 4);
+      return { liveL, soon, stale: phoneStale() };
+    },
+
+    renderWatchHead() {
+      const w = $('p-watch'), head = w._head;
+      if (this.channelMode) {
+        const ch = this.channels[this.current] || {};
+        const sig = ['ch', ch.n, ch.l, this.channelGroup].join('|');
+        if (head._sig === sig) return;
+        head._sig = sig;
+        const box = el('div', 'wh-ch');
+        let logo;
+        if (ch.l && /^https:/i.test(ch.l)) {
+          logo = el('img', 'wh-logo');
+          logo.alt = '';
+          logo.referrerPolicy = 'no-referrer';
+          logo.onerror = () => logo.replaceWith(chLogoBox('wh-logo', ch.n));
+          logo.src = ch.l;
+        } else logo = chLogoBox('wh-logo', ch.n);
+        const tx = el('div', 'wh-tx');
+        const m = el('p', 'wh-meta');
+        const lv = el('span', 'lv');
+        lv.append(el('i'), 'LIVE TV');
+        m.append(lv);
+        if (this.channelGroup) m.append(' · ' + this.channelGroup);
+        tx.append(el('h1', 'wh-title', ch.n || 'Live TV'), m);
+        box.append(logo, tx);
+        head.replaceChildren(box);
+        return;
+      }
+      const e = byId(this.event.id) || this.event;
+      const sig = [bugSig(e), meta.games.size || 0, rankOf(e), this.embedMode, innerWidth > 340, !e.live && !e.ended ? startParts(e.startTs).kick : ''].join('|'); // (In 5 min -> Starting -> Due)
+      if (head._sig === sig) return;
+      head._sig = sig;
+      const bug = bugEl(e);
+      if (innerWidth > 340) bug.classList.add('xl');
+      const kids = [bug, el('h1', 'wh-title', e.away ? `${e.home} vs ${e.away}` : e.home), this.metaLine(e)];
+      if (this.embedMode) {
+        const n = el('p', 'wh-note');
+        n.append(icon(I.info), el('span', null, 'Site player · it may show ads. Tap the video if it doesn’t start.'));
+        kids.push(n);
+      }
+      head.replaceChildren(...kids);
+      if (this.view === 'watch') fitBug(bug);
+    },
+
+    /** "● LIVE · 3rd quarter · NFL · 🔥 #1 most watched", "Starts 9:38 PM · NHL", "Due Sun 11:00 PM · NFL", "Final · NFL". */
+    metaLine(e) {
+      const p = el('p', 'wh-meta');
+      const parts = [];
+      if (e.ended) parts.push('Final');
+      else if (e.live && phoneStale()) parts.push(`Last seen ${clockTime(snapshotAt())}`);
+      else if (e.live) {
+        const lv = el('span', 'lv');
+        lv.append(el('i'), 'LIVE');
+        parts.push(lv);
+        const pt = periodText(e);
+        if (pt) parts.push(pt.brk ? el('span', 'brk', pt.text) : pt.text);
+      } else {
+        parts.push(startLine(e.startTs, true));
+      }
+      const lg = leagueLabel(e.league) || catName(e);
+      if (lg) parts.push(lg);
+      const rk = rankOf(e);
+      if (rk) {
+        const h = el('span', 'hot');
+        h.append(icon(I.flame), `#${rk} most watched`);
+        parts.push(h);
+      }
+      parts.forEach((x, i) => { if (i) p.append(' · '); p.append(x); });
+      return p;
+    },
+
+    pillDefs() {
+      const out = [];
+      if (this.channelMode) {
+        if (this.channels.length > 1) {
+          out.push({ key: 'prev', icon: 'prev', label: 'Previous', fs: true, fn: () => this.tuneTo(this.current - 1) });
+          out.push({ key: 'next', icon: 'next', label: 'Next', fs: true, after: true, fn: () => this.tuneTo(this.current + 1) });
+        }
+      } else if (this.event) {
+        const e = byId(this.event.id) || this.event;
+        const s = this.servers[this.current];
+        let label = s ? s.name : 'Server';
+        if (s && this.embedMode) label += ' · site player';
+        const spin = this.root.classList.contains('connecting');
+        out.push({ key: 'server', icon: s && s.premium ? 'star' : 'server', label, gold: !!(s && s.premium), spin, caret: true, fs: true, fn: () => psheet.open('servers') });
+        if (cast.enabled() && !e.ended) out.push({ key: 'cast', icon: 'tv', label: 'Send to TV', fs: true, fn: () => psheet.open('cast') });
+        const starred = favorites.matches(e);
+        out.push({ key: 'star', icon: starred ? 'star' : 'starO', label: starred ? 'Starred' : 'Star', gold: starred, fn: () => psheet.open('star') });
+        if (this.moreLive().liveL.length) out.push({ key: 'more', icon: 'caretUp', label: 'More live', fs: true, fsOnly: true, after: true, fn: () => this.trayOpen() });
+      }
+      if (this.pipSupported()) out.push({ key: 'pip', icon: 'pip', label: 'Picture in picture', fn: () => this.enterPip() });
+      return out;
+    },
+    pillEl(d) {
+      const b = el('button', 'pp' + (d.gold ? ' gold' : ''));
+      b.type = 'button';
+      b.dataset.k = d.key;
+      const ic = d.spin ? el('i', 'spin') : icon(I[d.icon]);
+      const tx = el('span', null, d.label);
+      if (d.after) b.append(tx, ic); else b.append(ic, tx);
+      if (d.caret) { const c = icon(I.caret); c.setAttribute('class', 'caret'); b.appendChild(c); }
+      if (d.key === 'more') b.classList.add('more');
+      if (d.key === 'server') b.setAttribute('aria-label', `Server: ${d.label}. Change server`);
+      b.onclick = d.fn;
+      return b;
+    },
+    renderPills() {
+      if (!this.yt || !this.open) return;
+      const w = $('p-watch'), box = w && w._pills, row = $('p-fsrow');
+      const defs = this.pillDefs();
+      const sig = JSON.stringify(defs.map((d) => [d.key, d.label, d.icon, !!d.gold, !!d.spin]));
+      const put = (host, list) => {
+        if (!host || host._sig === sig) return;
+        host._sig = sig;
+        const a = document.activeElement;
+        const fk = a && host.contains(a) ? a.dataset.k : null;
+        host.replaceChildren(...list.map((d) => this.pillEl(d)));
+        if (fk) { const n = host.querySelector(`[data-k="${fk}"]`); if (n) n.focus({ preventScroll: true }); }
+      };
+      put(box, defs.filter((d) => !d.fsOnly));
+      if (box) pillEdges(box);
+      put(row, defs.filter((d) => d.fs));
+    },
+
+    renderChannelList() {
+      const w = $('p-watch');
+      const list = this.channels;
+      if (w._chList !== list || w._chAllOn !== w._chAll) {
+        w._chList = list;
+        w._chAllOn = w._chAll;
+        w._chRows = [];
+        w._more.replaceChildren();
+        const g = this.channelGroup || '';
+        const title = g === RECENT_GROUP ? 'Recently watched' : g && !/^Search:/.test(g) ? `More in ${g}` : 'Channels';
+        const sec = el('section', 'row p-row');
+        sec.setAttribute('aria-label', title);
+        const head = el('div', 'row-head');
+        head.append(el('h2', 'row-title', title), el('span', 'row-sub', `${list.length} channel${list.length === 1 ? '' : 's'}`));
+        const box = el('div', 'p-chlist');
+        const n = w._chAll ? list.length : Math.min(60, list.length);
+        for (let i = 0; i < n; i++) {
+          const c = list[i];
+          const b = el('button', 'p-chrow');
+          b.type = 'button';
+          let logo;
+          if (c.l && /^https:/i.test(c.l)) {
+            logo = el('img', 'lg');
+            logo.alt = '';
+            logo.loading = 'lazy';
+            logo.referrerPolicy = 'no-referrer';
+            logo.onerror = () => logo.replaceWith(chLogoBox('lg', c.n));
+            logo.src = c.l;
+          } else logo = chLogoBox('lg', c.n);
+          b.append(logo, el('span', 'nm', c.n), el('span', 'tag', 'Playing'));
+          b.onclick = () => { guardTaps(500); const tune = i !== this.current; if (tune) this.tuneTo(i); this.watchTop(tune); };
+          box.appendChild(b);
+          w._chRows.push(b);
+        }
+        sec.append(head, box);
+        if (n < list.length) {
+          const all = el('button', 'p-chmore', `Show all ${list.length}`);
+          all.type = 'button';
+          all.onclick = () => { w._chAll = true; this.renderChannelList(); };
+          sec.appendChild(all);
+        }
+        w._more.appendChild(sec);
+      }
+      w._chRows.forEach((b, i) => { b.classList.toggle('on', i === this.current); if (i === this.current) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
+    },
+
+    /** updateHud / renderServers on a phone: the sideways title line, the mini bar, pills, an open server sheet. */
+    renderYt() {
+      if (!this.yt || !this.open) return;
+      let subText = '';
+      if (this.channelMode) {
+        subText = this.channelGroup || 'Live TV';
+        const ch = this.channels[this.current];
+        if (ch && $('p-backdrop')._for !== ch.u) this.paintBackdrop();
+      } else if (this.event) {
+        const e = byId(this.event.id) || this.event;
+        const parts = [];
+        const sc = scoreOf(e);
+        if (sc && (e.live || e.ended)) parts.push(`${sc.home}–${sc.away}`);
+        if (e.ended) parts.push('FINAL');
+        else if (e.live) { const pv = periodView(e); if (pv.main) parts.push(pv.main + (/^(QTR|PER|INN)$/.test(pv.unit) ? ' ' + pv.unit : '')); }
+        else parts.push(startLine(e.startTs));
+        const lg = leagueLabel(e.league) || catName(e);
+        if (lg) parts.push(lg);
+        subText = parts.join(' · ');
+      }
+      const sub = $('p-sub');
+      if (sub.textContent !== subText) sub.textContent = subText;
+      if (psheet.kind === 'servers' && psheet.isOpen()) psheet.render(true);
+      this.refreshWatch();
+      this.updateMediaSession();
+      this.syncState();
+    },
+
+    /** "Bills vs Raiders"; the codes the score bug uses ("BMN vs WW") when the names don't fit the docked bar. */
+    miniTeams(e) {
+      const full = `${nickOf(e.home, e)} vs ${nickOf(e.away, e)}`;
+      const key = full + '|' + innerWidth;
+      if (this.mfit && this.mfit.k === key) return this.mfit.v;
+      const avail = innerWidth - 132 - 92; // the bar: the thumbnail, then play and close
+      let fits;
+      try {
+        const c = this.mctx || (this.mctx = document.createElement('canvas').getContext('2d'));
+        c.font = `600 14px ${getComputedStyle($('p-mtitle')).fontFamily}`;
+        fits = c.measureText(full).width <= avail;
+      } catch { fits = full.length <= 22; }
+      let v = full;
+      if (!fits) { const lk = looks(e); v = `${lk.home.code} vs ${lk.away.code}`; }
+      this.mfit = { k: key, v };
+      return v;
+    },
+
+    renderMiniText() {
+      const t = $('p-mtitle'), s = $('p-msub');
+      if (!t || !this.yt) return;
+      const r = this.root;
+      let title = '', text = '', liveDot = false;
+      const e = !this.channelMode && this.event ? byId(this.event.id) || this.event : null;
+      if (this.channelMode) { const ch = this.channels[this.current]; title = ch ? ch.n : 'Live TV'; }
+      else if (e) title = e.away ? this.miniTeams(e) : e.home;
+      if (r.classList.contains('dead')) text = 'Not playing';
+      else if (r.classList.contains('connecting')) text = 'Connecting…';
+      else if (r.classList.contains('buffering')) text = 'Buffering…';
+      else if (r.classList.contains('paused')) text = 'Paused';
+      else if (this.embedMode) text = 'Site player';
+      else if (this.channelMode) text = 'LIVE TV' + (this.channelGroup ? ' · ' + this.channelGroup : '');
+      else if (e) {
+        const sc = scoreOf(e);
+        if (e.ended) text = 'Final' + (sc ? ` · ${sc.home}–${sc.away}` : '');
+        else if (e.live) {
+          liveDot = !phoneStale();
+          const pv = periodView(e);
+          text = [sc ? `${sc.home}–${sc.away}` : '', pv.main].filter(Boolean).join(' · ');
+        } else text = startLine(e.startTs);
+      }
+      const muted = r.classList.contains('muted');
+      const sig = [title, text, liveDot, muted, innerWidth].join('|');
+      if (s._sig === sig) return;
+      s._sig = sig;
+      t.textContent = title;
+      const kids = [];
+      if (muted) kids.push(icon(I.muted));
+      if (liveDot) { kids.push(el('span', 'lv', 'LIVE')); if (text) kids.push(' · ' + text); } else kids.push(text);
+      s.replaceChildren(...kids);
+    },
+
+    // --- the platform: picture in picture, the native player, wake lock, Media Session -------------
+
+    pipSupported() {
+      const v = this.video;
+      // WebKit bug 303885: picture in picture is broken in an installed iPhone app (the mini-player stands in).
+      if (pwa.standalone() && pwa.ios()) return false;
+      if (typeof v.webkitSupportsPresentationMode === 'function') return v.webkitSupportsPresentationMode('picture-in-picture');
+      return !!document.pictureInPictureEnabled && !v.disablePictureInPicture;
+    },
+    async enterPip() {
+      const v = this.video;
+      try {
+        if (typeof v.webkitSupportsPresentationMode === 'function' && v.webkitSupportsPresentationMode('picture-in-picture')) v.webkitSetPresentationMode('picture-in-picture');
+        else await v.requestPictureInPicture();
+      } catch {
+        this.toast('Picture in picture isn’t available here');
+      }
+    },
+    nativeSupported() { return typeof this.video.webkitEnterFullscreen === 'function' && !document.fullscreenEnabled; },
+    enterNative() {
+      try { this.video.webkitEnterFullscreen(); } catch { this.toast('The iPhone player isn’t available here'); }
+    },
+
+    requestWake() {
+      if (!this.yt || !navigator.wakeLock || this.wake || this.wakePending || document.hidden) return;
+      this.wakePending = true;
+      navigator.wakeLock.request('screen').then((w) => {
+        this.wakePending = false;
+        if (!this.open || this.userPaused) { w.release().catch(() => {}); return; }
+        this.wake = w;
+        w.addEventListener('release', () => { if (this.wake === w) this.wake = null; });
+      }).catch(() => { this.wakePending = false; });
+    },
+    releaseWake() {
+      const w = this.wake;
+      this.wake = null;
+      if (w) w.release().catch(() => {});
+    },
+
+    setupMediaSession() {
+      const ms = navigator.mediaSession;
+      if (!ms) return;
+      const set = (a, fn) => { try { ms.setActionHandler(a, fn); } catch { /* unsupported action */ } };
+      set('play', () => { if (this.open && this.video.paused) this.togglePause(); });
+      set('pause', () => { if (this.open && !this.video.paused) this.togglePause(); });
+      set('stop', () => this.close());
+      const ch = this.channelMode && this.channels.length > 1;
+      set('previoustrack', ch ? () => this.tuneTo(this.current - 1) : null);
+      set('nexttrack', ch ? () => this.tuneTo(this.current + 1) : null);
+      this.msSig = '';
+      this.updateMediaSession();
+    },
+    updateMediaSession() {
+      const ms = navigator.mediaSession;
+      if (!ms || !window.MediaMetadata || !this.open) return;
+      let title = '', artist = '';
+      if (this.channelMode) {
+        const ch = this.channels[this.current];
+        title = ch ? ch.n : 'Live TV';
+        artist = 'Live TV' + (this.channelGroup ? ' · ' + this.channelGroup : '');
+      } else if (this.event) {
+        const e = byId(this.event.id) || this.event;
+        const sc = scoreOf(e);
+        title = e.away ? `${nickOf(e.home, e)} ${sc && (e.live || e.ended) ? `${sc.home}–${sc.away}` : 'vs'} ${nickOf(e.away, e)}` : e.home;
+        artist = [leagueLabel(e.league) || catName(e), e.ended ? 'Final' : e.live ? 'Live' : ''].filter(Boolean).join(' · ');
+      }
+      const sig = title + '|' + artist;
+      if (sig === this.msSig) return;
+      this.msSig = sig;
+      try { ms.metadata = new MediaMetadata({ title, artist, album: 'Styx Sports', artwork: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }] }); } catch { /* old browser */ }
+    },
+    clearMediaSession() {
+      const ms = navigator.mediaSession;
+      if (!ms) return;
+      try { ms.metadata = null; } catch { /* old browser */ }
+      for (const a of ['play', 'pause', 'stop', 'previoustrack', 'nexttrack']) { try { ms.setActionHandler(a, null); } catch { /* unsupported */ } }
+      this.msSig = '';
+    },
+  });
+
+  /**
+   * The player's own bottom sheet (#p-sheet, inside #player: it turns with the rotated full screen
+   * and works sideways, where the phone #menu sheet's styles do not apply). Back closes it first.
+   */
+  const psheet = {
+    entry: false, kind: null, from: null,
+
+    isOpen() { const s = $('p-sheet'); return !!s && !s.classList.contains('hidden'); },
+
+    open(kind, from) {
+      const s = $('p-sheet');
+      if (!s || !player.open || !player.yt) return;
+      guardTaps(350); // a double tap on the gear / a pill: the second tap is not on the scrim (or a row)
+      const was = this.isOpen();
+      this.kind = kind;
+      this.from = from || null;
+      this.render();
+      if (!was) {
+        s.style.transform = '';
+        s.classList.remove('hidden');
+        $('p-sscrim').classList.remove('hidden');
+        if (!this.entry) { this.entry = true; history.pushState({ psheet: true }, ''); }
+      }
+      s.scrollTop = 0;
+      player.showHud();
+      const f = s.querySelector('.sh-group button, .sh-cancel');
+      if (f) f.focus({ preventScroll: true });
+    },
+
+    hide() {
+      const s = $('p-sheet');
+      if (!s) return;
+      s.classList.add('hidden');
+      $('p-sscrim').classList.add('hidden');
+      this.kind = null;
+    },
+
+    close(fromHistory) {
+      const was = this.isOpen();
+      if (was && fromHistory !== true) guardTaps(350); // the page under the sheet: a second tap presses nothing
+      this.hide();
+      if (this.entry) { this.entry = false; if (fromHistory !== true) popOwnEntries(1); }
+      if (was && player.open) player.showHud();
+    },
+
+    /** Pair / Remove a TV live in the phone #menu sheet (its keyboard lift): it takes over this entry. */
+    handOff(fn) {
+      this.hide();
+      if (this.entry) { this.entry = false; history.replaceState({ sheet: true }, ''); sheetEntry = true; }
+      fn();
+    },
+
+    render(keep) {
+      const s = $('p-sheet');
+      const top = s.scrollTop;
+      s.replaceChildren(el('div', 'grab'));
+      const k = this.kind;
+      if (k === 'settings') this.settings(s);
+      else if (k === 'servers') this.servers(s);
+      else if (k === 'cast') this.cast(s);
+      else if (k === 'star') this.star(s);
+      else if (k === 'quality' || k === 'audio' || k === 'captions') this.tracks(s, k);
+      if (keep) s.scrollTop = top;
+    },
+
+    head(s, title, back) {
+      const h = el('div', 'sh-head');
+      if (back) {
+        const b = el('button', 'sh-back');
+        b.type = 'button';
+        b.setAttribute('aria-label', 'Back');
+        b.appendChild(icon(I.chevL));
+        b.onclick = () => this.open(back);
+        h.appendChild(b);
+      }
+      h.appendChild(el('div', 'menu-title', title));
+      s.appendChild(h);
+      s.setAttribute('aria-label', title);
+    },
+    group(s) { const g = el('div', 'sh-group'); s.appendChild(g); return g; },
+    row(g, mk, label, sub, o = {}) {
+      const b = el('button', o.cls || null);
+      b.type = 'button';
+      const ic = el('span', 'sh-ic' + (o.icCls ? ' ' + o.icCls : ''));
+      if (mk) ic.appendChild(icon(mk));
+      const lbl = el('span', 'sh-lbl' + (o.lblCls ? ' ' + o.lblCls : ''), label);
+      if (sub) lbl.appendChild(el('small', o.subCls || null, sub));
+      b.append(ic, lbl);
+      if (o.aux) b.appendChild(el('span', 'sh-aux' + (o.auxCls ? ' ' + o.auxCls : ''), o.aux));
+      if (o.chev) { const c = icon(I.chevR); c.setAttribute('class', 'sh-chev'); b.appendChild(c); }
+      if (o.sw != null) { b.setAttribute('role', 'switch'); b.setAttribute('aria-checked', String(!!o.sw)); b.appendChild(el('span', 'sh-switch')); }
+      if (o.fn) b.onclick = () => o.fn(b);
+      g.appendChild(b);
+      return b;
+    },
+    cancel(s) {
+      const c = el('button', 'sh-cancel', 'Cancel');
+      c.type = 'button';
+      c.onclick = () => this.close();
+      s.appendChild(c);
+    },
+
+    settings(s) {
+      const p = player;
+      this.head(s, 'Settings');
+      const g = this.group(s);
+      if (!p.channelMode && p.servers.length) {
+        const cur = p.servers[p.current];
+        this.row(g, I.server, 'Server', null, { aux: cur ? cur.name : '', auxCls: cur && cur.premium ? 'gold' : '', chev: true, fn: () => this.open('servers', 'settings') });
+      }
+      const h = p.hls;
+      if (h && h.levels && h.levels.length > 1) {
+        const lv = h.levels[!h.autoLevelEnabled && h.manualLevel >= 0 ? h.manualLevel : h.currentLevel];
+        const q = lv ? (lv.height ? `${lv.height}p` : `${Math.round((lv.bitrate || 0) / 1000)} kbps`) : '';
+        this.row(g, I.sliders, 'Quality', null, { aux: h.autoLevelEnabled ? `Auto${q ? ` (${q})` : ''}` : q, chev: true, fn: () => this.open('quality', 'settings') });
+      }
+      if (h && h.audioTracks && h.audioTracks.length > 1) {
+        const t = h.audioTracks[h.audioTrack];
+        this.row(g, I.audio, 'Audio', null, { aux: t ? t.name || t.lang || '' : '', chev: true, fn: () => this.open('audio', 'settings') });
+      }
+      if (h && h.subtitleTracks && h.subtitleTracks.length) {
+        const t = h.subtitleTracks[h.subtitleTrack];
+        this.row(g, I.cc, 'Captions', null, { aux: t ? t.name || t.lang || 'On' : 'Off', chev: true, fn: () => this.open('captions', 'settings') });
+      }
+      const e = !p.channelMode && p.event ? byId(p.event.id) || p.event : null;
+      if (cast.enabled() && e && !e.ended) this.row(g, I.tv, 'Send to TV', null, { chev: true, fn: () => this.open('cast', 'settings') });
+      if (p.pipSupported()) this.row(g, I.pip, 'Picture in picture', null, { fn: () => { this.close(); p.enterPip(); } });
+      if (p.nativeSupported()) this.row(g, I.phone, 'Watch in the iPhone player', 'Native full screen', { fn: () => { this.close(); p.enterNative(); } });
+      if (p.view === 'fs' || p.view === 'fsrot') {
+        this.row(g, I.zoom, 'Zoom to fill', null, { sw: p.root.classList.contains('fill'), fn: () => { p.setFill(!p.root.classList.contains('fill')); this.render(true); } });
+      }
+      if (!g.children.length) g.remove();
+      this.row(this.group(s), I.close, 'Close player', null, { fn: () => p.close() });
+      this.cancel(s);
+    },
+
+    /** YouTube's quality sheet, for servers. */
+    servers(s) {
+      const p = player;
+      this.head(s, 'Server', this.from === 'settings' ? 'settings' : null);
+      const g = this.group(s);
+      const r = p.root;
+      const playing = p.everPlayed && !r.classList.contains('connecting') && !r.classList.contains('dead');
+      p.servers.forEach((sv, i) => {
+        const cur = i === p.current;
+        const emb = p.embeddable && p.embeddable[i];
+        const failed = (p.failed.has(i) || (p.notResp.has(i) && !cur)) && !emb;
+        let sub = null, subCls = null;
+        if (cur && playing) { sub = p.embedMode ? 'Playing · site player' : 'Playing'; subCls = 'ok'; }
+        else if (cur && !r.classList.contains('dead')) sub = 'Connecting…';
+        else if (failed) sub = 'Not responding';
+        else if (emb) sub = 'Site player · may show ads';
+        const b = this.row(g, cur ? I.tick : sv.premium ? I.star : null, sv.name, sub, {
+          subCls, icCls: cur ? 'ok' : sv.premium ? 'gold' : '', lblCls: sv.premium ? 'gold' : '',
+          aux: sv.premium ? 'Premium' : null, auxCls: 'gold', cls: failed ? 'dim' : null,
+          fn: () => {
+            this.close();
+            if (cur && playing) return;
+            p.pickServer(i);
+          },
+        });
+        if (cur) b.setAttribute('aria-current', 'true');
+      });
+      s.appendChild(el('p', 'sh-note', 'If a server stutters, Styx moves to a steadier one by itself.'));
+      this.cancel(s);
+    },
+
+    cast(s) {
+      const e = player.event;
+      this.head(s, 'Send to TV', this.from === 'settings' ? 'settings' : null);
+      if (!e) { this.cancel(s); return; }
+      const g = this.group(s);
+      const done = () => this.close();
+      for (const tv of cast.tvs) g.appendChild(tvRow(tv, e, done));
+      if (isPhone()) {
+        const pair = sheetButton(I.plus, cast.tvs.length ? 'Pair another TV…' : 'Pair a TV…');
+        pair.onclick = () => this.handOff(() => showPhonePairForm(e));
+        g.appendChild(pair);
+        if (cast.tvs.length) {
+          const rm = sheetButton(I.minus, 'Remove a TV…');
+          rm.onclick = () => this.handOff(() => showPhoneRemove());
+          g.appendChild(rm);
+        }
+      } else s.appendChild(el('p', 'sh-note', 'Turn your phone upright to pair a new TV.'));
+      if (!g.children.length) g.remove();
+      this.cancel(s);
+      // The list is the last known state: a TV switched on (or off) since turns its row while it is up.
+      cast.refresh().then(() => {
+        if (!g.isConnected) return;
+        for (const b of g.querySelectorAll('button[data-tv]')) {
+          const tv = cast.tvs.find((v) => v.id === b.dataset.tv);
+          if (!tv || !tv.online === b.classList.contains('off')) continue;
+          const had = document.activeElement === b;
+          const nb = tvRow(tv, e, done);
+          b.replaceWith(nb);
+          if (had) nb.focus({ preventScroll: true });
+        }
+      });
+    },
+
+    star(s) {
+      const e = byId(player.event.id) || player.event;
+      this.head(s, 'Favorites');
+      const g = this.group(s);
+      const league = e.league || catName(e) || '';
+      const star = (on, label, fn) => {
+        const b = sheetButton(on ? I.star : I.starO, `${on ? 'Unstar' : 'Star'} ${label}`);
+        b.querySelector('.sh-ic').classList.add('gold');
+        b.onclick = () => {
+          fn();
+          this.close();
+          lastLayoutKey = '';
+          render();
+          player.toast(on ? `Unstarred ${label}` : `Starred ${label}`);
+          player.renderPills();
+        };
+        g.appendChild(b);
+      };
+      if (e.home) star(favorites.teams.has(e.home.toLowerCase()), e.home, () => favorites.toggleTeam(e.home));
+      if (e.away) star(favorites.teams.has(e.away.toLowerCase()), e.away, () => favorites.toggleTeam(e.away));
+      if (league) star(favorites.leagues.has(league.toLowerCase()), leagueLabel(league), () => favorites.toggleLeague(league));
+      this.cancel(s);
+    },
+
+    /** Quality / audio / captions, when the stream offers a choice (hls.js only). */
+    tracks(s, kind) {
+      const h = player.hls;
+      this.head(s, kind === 'quality' ? 'Quality' : kind === 'audio' ? 'Audio' : 'Captions', 'settings');
+      const g = this.group(s);
+      const items = [];
+      const name = (t, i) => t.name || t.lang || `Track ${i + 1}`;
+      if (h && kind === 'quality') {
+        const lab = (l) => (l.height ? `${l.height}p` : `${Math.round((l.bitrate || 0) / 1000)} kbps`);
+        const auto = h.autoLevelEnabled;
+        const cl = h.levels[h.currentLevel];
+        const picked = !auto && h.manualLevel >= 0 ? h.manualLevel : h.currentLevel;
+        items.push({ label: 'Auto', sub: auto && cl ? lab(cl) : null, on: auto, pick: () => { h.nextLevel = -1; } });
+        h.levels.map((l, i) => [l, i]).sort((a, b) => (b[0].height || 0) - (a[0].height || 0) || (b[0].bitrate || 0) - (a[0].bitrate || 0))
+          .forEach(([l, i]) => items.push({ label: lab(l), on: !auto && picked === i, pick: () => { h.nextLevel = i; } }));
+      } else if (h && kind === 'audio') {
+        h.audioTracks.forEach((t, i) => items.push({ label: name(t, i), on: h.audioTrack === i, pick: () => { h.audioTrack = i; } }));
+      } else if (h) {
+        items.push({ label: 'Off', on: h.subtitleTrack < 0, pick: () => { h.subtitleTrack = -1; } });
+        h.subtitleTracks.forEach((t, i) => items.push({ label: name(t, i), on: h.subtitleTrack === i, pick: () => { h.subtitleTrack = i; h.subtitleDisplay = true; } }));
+      }
+      for (const it of items) this.row(g, it.on ? I.tick : null, it.label, it.sub, { icCls: 'ok', fn: () => { try { it.pick(); } catch { /* gone */ } this.open('settings'); } });
+      if (!items.length) g.remove();
+      this.cancel(s);
+    },
+  };
+
+  /**
+   * Touches on the video (#p-gest, over the picture): tap shows / hides the controls, double tap
+   * seeks 10 s, swipe down minimises (or leaves the rotated full screen), swipe up goes full
+   * screen, two fingers pinch to fill. It reads player.video when used, so a self-heal swap needs
+   * nothing re-bound (the TV's video.onclick is bound to the first <video> only).
+   */
+  const gest = {
+    p: null, pts: new Map(), pinchS: null, lastTap: null, seek: null, fxTimer: null, arm: null,
+
+    reset() {
+      this.p = null;
+      this.arm = null;
+      this.pts.clear();
+      this.pinchS = null;
+      this.lastTap = null;
+      this.endSeek(true);
+    },
+
+    /**
+     * A press on a control over the picture (play, the chevron, the gear, the badge, full screen): on
+     * YouTube the whole player is the drag handle. Left alone it is the button's press; once it travels
+     * 10px mostly up or down it becomes the swipe (minimise, full screen, the tray) and presses nothing.
+     */
+    armCtl(ev) {
+      this.arm = null;
+      if (!player.yt || !player.open || player.view === 'mini' || player.embedMode || this.p || this.pts.size) return;
+      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+      if (tapGuarded(ev.clientX, ev.clientY)) return;
+      const pt = this.raw(ev), o = this.origin(), st = $('p-stage');
+      const lx = pt.x - o.x, ly = pt.y - o.y;
+      if (player.view === 'fs' && (ly < 24 || ly > st.offsetHeight - psbPx())) return; // iOS's own edges
+      const now = performance.now();
+      this.arm = { id: ev.pointerId, x0: pt.x, y0: pt.y, lx, ly, t0: now, s: [[now, pt.x, pt.y]] };
+    },
+    armMove(ev) {
+      const a = this.arm;
+      if (!a || ev.pointerId !== a.id) return;
+      const pt = this.raw(ev), now = performance.now();
+      a.s.push([now, pt.x, pt.y]);
+      while (a.s.length > 2 && now - a.s[0][0] > 80) a.s.shift();
+      const dx = pt.x - a.x0, dy = pt.y - a.y0;
+      if (Math.hypot(dx, dy) <= 10) return;
+      this.arm = null;
+      if (Math.abs(dy) > 1.2 * Math.abs(dx)) this.takeOver(a, dx, dy); // sideways stays the button's
+    },
+    /** A press that started on something else (a control, the scrubber) is now the vertical swipe. */
+    takeOver(a, dx, dy) {
+      if (this.p || this.pinchS) return;
+      this.p = { id: a.id, x0: a.x0, y0: a.y0, lx: a.lx, ly: a.ly, t0: a.t0, lock: 'v', dx, dy, s: a.s, ctl: true };
+      this.pts.set(a.id, { x: a.x0 + dx, y: a.y0 + dy });
+      try { $('p-gest').setPointerCapture(a.id); } catch { /* gone */ }
+      if (player.view === 'watch') player.dragFollow(Math.max(0, dy));
+    },
+    /** Content coordinates: the CSS-rotated full screen turns the screen's axes a quarter. */
+    raw(ev) { return player.view === 'fsrot' ? { x: ev.clientY, y: innerWidth - ev.clientX } : { x: ev.clientX, y: ev.clientY }; },
+    origin() {
+      if (player.view === 'fsrot') return { x: 0, y: 0 };
+      const r = $('p-stage').getBoundingClientRect();
+      return { x: r.left, y: r.top };
+    },
+
+    down(ev) {
+      if (!player.yt || !player.open || player.view === 'mini') return;
+      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+      if (tapGuarded(ev.clientX, ev.clientY) && !this.pts.size) { this.p = null; return; } // the second tap of the one that brought the video here
+      this.pts.set(ev.pointerId, this.raw(ev));
+      if (this.pts.size === 2) {
+        // A second finger: a pinch - never a tap or a swipe.
+        const [a, b] = [...this.pts.values()];
+        this.pinchS = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, scale: 1 };
+        if (this.p) { this.p = null; player.dragFollow(0, true); }
+        return;
+      }
+      if (this.pts.size > 2) return;
+      const pt = this.raw(ev), o = this.origin(), st = $('p-stage');
+      const lx = pt.x - o.x, ly = pt.y - o.y;
+      // Sideways: the edges belong to iOS (Notification Center at the top, the home indicator).
+      if (player.view === 'fs' && (ly < 24 || ly > st.offsetHeight - psbPx())) { this.p = null; return; }
+      const now = performance.now();
+      this.p = { id: ev.pointerId, x0: pt.x, y0: pt.y, lx, ly, t0: now, lock: null, dx: 0, dy: 0, s: [[now, pt.x, pt.y]] };
+      try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch { /* gone */ }
+    },
+
+    move(ev) {
+      if (this.pts.has(ev.pointerId)) this.pts.set(ev.pointerId, this.raw(ev));
+      if (this.pinchS) {
+        if (this.pts.size >= 2) { const [a, b] = [...this.pts.values()]; this.pinchS.scale = Math.hypot(a.x - b.x, a.y - b.y) / this.pinchS.d0; }
+        return;
+      }
+      const p = this.p;
+      if (!p || ev.pointerId !== p.id) return;
+      const pt = this.raw(ev), now = performance.now();
+      p.s.push([now, pt.x, pt.y]);
+      while (p.s.length > 2 && now - p.s[0][0] > 80) p.s.shift();
+      p.dx = pt.x - p.x0;
+      p.dy = pt.y - p.y0;
+      if (!p.lock && Math.hypot(p.dx, p.dy) > 10) p.lock = Math.abs(p.dy) > 1.2 * Math.abs(p.dx) ? 'v' : 'h';
+      if (p.lock === 'v' && player.view === 'watch') player.dragFollow(Math.max(0, p.dy));
+    },
+
+    up(ev) {
+      this.pts.delete(ev.pointerId);
+      if (this.pinchS) {
+        if (this.pts.size < 2) { const sc = this.pinchS.scale; this.pinchS = null; this.p = null; player.pinchEnd(sc); }
+        return;
+      }
+      const p = this.p;
+      if (!p || ev.pointerId !== p.id) return;
+      this.p = null;
+      if (p.ctl) swallowClick(); // (the button it started on is not pressed)
+      if (ev.type === 'pointercancel') { player.dragFollow(0, true); return; }
+      if (!p.lock) {
+        if (performance.now() - p.t0 < 500) this.tap(p.lx, p.ly, p.t0);
+        return;
+      }
+      if (p.lock !== 'v') return;
+      const a = p.s[0], b = p.s[p.s.length - 1];
+      const vy = b[0] > a[0] ? (b[2] - a[2]) / (b[0] - a[0]) : 0;
+      const down = p.dy >= 120 || (p.dy >= 30 && vy >= 0.6);
+      const upw = p.dy <= -60 || (p.dy <= -24 && vy <= -0.6);
+      const v = player.view;
+      if (v === 'watch') {
+        if (down) player.minimise(false);
+        else { player.dragFollow(0, true); if (upw) player.enterFs(); }
+      } else if (v === 'fsrot' || v === 'fs') {
+        if (down && player.trayClose()) return;
+        if (upw) player.trayOpen();
+        else if (down && v === 'fsrot') player.exitFs();
+        else if (down) player.minimise(false);
+      }
+    },
+
+    /** A tap (stage px; `t` when the finger went down). Toggles the controls at once; a quick second tap on the same side seeks. */
+    tap(x, y, t) {
+      const r = player.root;
+      if (player.trayClose()) return; // a tap above the tray closes it
+      const w = $('p-stage').offsetWidth || 1;
+      const side = x < 0.4 * w ? 'l' : x > 0.6 * w ? 'r' : 'c';
+      const can = player.everPlayed && !player.embedMode && !r.classList.contains('dead') && !r.classList.contains('connecting');
+      const s = this.seek;
+      if (s && t < s.until && can && side !== 'c') { this.addSeek(side, x, y); return; }
+      const lt = this.lastTap;
+      if (lt && t - lt.t <= 300 && Math.hypot(x - lt.x, y - lt.y) <= 48 && side === lt.side) {
+        this.lastTap = null;
+        if (side === 'c' || !can) return; // a double tap in the middle does nothing more
+        // The first tap's toggle is undone: the controls go back to how they were before it. Paused, they
+        // stay up (the play button is the way on, as on YouTube); playing, the seek shows on its own and
+        // controls that were up come back when it ends.
+        const paused = r.classList.contains('paused');
+        const wasUp = paused || !lt.reveal;
+        if (this.startSeek(side, x, y)) {
+          this.seek.restore = wasUp;
+          if (paused) player.showHud(); else player.hideHud();
+        } else if (wasUp) player.showHud(); // "Live only", "You're live": nothing to seek
+        else player.hideHud();
+        return;
+      }
+      this.lastTap = { t: performance.now(), x, y, side, reveal: r.classList.contains('idle') };
+      player.toggleControls();
+    },
+
+    /** True when it went into seek mode (false: nothing to seek - the arc only says why). */
+    startSeek(side, x, y) {
+      const L = live.read();
+      if (!L.ok) return false;
+      if (!L.vod && !L.dvr && side === 'l') {
+        this.fx('l', 'Live only', false, x, y);
+        const id = player.channelMode ? 'ch:' + player.current : player.event ? player.event.id : '';
+        if (player.rewindToldFor !== id) { player.rewindToldFor = id; player.toast('Rewind isn’t available on this stream'); }
+        return false;
+      }
+      if (!L.vod && side === 'r' && L.atLive) { this.fx('r', 'You’re live', false, x, y); return false; }
+      const v = player.video;
+      this.seek = { side, n: 0, base: v.currentTime, target: v.currentTime, until: 0, commitTimer: null, endTimer: null, restore: false };
+      this.addSeek(side, x, y);
+      return true;
+    },
+
+    addSeek(side, x, y) {
+      const s = this.seek, L = live.read();
+      if (!s || !L.ok) return;
+      if (side !== s.side) { s.base = s.target; s.n = 0; s.side = side; }
+      s.n++;
+      const lo = L.vod ? 0 : L.start + 1, hi = L.vod ? Math.max(0, L.dur - 0.5) : L.edge;
+      const want = s.base + (side === 'l' ? -1 : 1) * SEEK_STEP * s.n;
+      s.target = clampN(want, lo, hi);
+      let label = `${SEEK_STEP * s.n} seconds`;
+      if (side === 'l' && want < lo) label = 'Start of replay';
+      else if (side === 'r' && !L.vod && want >= hi) label = 'Live';
+      player.seekTarget = s.target;
+      player.root.classList.add('seeking');
+      player.tick();
+      this.fx(side, label, true, x, y);
+      s.until = performance.now() + 700;
+      clearTimeout(s.commitTimer);
+      s.commitTimer = setTimeout(() => this.commit(), 300);
+      clearTimeout(s.endTimer);
+      s.endTimer = setTimeout(() => this.endSeek(), 700);
+    },
+
+    /** One seek per burst, 300 ms after its last tap. */
+    commit() {
+      const s = this.seek;
+      if (!s) return;
+      player.seekTarget = null;
+      const L = live.read();
+      if (L.ok && !L.vod && s.side === 'r' && s.target >= L.edge - 0.5) player.jumpToLive(false);
+      else player.seekTo(s.target);
+      player.seekTarget = s.target; // the bar stays put until the burst ends
+    },
+
+    endSeek(now) {
+      const s = this.seek;
+      if (s) { clearTimeout(s.commitTimer); clearTimeout(s.endTimer); }
+      this.seek = null;
+      player.seekTarget = null;
+      player.root.classList.remove('seeking');
+      const box = $('p-seekfx');
+      clearTimeout(this.fxTimer);
+      if (now) { box.classList.remove('on'); box.replaceChildren(); }
+      else this.fxTimer = setTimeout(() => box.classList.remove('on'), 0);
+      if (player.open && player.yt) {
+        player.tick();
+        // The controls were up before the double tap (or it is paused): back up once the seek is done.
+        if (!now && s && (s.restore || player.root.classList.contains('paused')) && player.view !== 'mini') player.showHud();
+      }
+    },
+
+    /** The arc on the tapped side, chevrons, a ripple and "10 seconds". */
+    fx(side, label, animate, x, y) {
+      const box = $('p-seekfx');
+      const other = box.querySelector(`.arc:not(.${side})`);
+      if (other) other.remove();
+      let arc = box.querySelector('.arc.' + side);
+      if (!arc) {
+        arc = el('div', 'arc ' + side);
+        const ch = el('div', 'chev');
+        for (let i = 0; i < 3; i++) ch.appendChild(icon(I.tri));
+        arc.append(ch, el('div', 'lbl'));
+        box.appendChild(arc);
+      }
+      arc.querySelector('.lbl').textContent = label;
+      arc.classList.toggle('anim', animate);
+      if (!reducedMotion()) {
+        const rp = el('i', 'ripple');
+        const ax = side === 'l' ? 0 : box.offsetWidth - arc.offsetWidth;
+        rp.style.left = (x - ax) + 'px';
+        rp.style.top = y + 'px';
+        arc.appendChild(rp);
+        setTimeout(() => rp.remove(), 500);
+      }
+      box.classList.add('on');
+      clearTimeout(this.fxTimer);
+      if (!animate) this.fxTimer = setTimeout(() => box.classList.remove('on'), 700);
+    },
+  };
+
+  /** The docked mini-player: tap or swipe up to open it again, swipe down or sideways to close. */
+  const miniGest = {
+    p: null,
+    down(ev) {
+      if (!player.yt || player.view !== 'mini' || !player.open || tapGuarded(ev.clientX, ev.clientY)) return;
+      if (ev.target.closest && ev.target.closest('button')) return;
+      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+      const now = performance.now();
+      this.p = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, t0: now, lock: null, dx: 0, dy: 0, s: [[now, ev.clientX, ev.clientY]] };
+      try { player.root.setPointerCapture(ev.pointerId); } catch { /* gone */ }
+    },
+    move(ev) {
+      const p = this.p;
+      if (!p || ev.pointerId !== p.id) return;
+      const now = performance.now();
+      p.s.push([now, ev.clientX, ev.clientY]);
+      while (p.s.length > 2 && now - p.s[0][0] > 80) p.s.shift();
+      p.dx = ev.clientX - p.x0;
+      p.dy = ev.clientY - p.y0;
+      if (!p.lock && Math.hypot(p.dx, p.dy) > 8) p.lock = Math.abs(p.dy) > Math.abs(p.dx) ? 'v' : 'h';
+      const r = player.root;
+      if (!p.lock) return;
+      r.style.transition = 'none';
+      if (p.lock === 'v') r.style.transform = `translateY(${p.dy < 0 ? Math.max(-40, p.dy * 0.5) : p.dy}px)`;
+      else { r.style.transform = `translateX(${p.dx}px)`; r.style.opacity = String(Math.max(0.2, 1 - Math.abs(p.dx) / (r.offsetWidth || 1))); }
+    },
+    up(ev) {
+      const p = this.p;
+      if (!p || ev.pointerId !== p.id) return;
+      this.p = null;
+      const r = player.root;
+      const spring = () => {
+        r.style.transition = reducedMotion() ? 'none' : 'transform 200ms cubic-bezier(.2, .8, .2, 1), opacity 200ms ease';
+        r.style.transform = '';
+        r.style.opacity = '';
+      };
+      if (ev.type === 'pointercancel' || !player.open) return spring();
+      if (!p.lock) {
+        if (performance.now() - p.t0 < 500) { swallowClick(); player.expand(); }
+        return;
+      }
+      const a = p.s[0], b = p.s[p.s.length - 1], dt = Math.max(1, b[0] - a[0]);
+      const vx = (b[1] - a[1]) / dt, vy = (b[2] - a[2]) / dt;
+      if (p.lock === 'v') {
+        if (p.dy <= -40 || vy <= -0.5) { swallowClick(); player.expand(); }
+        else if (p.dy >= 40 || vy >= 0.5) player.close(false, 'down');
+        else spring();
+      } else if (Math.abs(p.dx) >= 0.35 * r.offsetWidth || Math.abs(vx) >= 0.6) player.close(false, p.dx < 0 ? 'left' : 'right');
+      else spring();
+    },
   };
 
   function playable(stream) {
@@ -4177,6 +6448,7 @@
   $('p-cast').onclick = (ev) => {
     const e = player.event;
     if (!e) return;
+    if (player.yt) return psheet.open('cast');
     if (isPhone()) return showPhoneCastSheet(e, ev.currentTarget);
     const menu = $('menu');
     floatingMenu(menu);
@@ -4191,35 +6463,208 @@
   $('p-unmute').onclick = () => { player.video.muted = false; $('p-unmute').classList.add('hidden'); };
   // On a touch screen the first tap on a hidden HUD only brings it back; a mouse click always
   // toggles pause (the HUD reappears on any pointer movement there anyway).
+  // (The phone player has its own gesture surface over the video: these are the TV's.)
   let tapRevealedHud = false;
   player.video.onclick = () => {
+    if (player.yt) return;
     if (tapRevealedHud) { tapRevealedHud = false; return; }
     if ($('p-panel').classList.contains('hidden')) player.togglePause();
   };
-  player.video.ondblclick = () => player.toggleFullscreen();
-  player.root.addEventListener('pointermove', () => player.showHud());
+  player.video.ondblclick = () => { if (!player.yt) player.toggleFullscreen(); };
+  player.root.addEventListener('pointermove', (ev) => {
+    if (player.yt) { if (ev.pointerType === 'mouse' && player.view !== 'mini' && !player.dragging) player.showHud(); return; }
+    player.showHud();
+  });
   player.root.addEventListener('pointerdown', (ev) => {
+    if (player.yt) return;
     tapRevealedHud = ev.pointerType === 'touch' && player.root.classList.contains('idle');
     player.showHud();
   });
+
+  // Phone player wiring (its markup is absent from an older cached index.html: then none of this).
+  if ($('p-watch')) {
+    const on = (id, fn) => { const n = $(id); if (n) n.onclick = fn; };
+    on('p-min', () => {
+      if (player.trayClose()) return;
+      if (player.root.classList.contains('dead')) player.close();
+      else if (player.view === 'fsrot') { guardTaps(); player.exitFs(); }
+      else player.minimise();
+    });
+    on('p-gear', () => psheet.open('settings'));
+    on('p-play', () => player.togglePause());
+    on('p-prev', () => { if (player.channelMode) player.tuneTo(player.current - 1); });
+    on('p-next', () => { if (player.channelMode) player.tuneTo(player.current + 1); });
+    on('p-live', () => player.liveBadgeTap());
+    on('p-fsx', () => { guardTaps(); return player.view === 'fsrot' || document.fullscreenElement ? player.exitFs() : player.enterFs(); });
+    on('p-mplay', () => player.togglePause());
+    on('p-mclose', () => player.close(false, 'down'));
+    $('p-sscrim').addEventListener('click', () => psheet.close());
+    const g = $('p-gest');
+    g.addEventListener('pointerdown', (ev) => gest.down(ev));
+    g.addEventListener('pointermove', (ev) => gest.move(ev));
+    g.addEventListener('pointerup', (ev) => gest.up(ev));
+    g.addEventListener('pointercancel', (ev) => gest.up(ev));
+    g.addEventListener('contextmenu', (ev) => ev.preventDefault());
+    // The tap is the gesture code's alone: without this, the click a touch leaves behind is hit-tested
+    // after the controls came up, and presses whatever button just appeared under the finger.
+    g.addEventListener('touchend', (ev) => { if (ev.cancelable) ev.preventDefault(); }, { passive: false });
+    // The second tap of a double tap, on a button the first one just brought up (the chevron, play,
+    // the badge): still the double tap. A tap somewhere else is a press on that button, as it looks.
+    player.root.addEventListener('click', (ev) => {
+      if (!player.yt || !player.open || player.view === 'mini') return;
+      const lt = gest.lastTap;
+      if (!lt || !lt.reveal || performance.now() - lt.t > 340) return;
+      const b = ev.target.closest && ev.target.closest('button');
+      if (!b || !b.closest('.hud, .p-ctl, .p-fsrow')) return;
+      const pt = gest.raw(ev), o = gest.origin(), x = pt.x - o.x, y = pt.y - o.y;
+      if (Math.hypot(x - lt.x, y - lt.y) > 48) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      gest.tap(x, y, performance.now() - 60);
+    }, true);
+    // A click target of its own: Chrome's touch adjustment would otherwise move a tap on the picture
+    // onto the nearest button (the LIVE badge, play) - the gesture code above handles the tap.
+    g.addEventListener('click', (ev) => ev.preventDefault());
+    // iOS: two fingers would zoom the page; the pinch is read from the pointers (gest).
+    for (const t of ['gesturestart', 'gesturechange', 'gestureend']) g.addEventListener(t, (ev) => ev.preventDefault());
+    const bar = $('p-bar');
+    bar.addEventListener('pointerdown', (ev) => player.barDown(ev));
+    bar.addEventListener('pointermove', (ev) => player.barMove(ev));
+    bar.addEventListener('pointerup', (ev) => player.barUp(ev));
+    bar.addEventListener('pointercancel', (ev) => player.barUp(ev));
+    // Portrait: the scrubber's touch area ends at the video's edge and the page scrolls from there, but a
+    // sideways drag that starts within 12px under the edge still scrubs (the bar's old overhang).
+    const pw = $('p-watch');
+    pw.addEventListener('pointerdown', (ev) => {
+      const r = player.root;
+      if (!player.yt || !player.open || player.view !== 'watch' || r.classList.contains('idle') || r.classList.contains('reveal')) return;
+      if (['connecting', 'dead', 'embed'].some((c) => r.classList.contains(c))) return;
+      const edge = $('p-stage').getBoundingClientRect().bottom;
+      if (ev.clientY >= edge && ev.clientY <= edge + 12) player.barDown(ev, true);
+    }, true);
+    pw.addEventListener('pointermove', (ev) => { if (player.barDrag && player.barDrag.below) player.barMove(ev); }, true);
+    for (const t of ['pointerup', 'pointercancel']) pw.addEventListener(t, (ev) => { if (player.barDrag && player.barDrag.below) player.barUp(ev); }, true);
+    // (scrubbing from there: the page must not scroll under the finger as well)
+    pw.addEventListener('touchmove', (ev) => { if (player.dragging && ev.cancelable) ev.preventDefault(); }, { passive: false });
+    // A tap target of its own (a listener that does nothing): Chrome's touch adjustment would otherwise move
+    // a finger that lands on the page just under the video onto the scrubber (it takes any nearby focusable
+    // element over the page, whose only click listener is the player's), and the scroll would become a swipe.
+    pw.addEventListener('click', () => {});
+    // A press on a control over the picture that travels up or down is the swipe (gest.armCtl).
+    const stg = $('p-stage');
+    const CTL = '.hud button, .p-ctl button, .p-fsrow button, .unmute';
+    stg.addEventListener('pointerdown', (ev) => { if (ev.target.closest && ev.target.closest(CTL)) gest.armCtl(ev); else gest.arm = null; }, true);
+    stg.addEventListener('pointermove', (ev) => { if (gest.arm) gest.armMove(ev); }, true);
+    for (const t of ['pointerup', 'pointercancel']) stg.addEventListener(t, (ev) => { if (gest.arm && gest.arm.id === ev.pointerId) gest.arm = null; }, true);
+    player.root.addEventListener('pointerdown', (ev) => miniGest.down(ev));
+    player.root.addEventListener('pointermove', (ev) => miniGest.move(ev));
+    player.root.addEventListener('pointerup', (ev) => miniGest.up(ev));
+    player.root.addEventListener('pointercancel', (ev) => miniGest.up(ev));
+    // Media events do not bubble, but capture sees them on whichever element is on screen (a
+    // self-heal swap changes it): the paused / muted state follows iOS pausing on its own too.
+    for (const t of ['play', 'pause', 'playing', 'volumechange', 'seeked', 'enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged']) {
+      player.root.addEventListener(t, (ev) => {
+        if (!player.yt || !player.open || ev.target !== player.video) return;
+        if (/picture|presentation/.test(t)) {
+          player.root.classList.toggle('pip', !!document.pictureInPictureElement || player.video.webkitPresentationMode === 'picture-in-picture');
+          if (!player.root.classList.contains('pip')) player.checkHealth();
+        }
+        player.syncState();
+        player.tick();
+      }, true);
+    }
+    // The native iPhone player (Settings): self-heal waits until it is closed again.
+    for (const v of [player.video, player.video2]) {
+      v.addEventListener('webkitbeginfullscreen', () => { if (player.yt) player.native = true; });
+      v.addEventListener('webkitendfullscreen', () => {
+        if (!player.yt || !player.native) return;
+        player.native = false;
+        if (!player.userPaused && player.open) player.resume();
+        player.tick();
+        player.checkHealth();
+      });
+    }
+    document.addEventListener('fullscreenchange', () => {
+      if (!player.yt || !player.open) return;
+      player.syncState();
+      if (document.fullscreenElement) return;
+      try { screen.orientation.unlock(); } catch { /* none */ }
+      if (player.view === 'fs' || player.view === 'fsrot') {
+        player.wasLand = isLandscape();
+        player.setView(player.wasLand ? 'fs' : 'watch');
+      }
+    });
+    // Turning the phone: react once the layout has settled (late on iOS).
+    let turnRaf = 0;
+    const turned = () => {
+      cancelAnimationFrame(turnRaf);
+      turnRaf = requestAnimationFrame(() => { turnRaf = requestAnimationFrame(() => player.syncOrientation()); });
+    };
+    if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', turned);
+    landMq.addEventListener('change', turned);
+    addEventListener('resize', turned, { passive: true });
+    ytMq.addEventListener('change', () => player.syncYt());
+    // Back from the background (screen locked, another app): playing again, at live if it slid away.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden || !player.open || !player.yt || player.embedMode || !player.everPlayed) return;
+      const v = player.video;
+      if (!player.userPaused && v.paused) player.resume();
+      const L = live.read();
+      if (L.ok && !L.vod && (L.behind > 30 || !L.dvr || v.currentTime < L.start)) player.jumpToLive(false);
+      player.syncState();
+      player.showHud();
+      if (!player.userPaused) player.requestWake();
+    });
+    const tray = $('p-tray');
+    if (tray) {
+      let ty = null;
+      tray.addEventListener('pointerdown', (ev) => { ty = { y: player.view === 'fsrot' ? innerWidth - ev.clientX : ev.clientY }; player.trayArm(); });
+      tray.addEventListener('pointermove', (ev) => {
+        if (!ty) return;
+        const y = player.view === 'fsrot' ? innerWidth - ev.clientX : ev.clientY;
+        if (y - ty.y > 40) { ty = null; player.trayClose(); }
+      });
+      for (const t of ['pointerup', 'pointercancel']) tray.addEventListener(t, () => { ty = null; });
+    }
+    const sheet = $('p-sheet');
+    dragToDismiss(sheet, headerTouch(sheet, '.grab, .sh-head, .menu-title'), () => psheet.close(), () => player.yt && player.view !== 'fsrot');
+  }
   // Overlays push a history entry so the TV/phone Back button closes them. When we close one
   // ourselves we pop that entry, and must not treat the resulting popstate as another Back.
   let ownPops = 0;
   let ownPopsReset = null;
   function popOwnEntry() {
+    popOwnEntries(1);
+  }
+  /** Several of our entries at once (the phone player's sheet + full screen + player): one traversal. */
+  function popOwnEntries(n) {
+    if (!(n > 0)) return;
     ownPops++;
-    history.back();
+    if (n === 1) history.back(); else history.go(-n);
     // The browser may drop a programmatic back(); do not let that swallow a real Back later.
     clearTimeout(ownPopsReset);
     ownPopsReset = setTimeout(() => { ownPops = 0; }, 1500);
   }
   window.addEventListener('popstate', () => {
     if (ownPops > 0) { ownPops--; return; }
+    // The phone player's own sheet first (it sits over the video).
+    if (psheet.entry) { psheet.close(true); return; }
     // Phones: Back closes the top sheet first (it may sit over the player).
     if (sheetEntry) { if ($('menu').classList.contains('hidden')) sheetEntry = false; else hideMenu(true); return; }
     if (acct.entry) { acct.close(true); return; }
-    if (player.open) player.close(true);
-    else if (liveTv.isOpen()) liveTv.close(true);
+    if (player.open && player.yt) {
+      // Full screen's "More live" tray is an overlay over the game: Back closes just the tray (Android's
+      // Back dismisses what is on top), and the entry that Back took is put back for the next Back.
+      if (player.view !== 'mini' && player.trayClose()) {
+        if (player.view === 'fsrot' && player.fsEntry) { history.pushState({ fs: true }, ''); return; }
+        if (player.entry) { history.pushState({ player: true }, ''); return; }
+      }
+      // Phones: Back leaves the rotated full screen, then minimises (YouTube); the mini has no entry,
+      // so Back from Home behaves as it always did (and closes Live TV under a mini).
+      if (player.view === 'fsrot' && player.fsEntry) { player.fsEntry = false; player.exitFs(true); return; }
+      if (player.view !== 'mini' && player.entry) { player.minimise(true); return; }
+    } else if (player.open) { player.close(true); return; }
+    if (liveTv.isOpen()) liveTv.close(true);
   });
 
   function openEvent(e) {
@@ -4682,11 +7127,11 @@
       if (sel) sel.scrollIntoView({ block: 'nearest' });
     },
 
-    focusCurrent() {
+    focusCurrent(quiet) {
       const cells = $('lt-channels').children;
       const i = player.current >= 0 && player.current < cells.length ? player.current : this.focusedChannel;
       const c = cells[i] || cells[0];
-      if (c && c.focus) c.focus();
+      if (c && c.focus) c.focus(quiet ? { preventScroll: true } : undefined);
     },
 
     /** D-pad in the channel grid: ◀ ▶ by one, ▲ ▼ by a row, ◀ from the first column into the groups. */

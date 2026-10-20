@@ -57,32 +57,70 @@
   </footer>
 
   <!-- Player -->
-  <div id="player" class="player hidden" tabindex="-1">
-    <video id="video" playsinline autoplay></video>
-    <video id="video2" class="standby" playsinline muted></video>
-    <iframe id="p-embed" class="embed hidden" allow="autoplay; fullscreen; encrypted-media"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" referrerpolicy="no-referrer-when-downgrade"></iframe>
-    <div class="embed-note hidden" id="p-embed-note">Embedded player · may show ads · click the video if it doesn't start</div>
-    <div class="p-toast hidden" id="p-toast"></div>
-    <div class="hud hud-top">
-      <span class="pill" id="p-pill">LIVE</span>
-      <span class="p-title" id="p-title"></span>
-      <span class="p-score" id="p-score"></span>
-      <span class="hud-spacer"></span>
-      <button class="icon-btn hidden" id="p-cast" title="Send to TV">📺</button>
-      <button class="icon-btn" id="p-fs" title="Full screen">⛶</button>
-      <button class="icon-btn" id="p-close" title="Close (Esc)">✕</button>
+  <!-- .p-yt nodes belong to the phone player (app.js isYt(): a touch phone either way up) and are
+       hidden everywhere else; .p-stage has the player's own box, so the TV / desktop player lays
+       out exactly as before. -->
+  <div id="player" class="player hidden" tabindex="-1" aria-label="Player">
+    <div class="p-stage" id="p-stage">
+      <div class="p-backdrop p-yt" id="p-backdrop" aria-hidden="true"></div>
+      <video id="video" playsinline autoplay></video>
+      <video id="video2" class="standby" playsinline muted></video>
+      <canvas class="p-freeze p-yt" id="p-freeze" aria-hidden="true"></canvas>
+      <iframe id="p-embed" class="embed hidden" allow="autoplay; fullscreen; encrypted-media"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <div class="p-pipnote p-yt" id="p-pipnote">Playing in picture in picture</div>
+      <div class="p-gest p-yt" id="p-gest"></div>
+      <div class="p-scrim p-yt" aria-hidden="true"></div>
+      <div class="p-seekfx p-yt" id="p-seekfx" aria-hidden="true"></div>
+      <div class="p-buf p-yt" id="p-buf" aria-hidden="true"><i class="spinner"></i><span>Buffering…</span></div>
+      <div class="embed-note hidden" id="p-embed-note">Embedded player · may show ads · click the video if it doesn't start</div>
+      <div class="p-toast hidden" id="p-toast" role="status"></div>
+      <div class="hud hud-top">
+        <button class="icon-btn p-yt" id="p-min" type="button" aria-label="Minimise player"></button>
+        <span class="pill" id="p-pill">LIVE</span>
+        <span class="p-tblock"><span class="p-title" id="p-title"></span><span class="p-sub p-yt" id="p-sub"></span></span>
+        <span class="p-score" id="p-score"></span>
+        <span class="hud-spacer"></span>
+        <button class="icon-btn hidden" id="p-cast" title="Send to TV">📺</button>
+        <button class="icon-btn p-yt" id="p-gear" type="button" aria-label="Settings"></button>
+        <button class="icon-btn" id="p-fs" title="Full screen">⛶</button>
+        <button class="icon-btn" id="p-close" title="Close (Esc)">✕</button>
+      </div>
+      <div class="hud hud-mid p-yt">
+        <button class="p-skip" id="p-prev" type="button" aria-label="Previous channel"></button>
+        <button class="p-play" id="p-play" type="button" aria-label="Pause"></button>
+        <button class="p-skip" id="p-next" type="button" aria-label="Next channel"></button>
+      </div>
+      <div class="hud hud-bottom">
+        <div class="servers" id="p-servers"></div>
+        <div class="hint">← → switch server · Space pause · Esc back</div>
+      </div>
+      <div class="p-ctl p-yt" id="p-ctl">
+        <button class="p-live" id="p-live" type="button"></button>
+        <span class="hud-spacer"></span>
+        <button class="icon-btn" id="p-fsx" type="button" aria-label="Full screen"></button>
+      </div>
+      <div class="p-bar p-yt" id="p-bar" role="slider" tabindex="-1" aria-label="Seek">
+        <div class="p-track"><div class="p-fill"></div></div><div class="p-thumb"></div><div class="p-bubble"></div>
+      </div>
+      <div class="p-fsrow p-yt" id="p-fsrow"></div>
+      <div class="p-tray hidden p-yt" id="p-tray" role="group" aria-label="More live"></div>
+      <div class="panel hidden" id="p-panel">
+        <div class="spinner" id="p-spinner"></div>
+        <div class="panel-msg" id="p-msg" aria-live="polite"></div>
+        <div class="panel-actions" id="p-actions"></div>
+      </div>
+      <button class="unmute hidden" id="p-unmute">🔇 Tap to unmute</button>
     </div>
-    <div class="hud hud-bottom">
-      <div class="servers" id="p-servers"></div>
-      <div class="hint">← → switch server · Space pause · Esc back</div>
+    <div class="p-mini p-yt" id="p-mini">
+      <div class="p-mline"><i></i></div>
+      <div class="p-mtext"><b id="p-mtitle"></b><span id="p-msub"></span></div>
+      <button class="p-mbtn" id="p-mplay" type="button" aria-label="Pause"></button>
+      <button class="p-mbtn" id="p-mclose" type="button" aria-label="Close player"></button>
     </div>
-    <div class="panel hidden" id="p-panel">
-      <div class="spinner" id="p-spinner"></div>
-      <div class="panel-msg" id="p-msg"></div>
-      <div class="panel-actions" id="p-actions"></div>
-    </div>
-    <button class="unmute hidden" id="p-unmute">🔇 Tap to unmute</button>
+    <div class="p-watch p-yt" id="p-watch"></div>
+    <div class="p-sscrim hidden p-yt" id="p-sscrim"></div>
+    <div class="p-sheet hidden p-yt" id="p-sheet" role="dialog" aria-modal="true"></div>
   </div>
 
   <!-- Favorites menu (a bottom sheet over #scrim on phones) -->

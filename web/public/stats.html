@@ -1,369 +1,1252 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="stats">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a0a">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="robots" content="noindex">
   <title>Active now — Styx Sports</title>
-  <link rel="icon" href="/icon.png">
+  <link rel="icon" href="/icon-192.png">
+  <!-- Only the design tokens: app.css is the TV / Home stylesheet and its .card / .btn / phone rules
+       must not reach this page. Everything this page draws is below, prefixed s-. -->
   <link rel="stylesheet" href="/tokens.css">
-  <link rel="stylesheet" href="/app.css">
   <style>
-    .wrap { max-width: 860px; margin: 0 auto; padding: 28px 24px 60px; }
-    .back { color: var(--muted); text-decoration: none; font-size: 14px; }
-    .back:hover { color: var(--text); }
-    h1 { font-size: 28px; margin: 18px 0 6px; }
-    .lead { color: var(--muted); margin: 0 0 28px; font-size: 15px; }
-    .total { background: var(--surface); border: 1px solid var(--outline); border-radius: 16px; padding: 28px 24px; text-align: center; margin-bottom: 18px; }
-    .total b { display: block; font-size: 72px; line-height: 1; letter-spacing: -2px; }
-    .total span { color: var(--muted); font-size: 14px; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-    .card { background: var(--surface); border: 1px solid var(--outline); border-radius: 14px; padding: 22px 16px; text-align: center; }
-    .card b { display: block; font-size: 40px; line-height: 1.1; }
-    .card span { color: var(--muted); font-size: 13px; font-weight: 600; }
-    .err { color: #f87171; min-height: 1.2em; margin-top: 18px; font-size: 14px; }
-    h2 { font-size: 20px; margin: 40px 0 6px; }
-    .pool { background: var(--surface); border: 1px solid var(--outline); border-radius: 16px; padding: 22px 24px; }
-    .pool-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-    .pool-head b { font-size: 44px; line-height: 1; }
-    .pool-head span { color: var(--muted); font-size: 14px; }
-    .accounts { display: flex; flex-direction: column; gap: 10px; margin: 16px 0 6px; }
-    .shacct { background: var(--bg); border: 1px solid var(--outline); border-radius: 12px; padding: 12px 14px; }
-    .shacct-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .shacct-name { font-weight: 700; }
-    .shacct-meta { color: var(--muted); font-size: 12px; flex: 1; }
-    .shacct-meta .warn { color: #f87171; }
-    .shacct-n { font-size: 13px; font-weight: 600; white-space: nowrap; }
-    .shacct-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 12px; padding: 4px 6px; border-radius: 6px; }
-    .shacct-x:hover { color: #f87171; background: var(--surface); }
-    .slots { display: flex; gap: 6px; margin-top: 10px; }
-    .slot { flex: 1; height: 10px; border-radius: 5px; background: var(--outline-strong); }
-    .slot.on { background: var(--gold); }
-    .mine { color: var(--gold); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
-    .leases { list-style: none; margin: 14px 0 0; padding: 0; font-size: 14px; }
-    .leases li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--outline); }
-    .leases li span:last-child { color: var(--muted); white-space: nowrap; }
-    .pool-note { color: var(--muted); font-size: 14px; margin: 14px 0 0; line-height: 1.5; }
-    .pool-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
-    .pool-actions .btn { text-decoration: none; }
-    .ok { color: var(--gold); }
-    .devices { list-style: none; margin: 14px 0 0; padding: 0 4px; font-size: 14px; }
-    .devices li { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--outline); }
-    .devices li:first-child { border-top: 0; }
-    .dev-icon { width: 26px; text-align: center; flex: none; }
-    .dev-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .dev-name i { color: var(--muted); font-style: normal; }
-    .dev-plat { color: var(--muted); font-size: 12px; white-space: nowrap; }
-    .dev-plat.premium { color: var(--gold); }
-    .dev-ago { color: var(--muted); font-size: 12px; white-space: nowrap; min-width: 3em; text-align: right; }
-    .empty { color: var(--muted); font-size: 14px; padding: 12px 4px 0; }
-    .leases li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .lease-dev { color: var(--muted); }
-    .health { width: 100%; border-collapse: collapse; font-size: 14px; }
-    .health th { text-align: left; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 0 6px 8px; }
-    .health td { padding: 9px 6px; border-top: 1px solid var(--outline); white-space: nowrap; }
-    .health td:first-child { font-weight: 600; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
-    .health .bad { color: #f87171; }
-    .health .good { color: var(--gold); }
-    .health.hidden { display: none; }
-    @media (max-width: 640px) {
-      .health th:nth-child(6), .health td:nth-child(6) { display: none; }
-      .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
-      .card { padding: 14px 8px; }
-      .card b { font-size: 30px; }
-      .card span { font-size: 11px; }
-      .total b { font-size: 56px; }
-      .wrap { padding: 20px 14px 50px; }
+    :root {
+      color-scheme: dark;
+      /* iOS insets (a test harness can set --safe-*; headless browsers report 0 for env()). */
+      --st: var(--safe-top, env(safe-area-inset-top, 0px));
+      --sb: var(--safe-bottom, env(safe-area-inset-bottom, 0px));
+      --sl: var(--safe-left, env(safe-area-inset-left, 0px));
+      --sr: var(--safe-right, env(safe-area-inset-right, 0px));
+      /* Same top band as Home: 44px under a translucent status bar, a 12px solid strip otherwise. */
+      --edge-h: calc(var(--st) + clamp(12px, calc(var(--st) * 100), 44px));
+      --pl: max(16px, var(--sl));
+      --pr: max(16px, var(--sr));
+      --bg: var(--tk-color-bg, #0a0a0a);
+      --card: var(--tk-color-surface, #171717);
+      --card-2: #222;
+      --hair: var(--tk-color-outline, #262626);
+      --ring: rgba(255, 255, 255, .06);
+      --text: var(--tk-color-text, #f5f5f5);
+      --text-2: var(--tk-color-text-secondary, #ddd);
+      --muted: var(--tk-color-muted, #9e9e9e);
+      --faint: #8c8c8c;
+      --gold: var(--tk-color-gold, #f5b942);
+      --ok: var(--tk-color-ok, #22c55e);
+      --danger: #ff6961;
+      --amber: #f5a524;
+      --track: #262626;
+      --display: "Bodoni 72", "Bodoni 72 Oldstyle", Didot, "Bodoni MT", ui-serif, Georgia, serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    /* focus moves and scrollIntoView() stop below the sticky bar (its band + 52px row + 1px rule), not under it */
+    html { background: var(--bg); -webkit-text-size-adjust: 100%; scroll-padding-top: calc(var(--edge-h) + 53px + 12px); }
+    body {
+      margin: 0; min-height: 100%; background: var(--bg); color: var(--text);
+      font: 15px/1.4 -apple-system, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+    }
+    .hidden, [hidden] { display: none !important; }
+    :focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+    .sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    .s-num { font-variant-numeric: tabular-nums; }
+    .s-nw { white-space: nowrap; }
+    .gold { color: var(--gold); }
+    .ok { color: var(--ok); }
+    .danger { color: var(--danger); }
+    .amber { color: var(--amber); }
+    .muted { color: var(--muted); }
+    .i { display: inline-flex; flex: none; }
+    .i svg { display: block; width: 100%; height: 100%; }
+
+    /* ------------------------------------------------------------ top bar (sticky, solid) */
+    /* Full width with a solid background-color over the top-centre point: what WebKit needs to drop
+       the iOS 26 top blur (see the Home header). Never translucent. */
+    .s-bar { position: sticky; top: 0; z-index: 5; background-color: #0a0a0a; padding-top: var(--edge-h); border-bottom: 1px solid var(--hair); }
+    .s-bar-in {
+      max-width: calc(728px + var(--pl) + var(--pr)); margin: 0 auto; height: 52px;
+      padding: 0 var(--pr) 0 calc(var(--pl) - 10px);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .s-back {
+      flex: none; min-height: 44px; display: inline-flex; align-items: center; gap: 4px; padding: 0 12px 0 6px;
+      border-radius: 12px; color: var(--text-2); font-size: 16px; font-weight: 500; text-decoration: none;
+    }
+    .s-back .i { width: 18px; height: 18px; }
+    .s-back:active { background: var(--card); }
+    .s-sync { min-width: 0; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+    .s-sync > i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+    .s-sync[data-state="ok"] > i { background: var(--ok); }
+    .s-sync[data-state="err"] > i { background: var(--amber); }
+    .s-sync-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+
+    /* ------------------------------------------------------------ page */
+    .s-wrap { max-width: calc(728px + var(--pl) + var(--pr)); margin: 0 auto; padding: 0 var(--pr) calc(40px + var(--sb)) var(--pl); }
+    .s-h1 { margin: 20px 0 6px; font: 700 40px/1 var(--display); letter-spacing: -.01em; }
+    .s-lead { margin: 0; font-size: 15px; color: var(--muted); text-wrap: pretty; overflow-wrap: anywhere; }
+    .s-card { background: var(--card); border-radius: 20px; box-shadow: inset 0 0 0 1px var(--ring); }
+    .s-sec { margin-top: 32px; }
+    .s-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+    .s-h2 { margin: 0; min-width: 0; font: 700 27px/1.05 var(--display); letter-spacing: -.005em; }
+    .s-meta { flex: none; font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .s-meta.gold { color: var(--gold); font-weight: 600; }
+    .s-kick {
+      display: flex; align-items: center; gap: 10px; margin: 18px 0 8px;
+      font-size: 11px; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; color: var(--muted);
+    }
+    .s-kick::after { content: ''; flex: 1; height: 1px; background: var(--hair); }
+    .s-empty { padding: 28px 20px; text-align: center; }
+    .s-empty b, .s-none { display: block; font: italic 400 22px/1.2 var(--display); color: var(--text); }
+    .s-empty span { display: block; margin-top: 6px; font-size: 14px; color: var(--muted); text-wrap: pretty; }
+    .s-foot { margin: 36px 0 0; text-align: center; font-size: 13px; color: var(--faint); text-wrap: balance; }
+
+    /* ------------------------------------------------------------ hero */
+    .s-hero {
+      margin-top: 20px; padding: 18px 18px 8px;
+      background: radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, .05), transparent 60%), var(--card);
+    }
+    .s-count { display: flex; align-items: center; gap: 14px; }
+    .s-count > b { flex: none; font-size: 64px; font-weight: 800; line-height: .9; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+    .s-count-l { min-width: 0; display: flex; flex-direction: column; }
+    .s-count-l > span { font-size: 17px; font-weight: 650; }
+    .s-count-l > small { display: block; margin-top: 3px; font-size: 13px; color: var(--muted); text-wrap: pretty; }
+    .s-count-l > small .i { width: 12px; height: 12px; margin-right: 5px; vertical-align: -1px; display: inline-block; }
+    .s-plats { margin: 14px 0 0; padding: 0; list-style: none; }
+    .s-plats > li {
+      display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; column-gap: 10px; row-gap: 6px; align-items: center;
+      padding: 10px 0; border-top: 1px solid var(--hair);
+    }
+    .s-plats .i { width: 20px; height: 20px; color: var(--muted); }
+    .s-plats .s-pl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 500; }
+    .s-plats .s-pn { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .s-plats .s-meter { grid-column: 2 / 4; }
+    .s-plats li.zero .s-pn { color: var(--muted); }
+    .s-meter { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+    .s-meter > i { display: block; height: 100%; border-radius: 2px; background: var(--text); }
+    .s-plats li.zero .s-meter > i { background: var(--muted); }
+
+    .s-fail { margin-top: 20px; padding: 18px; }
+    .s-fail b { display: block; font-size: 16px; font-weight: 650; }
+    .s-fail p { margin: 4px 0 14px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+
+    /* ------------------------------------------------------------ lists (devices, leases, versions, updates) */
+    .s-list { margin: 0; padding: 0; list-style: none; background: var(--card); border-radius: 18px; box-shadow: inset 0 0 0 1px var(--ring); overflow: hidden; }
+    .s-list > li {
+      position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; column-gap: 12px; align-items: start;
+      padding: 12px 16px; min-height: 64px;
+    }
+    .s-list > li + li::before { content: ''; position: absolute; top: 0; left: 68px; right: 0; height: 1px; background: var(--hair); }
+    .s-ic { width: 40px; height: 40px; border-radius: 10px; background: var(--card-2); display: grid; place-items: center; color: var(--text-2); }
+    .s-ic .i { width: 20px; height: 20px; }
+    .s-tx { min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 1px; }
+    .s-tx > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .s-nm { font-size: 16px; font-weight: 600; color: var(--text); }
+    .s-nm.unnamed { color: var(--muted); font-style: italic; font-weight: 500; }
+    .s-w { font-size: 13.5px; font-weight: 500; color: var(--text-2); }
+    .s-w .i, .s-l2 .i { display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: -1px; }
+    .s-w .i.gold { color: var(--gold); }
+    .s-sub { font-size: 13px; color: var(--muted); }
+    /* metadata lines (platform · account, device · account) wrap to a second line rather than cut the account */
+    .s-tx > .s-sub { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+    .s-ago { padding-top: 3px; font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* the same list inside the pool card */
+    .s-list.s-inset { background: var(--card-2); border-radius: 14px; box-shadow: none; }
+    .s-inset > li { grid-template-columns: 24px minmax(0, 1fr) auto; column-gap: 12px; padding: 10px 12px; min-height: 0; }
+    .s-inset > li + li::before { left: 48px; }
+    .s-inset .s-lic { height: 21px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+    .s-inset .s-lic.gold { color: var(--gold); }
+    .s-inset .s-lic .i { width: 16px; height: 16px; }
+    .s-inset .s-nm { font-size: 15px; }
+    .s-inset .s-ago { padding-top: 2px; }
+
+    /* app versions / updates */
+    .s-vers > li { grid-template-columns: 22px minmax(0, 1fr); min-height: 0; padding: 12px 16px; }
+    .s-vers > li + li::before { left: 50px; }
+    .s-vers .s-vic { height: 21px; display: flex; align-items: center; color: var(--muted); }
+    .s-vers .s-vic .i { width: 20px; height: 20px; }
+    .s-l1 { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+    .s-tx > .s-l1 { overflow: visible; }
+    .s-l1 > span:not(.s-tag) {
+      min-width: 0; overflow: hidden; font-size: 15px; font-weight: 600; line-height: 1.35; white-space: normal;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;
+    }
+    .s-l1 > .s-tag { flex: none; margin-top: 1px; }
+    /* "3.12 → 3.13 ··· 4 devices" on one line when it fits. A long change takes the whole row and
+       wraps before the arrow (the new version is never the part that gets cut), and the count drops
+       under it, the way App versions reads. */
+    .s-upd > li {
+      display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: 12px; row-gap: 2px;
+      min-height: 0; padding: 12px 16px;
+    }
+    .s-upd > li + li::before { left: 16px; }
+    .s-upd .s-uc { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .s-upd .s-v { display: inline-block; max-width: 100%; vertical-align: top; }
+    .s-upd .s-un { flex: none; font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+    .s-tag {
+      display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 6px;
+      font-size: 11px; font-weight: 700; line-height: 1.3; color: var(--text-2); box-shadow: inset 0 0 0 1px #3a3a3a; white-space: nowrap;
+    }
+    .s-tag.prem { color: var(--gold); background: rgba(245, 185, 66, .12); box-shadow: none; }
+    .s-tag .i { width: 10px; height: 10px; }
+
+    /* ------------------------------------------------------------ premium sharing */
+    .s-pool { padding: 18px; }
+    .s-pool > :first-child, .s-pool > :first-child > :first-child { margin-top: 0; }
+    .s-cap { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .s-cap b { font-size: 44px; font-weight: 800; line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+    .s-cap span { font-size: 15px; color: var(--muted); }
+    .s-slots { margin-top: 12px; display: flex; gap: 4px; }
+    .s-slots > i { flex: 1; height: 8px; border-radius: 4px; background: #343434; }
+    .s-slots > i.on { background: var(--gold); }
+    .s-slots.one > i { flex: none; width: 100%; position: relative; overflow: hidden; }
+    .s-slots.one > i > i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--gold); }
+    .s-acct { margin-top: 14px; padding: 12px 14px; background: var(--card-2); border-radius: 14px; }
+    .s-acct-h { display: flex; align-items: center; gap: 8px; }
+    .s-acct-h > b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 650; }
+    .s-yours {
+      flex: none; padding: 2px 6px; border-radius: 6px; background: rgba(245, 185, 66, .12); color: var(--gold);
+      font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .s-acct-h > .s-sp { flex: 1; }
+    .s-acct-h > .s-un { flex: none; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    /* The meta line and Remove's warning share one grid cell (as tall as the taller of the two), so
+       arming swaps one for the other right above the button and nothing moves. */
+    .s-acct-mw { margin-top: 4px; display: grid; }
+    .s-acct-mw > * { grid-area: 1 / 1; min-width: 0; }
+    .s-acct-mw.armed > .s-acct-m { visibility: hidden; }
+    .s-acct-m { font-size: 13px; color: var(--muted); text-wrap: pretty; overflow-wrap: anywhere; }
+    .s-acct .s-slots { margin-top: 10px; }
+    .s-acct .s-slots > i { height: 6px; border-radius: 3px; }
+    /* Remove has its own row under the meta at every width, and one size whatever it says ("Remove",
+       "Tap again to remove", "Removing…"). */
+    .s-acct-b { margin-top: 10px; display: flex; justify-content: flex-end; }
+    .s-acct-b > .s-b { min-width: 172px; }
+    /* A confirm's warning keeps its space while disarmed (invisible, and out of the accessibility
+       tree), so arming only shows it. */
+    .s-warn { margin: 0; font-size: 13px; color: var(--muted); text-wrap: pretty; overflow-wrap: anywhere; }
+    .s-warn:not(.on) { visibility: hidden; }
+    .s-confirm > .s-warn { margin: 0 0 6px; text-align: center; text-wrap: balance; }
+
+    .s-how { margin-top: 14px; }
+    .s-how > summary {
+      min-height: 44px; display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer;
+      font-size: 14px; font-weight: 600; color: var(--text-2); border-radius: 10px;
+    }
+    .s-how > summary::-webkit-details-marker { display: none; }
+    .s-how > summary .i { width: 10px; height: 10px; transition: transform .15s; }
+    .s-how[open] > summary .i { transform: rotate(90deg); }
+    .s-how p { margin: 0 0 4px; font-size: 14px; line-height: 1.5; color: var(--muted); text-wrap: pretty; overflow-wrap: anywhere; }
+    .s-pool > .s-how:first-child { margin-top: 8px; }
+    /* Nothing shared (or no pool state): the title is an empty state like "Nobody's here right now."
+       (centred, same 28px from the card's top), and a hairline sets the left-aligned help below apart. */
+    .s-none { padding: 10px 4px 0; text-align: center; text-wrap: balance; }
+    .s-pool.none .s-how { margin-top: 22px; padding-top: 4px; border-top: 1px solid var(--hair); }
+
+    .s-actions { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .s-actions:empty { display: none; }
+    .s-err { margin: 12px 0 0; font-size: 14px; color: var(--danger); overflow-wrap: anywhere; }
+
+    /* buttons */
+    .s-b {
+      -webkit-appearance: none; appearance: none; min-height: 50px; width: 100%; padding: 8px 18px; border: 0; border-radius: 14px;
+      font: inherit; font-size: 16px; font-weight: 650; line-height: 1.2;
+      display: inline-flex; align-items: center; justify-content: center; text-align: center; text-wrap: balance;
+      text-decoration: none; cursor: pointer; color: var(--text); background: none;
+    }
+    .s-primary { background: var(--text); color: #0a0a0a; }
+    .s-primary:active { background: #dcdcdc; }
+    .s-ghost { background: none; color: var(--text); box-shadow: inset 0 0 0 1px #3a3a3a; }
+    .s-ghost:active { background: var(--card); }
+    .s-danger { color: var(--danger); }
+    .s-small { min-height: 44px; width: auto; padding: 0 14px; border-radius: 12px; font-size: 14px; }
+    .s-small.s-danger { box-shadow: none; background: rgba(255, 255, 255, .04); }
+    .s-b.armed { background: rgba(255, 105, 97, .14); color: var(--danger); box-shadow: none; }
+    .s-b:disabled, .s-b[aria-disabled="true"] { opacity: .6; cursor: default; }
+    .s-confirm { display: flex; flex-direction: column; }
+
+    /* share form */
+    .s-share label { display: block; font-size: 13px; color: var(--muted); }
+    .s-share input {
+      display: block; width: 100%; height: 50px; margin: 6px 0 10px; padding: 0 14px; border-radius: 14px;
+      border: 1px solid #3a3a3a; background: #111; color: var(--text); font: inherit; font-size: 17px; line-height: 1;
+    }
+    .s-share input:focus { border-color: #fff; outline: none; }
+    .s-row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+
+    /* ------------------------------------------------------------ playback */
+    .s-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .s-tile { padding: 12px 14px; border-radius: 16px; min-width: 0; }
+    .s-tile b { display: block; font-size: 22px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .s-tile span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+    .s-srcs { margin: 12px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .s-src { padding: 14px 16px 12px; border-radius: 18px; min-width: 0; }
+    .s-src-h { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: start; }
+    .s-src-n { min-width: 0; }
+    .s-src-n > b { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 16px; font-weight: 650; }
+    .s-src-n > b > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .s-src-n > b > .i { width: 13px; height: 13px; color: var(--gold); }
+    .s-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .s-rate { text-align: right; }
+    .s-rate b { display: block; font-size: 22px; font-weight: 800; line-height: 1.05; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+    .s-rate span { display: block; margin-top: 1px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .s-src .s-meter { margin-top: 10px; }
+    .s-src .s-meter > i.ok { background: var(--ok); }
+    .s-src .s-meter > i.danger { background: var(--danger); }
+    .s-src .s-meter > i.muted { background: var(--muted); }
+    .s-stats { margin: 12px 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 8px; }
+    .s-stats > div { min-width: 0; }
+    .s-stats dt { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .s-stats dd { margin: 2px 0 0; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .s-stats small { display: block; margin-top: 1px; font-size: 12px; color: var(--muted); line-height: 1.3; overflow-wrap: anywhere; }
+    .s-heal { margin-top: 8px; padding: 14px 16px; display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 10px; border-radius: 18px; }
+    .s-heal > .i { width: 20px; height: 20px; color: var(--ok); margin-top: 1px; }
+    .s-heal b { display: block; font-size: 15px; font-weight: 650; }
+    .s-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .s-chips > span { padding: 4px 10px; border-radius: 999px; background: var(--card-2); font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+    #versions .s-kick, #updates .s-kick { margin-top: 22px; }
+
+    @media (max-width: 359.98px) {
+      .s-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .s-tile b { font-size: 20px; }
+      .s-tile { padding: 12px; }
+      .s-pool { padding: 16px 14px; }
+      .s-actions .s-b { padding: 8px 12px; font-size: 15px; }
+      /* one line at 320, like the meta it swaps with, so the shared cell keeps no empty line */
+      .s-acct-mw .s-warn { font-size: 12px; }
+    }
+    @media (min-width: 640px) {
+      .s-hero { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); column-gap: 28px; padding: 22px 24px; }
+      .s-hero .s-count { align-self: center; }
+      .s-hero .s-plats { margin: 0; }
+      .s-hero .s-plats > li:first-child { border-top: 0; }
+      .s-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      /* bottom-aligned: the space kept above Stop sharing all for its warning sits above the row */
+      .s-actions { flex-direction: row; flex-wrap: wrap; align-items: flex-end; }
+      .s-actions .s-b { width: auto; min-width: 220px; }
+      .s-actions .s-confirm .s-b { width: 100%; }
+      .s-row2 { display: flex; }
+      .s-row2 .s-b { width: auto; min-width: 140px; }
+    }
+    @media (hover: hover) {
+      .s-back:hover { color: var(--text); background: var(--card); }
+      .s-primary:hover { background: #e6e6e6; }
+      .s-ghost:hover, .s-small.s-danger:hover { background: rgba(255, 255, 255, .06); }
+      .s-how > summary:hover { color: var(--text); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .s-how > summary .i { transition: none; }
     }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <a class="back" href="/">← Home</a>
-    <h1>Active now</h1>
-    <p class="lead">Devices that pinged in the last 3 minutes. Refreshes every 5 seconds.</p>
-    <div class="total">
-      <b id="total">—</b>
-      <span>watching</span>
+  <header class="s-bar">
+    <div class="s-bar-in">
+      <a class="s-back" href="/"><span class="i" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 4L6.5 10l6 6"/></svg></span>Home</a>
+      <span class="s-sync" id="sync" data-state="load" role="status"><i aria-hidden="true"></i><span class="sr" id="sync-sr">Loading</span><span class="s-sync-t" id="sync-t" aria-hidden="true">Loading…</span></span>
     </div>
-    <div class="grid">
-      <div class="card"><b id="web">—</b><span>Web</span></div>
-      <div class="card"><b id="apk">—</b><span>Android / Fire TV</span></div>
-      <div class="card"><b id="roku">—</b><span>Roku</span></div>
-    </div>
-    <p class="err" id="err"></p>
+  </header>
 
-    <h2>Devices</h2>
-    <div class="pool">
-      <ul class="devices" id="devices"></ul>
-      <p class="empty hidden" id="devices-empty">Nobody is watching right now.</p>
-    </div>
+  <main class="s-wrap">
+    <h1 class="s-h1">Active now</h1>
+    <p class="s-lead" id="lead">Devices with Styx Sports open in the last 3 minutes.</p>
 
-    <h2>Shared premium accounts</h2>
-    <div class="pool">
-      <div class="pool-head">
-        <b id="pool-used">—</b>
-        <span id="pool-max">of 0 connections in use</span>
-        <span id="pool-shared"></span>
+    <section class="s-hero s-card" id="hero" aria-labelledby="hero-sr">
+      <div class="s-count">
+        <b id="total" aria-hidden="true">—</b>
+        <span class="s-count-l"><span aria-hidden="true">online now</span><small id="hero-w"></small></span>
+        <span class="sr" id="hero-sr">Devices online now</span>
       </div>
-      <div class="accounts" id="accounts"></div>
-      <ul class="leases" id="leases"></ul>
-      <p class="pool-note" id="pool-note"></p>
-      <div class="pool-actions" id="pool-actions"></div>
-      <p class="err" id="pool-err"></p>
-    </div>
+      <ul class="s-plats" id="plats"></ul>
+    </section>
 
-    <h2>Playback health · last 24 h</h2>
-    <div class="pool">
-      <table class="health" id="health">
-        <thead><tr><th>Source</th><th>Starts</th><th>Success</th><th>Start time</th><th>Stalls / viewer-h</th><th>Watched</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <p class="empty hidden" id="health-empty">No playback reported yet. Apps on 4.0 send anonymous start / stall / error events here.</p>
-      <p class="pool-note hidden" id="healed"></p>
-      <ul class="devices" id="versions"></ul>
-    </div>
-  </div>
+    <section class="s-fail s-card" id="fail" hidden>
+      <b>Couldn’t load stats.</b>
+      <p id="fail-msg"></p>
+      <button class="s-b s-ghost" type="button" id="retry">Try again</button>
+    </section>
+
+    <section class="s-sec" id="sec-devices" aria-labelledby="h-devices" hidden>
+      <div class="s-head"><h2 class="s-h2" id="h-devices">Devices</h2><span class="s-meta" id="dev-meta"></span></div>
+      <ul class="s-list" id="devices"></ul>
+      <div class="s-card s-empty" id="devices-empty" hidden><b>Nobody’s here right now.</b><span>Devices show up within a minute of opening the app.</span></div>
+    </section>
+
+    <section class="s-sec" id="sec-pool" aria-labelledby="h-pool" hidden>
+      <div class="s-head"><h2 class="s-h2" id="h-pool">Premium sharing</h2><span class="s-meta" id="pool-meta"></span></div>
+      <div class="s-card s-pool" id="pool">
+        <div id="pool-top"></div>
+        <div id="pool-leases"></div>
+        <div id="pool-how"></div>
+        <div class="s-actions" id="pool-actions"></div>
+        <p class="s-err" id="pool-err" role="alert" hidden></p>
+        <p class="sr" id="pool-status" role="status"></p>
+      </div>
+    </section>
+
+    <section class="s-sec" id="sec-play" aria-labelledby="h-play" hidden>
+      <div class="s-head"><h2 class="s-h2" id="h-play">Playback</h2><span class="s-meta" id="pb-meta">last 24 h</span></div>
+      <div class="s-tiles" id="pb-sum"></div>
+      <ul class="s-srcs" id="sources"></ul>
+      <div id="healed"></div>
+      <div id="versions"></div>
+      <div id="updates"></div>
+      <div class="s-card s-empty" id="health-empty" hidden><b>No playback reported yet.</b><span>Apps on 4.0 send anonymous start, stall and error events here.</span></div>
+    </section>
+
+    <p class="s-foot" id="foot" hidden>Refreshes every 5 seconds while this page is open.</p>
+  </main>
+
   <script>
+  (() => {
+    'use strict';
     const $ = (id) => document.getElementById(id);
-    let me = { signedIn: false };
-    let poolState = null;
-    let mineKey = null; // the shared account this browser added, if any (cookie on the Worker)
 
-    async function refresh() {
-      try {
-        const res = await fetch('/api/stats', { cache: 'no-store' });
-        if (res.status === 401) {
-          location.href = '/login?next=' + encodeURIComponent('/stats');
-          return;
-        }
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const d = await res.json();
-        $('total').textContent = d.total;
-        $('web').textContent = d.web;
-        $('apk').textContent = d.apk;
-        $('roku').textContent = d.roku;
-        $('err').textContent = '';
-        if (d.pool) { poolState = d.pool; renderPool(); }
-        renderDevices(d.devices || []);
-        renderHealth(d.playback);
-      } catch (e) {
-        $('err').textContent = 'Could not load counts.';
-      }
+    // Static icon markup only: nothing from the server is ever passed through innerHTML.
+    const SV = (body, fill) => '<svg viewBox="0 0 20 20" ' + (fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"') + '>' + body + '</svg>';
+    const ICONS = {
+      globe: SV('<circle cx="10" cy="10" r="7.5"/><path d="M2.5 10h15M10 2.5c2.2 2.3 2.2 12.7 0 15M10 2.5c-2.2 2.3-2.2 12.7 0 15"/>'),
+      phone: SV('<rect x="6" y="2" width="8" height="16" rx="2"/><path d="M9 15.5h2"/>'),
+      tablet: SV('<rect x="3.5" y="2.5" width="13" height="15" rx="2"/><path d="M9 15h2"/>'),
+      laptop: SV('<rect x="4" y="4" width="12" height="8.5" rx="1.5"/><path d="M2 15.5h16"/>'),
+      tv: SV('<rect x="2" y="3.5" width="16" height="11" rx="2"/><path d="M7 17.5h6"/>'),
+      play: '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M2.5 1.2v9.6c0 .5.5.8.9.5l7.4-4.8c.4-.3.4-.8 0-1L3.4.7c-.4-.3-.9 0-.9.5z"/></svg>',
+      heal: SV('<rect x="2.5" y="2.5" width="15" height="15" rx="4"/><path d="M10 6.5v7M6.5 10h7"/>'),
+      star: SV('<path d="M10 1.8l2.47 5.18 5.69.7-4.2 3.9 1.1 5.63L10 14.43 4.94 17.2l1.1-5.63-4.2-3.9 5.69-.7z"/>', true),
+      caret: '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 1.5L7 5 3.5 8.5"/></svg>',
+    };
+    const PLAT = { web: 'Web', apk: 'Android / Fire TV', roku: 'Roku' };
+    const HEAL_WHY = { stalls: ['repeated stall', 'repeated stalls'], 'long-stalls': ['long stall', 'long stalls'], errors: ['load error', 'load errors'] };
+    const ARM_MS = 4000;
+    const SEP = '\u00a0· '; // a " · " that never starts a line
+
+    const S = {
+      data: null, lastOk: 0, fails: 0, timer: null, inflight: false, sig: {}, errText: '',
+      me: { signedIn: false }, meLoaded: false, mineKey: null, pool: null, poolGen: 0,
+      howOpen: null, form: false, armed: null, busy: null, syncSr: '', kbdClick: false, statusTimer: null,
+    };
+
+    // ------------------------------------------------------------ helpers
+    function h(tag, cls, text) {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
     }
-
-    async function loadMe() {
-      try {
-        const res = await fetch('/api/account', { cache: 'no-store' });
-        if (res.ok) me = await res.json();
-      } catch { /* leave as is */ }
-      try {
-        const res = await fetch('/api/pool', { cache: 'no-store' });
-        if (res.ok) mineKey = (await res.json()).mine || null;
-      } catch { /* leave as is */ }
-      renderPool();
+    function icon(name, cls) {
+      const s = document.createElement('span');
+      s.className = 'i' + (cls ? ' ' + cls : '');
+      s.setAttribute('aria-hidden', 'true');
+      s.innerHTML = ICONS[name] || '';
+      return s;
     }
-
-    function ago(ms) {
-      const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    const str = (v) => (v == null ? '' : String(v));
+    const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+    // A platform this page doesn't know yet ("tizen") reads as a name ("Tizen"), not a raw id.
+    const platLabel = (p) => PLAT[p] || str(p).trim().replace(/^./, (c) => c.toUpperCase()) || 'Unknown';
+    function ago(ts) {
+      if (!ts) return '—';
+      const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
       if (s < 60) return s + 's';
       const m = Math.floor(s / 60);
-      return m < 60 ? m + 'm' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+      if (m < 60) return m + 'm';
+      const hr = Math.floor(m / 60);
+      if (hr < 24) return hr + 'h ' + (m % 60) + 'm';
+      return Math.floor(hr / 24) + 'd ' + (hr % 24) + 'h';
     }
+    function agoEl(cls, ts) {
+      const e = h('span', cls, ago(ts));
+      if (ts) e.dataset.ts = ts;
+      return e;
+    }
+    /** Points an existing "ago" text at a new time, in place (tickAgo() keeps it current). */
+    function setAgo(el, ts) {
+      if (!el) return;
+      ts = num(ts);
+      if (ts) { if (el.dataset.ts !== String(ts)) el.dataset.ts = ts; }
+      else if (el.dataset.ts) delete el.dataset.ts;
+      const t = ago(ts);
+      if (el.textContent !== t) el.textContent = t;
+    }
+    /** Unique row keys: "base", then "base#2", "base#3" for rows that would otherwise share one. */
+    function keyer() {
+      const seen = new Map();
+      return (base) => { const n = (seen.get(base) || 0) + 1; seen.set(base, n); return n > 1 ? base + '#' + n : base; };
+    }
+    /**
+     * Keyed list update for rows that refresh every few seconds. A row whose visible content (sig) is
+     * unchanged keeps its node, so a text selection or VoiceOver's place in it survives; update() then
+     * writes its times in place. Only new or changed rows are built, and a row is moved only when the
+     * order itself changed. rows: [{ key, sig, build() → li, update(li) }]
+     */
+    function syncList(ul, rows) {
+      const old = new Map();
+      for (const li of ul.children) old.set(li.dataset.row, li);
+      let at = ul.firstElementChild;
+      for (const r of rows) {
+        let li = old.get(r.key);
+        if (li && li.__sig === r.sig) old.delete(r.key);
+        else { li = r.build(); li.dataset.row = r.key; li.__sig = r.sig; }
+        r.update(li);
+        if (li === at) at = at.nextElementSibling;
+        else ul.insertBefore(li, at);
+      }
+      for (const li of old.values()) li.remove();
+    }
+    const fmtMs = (ms) => (ms == null ? '—' : ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(1) + ' s');
+    const rateCls = (r) => (r == null ? 'muted' : r >= 95 ? 'ok' : r >= 80 ? '' : 'danger');
+    function windowText(sec) {
+      sec = num(sec) || 180;
+      if (sec >= 120) return Math.round(sec / 60) + ' minutes';
+      if (sec === 60) return 'minute';
+      return sec + ' seconds';
+    }
+    function deviceIcon(d) {
+      if (d.platform !== 'web') return 'tv';
+      const n = str(d.name);
+      if (/\b(iPad|Tablet|Tab)\b/i.test(n)) return 'tablet';
+      if (/\b(iPhone|Pixel|Android|Galaxy|Moto|OnePlus)\b/i.test(n)) return 'phone';
+      if (/\b(Mac|Windows|Linux|Chromebook|PC)\b/i.test(n)) return 'laptop';
+      return 'globe';
+    }
+    /** Rebuilds a box, keeping keyboard focus on the element with the same data-key. */
+    function rebuild(box, build) {
+      const a = document.activeElement;
+      const key = a && a !== document.body && box.contains(a) ? a.dataset.key : null;
+      build();
+      if (key) {
+        const n = [...box.querySelectorAll('[data-key]')].find((x) => x.dataset.key === key);
+        if (n) n.focus({ preventScroll: true });
+      }
+    }
+    /** Runs fn only when the slice differs from the last time (most 5 s polls change nothing). */
+    function changed(name, slice) {
+      const sig = JSON.stringify(slice);
+      if (S.sig[name] === sig) return false;
+      S.sig[name] = sig;
+      return true;
+    }
+    function meter(pct, cls) {
+      const m = h('div', 's-meter');
+      m.setAttribute('aria-hidden', 'true');
+      const f = h('i', cls || '');
+      f.style.width = Math.max(0, Math.min(100, num(pct))) + '%';
+      m.appendChild(f);
+      return m;
+    }
+    function tag(text, cls) { return h('span', 's-tag' + (cls ? ' ' + cls : ''), text); }
+    function kick(text) { return h('div', 's-kick', text); }
 
-    const PLATFORM = { web: ['🌐', 'Web'], apk: ['📱', 'Android / Fire TV'], roku: ['📺', 'Roku'] };
-
-    // One line per device that pinged recently: what it calls itself, its platform, and what it
-    // is watching when it holds a shared-account lease (joined by the server).
-    function renderDevices(devices) {
-      const ul = $('devices');
+    // ------------------------------------------------------------ hero
+    function renderHero() {
+      const d = S.data;
+      const devs = Array.isArray(d.devices) ? d.devices : [];
+      const total = num(d.total);
+      const watching = devs.filter((x) => x && x.watching).length;
+      if (!changed('hero', [total, num(d.web), num(d.apk), num(d.roku), watching, d.windowSec])) return;
+      $('lead').textContent = 'Devices with Styx Sports open in the last ' + windowText(d.windowSec) + '.';
+      $('total').textContent = String(total);
+      $('hero-sr').textContent = plural(total, 'device', 'devices') + ' online now';
+      const w = $('hero-w');
+      w.replaceChildren();
+      if (watching > 0) w.append(icon('star', 'gold'), document.createTextNode(watching + ' watching premium or Live TV'));
+      else if (total > 0) w.textContent = 'Nobody on premium right now';
+      const ul = $('plats');
       ul.replaceChildren();
-      $('devices-empty').classList.toggle('hidden', devices.length > 0);
-      const order = { roku: 0, apk: 1, web: 2 };
-      devices.sort((a, b) => (order[a.platform] - order[b.platform]) || (b.lastSeen - a.lastSeen));
-      for (const d of devices) {
-        const [icon, plat] = PLATFORM[d.platform] || ['·', d.platform];
-        const li = document.createElement('li');
-        const ic = document.createElement('span'); ic.className = 'dev-icon'; ic.textContent = icon;
-        const name = document.createElement('span'); name.className = 'dev-name';
-        if (d.name) name.textContent = d.name;
-        else name.innerHTML = '<i>Unnamed device</i>';
-        const lease = d.watching;
-        if (lease) {
-          const w = document.createElement('i');
-          w.textContent = ' · ★ ' + (lease.kind === 'tv' ? '📺 ' : '') + (lease.label || (lease.kind === 'tv' ? 'Live TV' : 'a game'));
-          name.appendChild(w);
-        }
-        const pl = document.createElement('span'); pl.className = 'dev-plat' + (lease ? ' premium' : '');
-        pl.textContent = lease ? plat + ' · ' + (lease.account || 'own account') : plat;
-        const ago_ = document.createElement('span'); ago_.className = 'dev-ago'; ago_.textContent = ago(d.lastSeen);
-        li.append(ic, name, pl, ago_);
+      for (const [key, label, ic] of [['web', 'Web', 'globe'], ['apk', 'Android / Fire TV', 'tv'], ['roku', 'Roku', 'tv']]) {
+        const n = num(d[key]);
+        const li = h('li', n ? '' : 'zero');
+        li.setAttribute('aria-label', label + ': ' + n + ' of ' + total);
+        const lb = h('span', 's-pl', label); lb.setAttribute('aria-hidden', 'true');
+        const c = h('span', 's-pn', String(n)); c.setAttribute('aria-hidden', 'true');
+        li.append(icon(ic), lb, c, meter(total ? (n / total) * 100 : 0));
+        ul.appendChild(li);
+      }
+    }
+    function heroSkeleton() {
+      const ul = $('plats');
+      for (const [label, ic] of [['Web', 'globe'], ['Android / Fire TV', 'tv'], ['Roku', 'tv']]) {
+        const li = h('li', 'zero');
+        li.append(icon(ic), h('span', 's-pl', label), h('span', 's-pn', '—'), meter(0));
         ul.appendChild(li);
       }
     }
 
-    // Telemetry from the apps (4.0): per CDN family, then who is on which version.
-    function renderHealth(h) {
-      const table = $('health'), body = table.querySelector('tbody');
-      const cdns = (h && h.cdns) || [];
-      table.classList.toggle('hidden', cdns.length === 0);
-      $('health-empty').classList.toggle('hidden', cdns.length > 0);
-      body.replaceChildren();
-      const td = (text, cls) => { const c = document.createElement('td'); c.textContent = text; if (cls) c.className = cls; return c; };
-      const fmtMs = (ms) => (ms == null ? '—' : ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s');
-      for (const c of cdns) {
-        const tr = document.createElement('tr');
-        const rate = c.successRate;
-        tr.append(
-          td(c.cdn + (c.premium ? ' ★' : '')),
-          td(String(c.starts)),
-          td(rate == null ? '—' : rate + '%', rate == null ? '' : rate >= 95 ? 'good' : rate < 80 ? 'bad' : ''),
-          // cold start time, then the pre-resolved one when there were any ("2.9 s · 0.8 s pre")
-          td(fmtMs(c.medianTtffMs) + (c.preStarts ? ' · ' + fmtMs(c.medianTtffPreMs) + ' pre' : '')),
-          td(c.stallsPerViewerHour == null ? (c.stalls ? c.stalls + ' total' : '—') : String(c.stallsPerViewerHour), c.stallsPerViewerHour > 3 ? 'bad' : ''),
-          td(c.viewerHours ? c.viewerHours + ' h' : '—'),
-        );
-        body.appendChild(tr);
-      }
-      // Self-healing (4.0): streams the players left on their own because they degraded.
-      const healed = (h && h.healed) || {};
-      const nHealed = Object.values(healed).reduce((a, b) => a + b, 0);
-      const note = $('healed');
-      note.classList.toggle('hidden', !nHealed);
-      if (nHealed) {
-        const why = { stalls: 'repeated stalls', 'long-stalls': 'long stalls', errors: 'load errors' };
-        note.textContent = 'Self-healed ' + nHealed + (nHealed === 1 ? ' stream' : ' streams') + ' · '
-          + Object.entries(healed).map(([k, n]) => n + ' for ' + (why[k] || k)).join(' · ');
-      }
-      const ul = $('versions');
-      ul.replaceChildren();
-      for (const p of (h && h.platforms) || []) {
-        const li = document.createElement('li');
-        const [icon, plat] = PLATFORM[p.platform] || ['·', p.platform];
-        const ic = document.createElement('span'); ic.className = 'dev-icon'; ic.textContent = icon;
-        const name = document.createElement('span'); name.className = 'dev-name';
-        name.textContent = plat + ' ' + p.version + (p.network === 'relay' ? ' · via relay' : '');
-        const n = document.createElement('span'); n.className = 'dev-plat';
-        n.textContent = p.devices + (p.devices === 1 ? ' device' : ' devices') + ' · ' + p.starts + ' starts';
-        li.append(ic, name, n);
-        ul.appendChild(li);
-      }
-    }
-
-    function renderPool() {
-      const p = poolState;
-      if (!p) return;
-      const accounts = p.accounts || [];
-      $('pool-used').textContent = p.used;
-      $('pool-max').textContent = 'of ' + p.max + ' connections in use';
-      $('pool-shared').textContent = accounts.length
-        ? '· ' + accounts.length + (accounts.length === 1 ? ' account shared' : ' accounts shared') + (p.sharedIptv ? ' · Live TV available' : '')
-        : '· no account shared yet';
-      $('pool-shared').className = accounts.length ? 'ok' : '';
-
-      // One card per shared account: who it is, what it offers, its 5 slots, and Remove.
-      const box = $('accounts');
-      box.replaceChildren();
-      for (const a of accounts) {
-        const card = document.createElement('div');
-        card.className = 'shacct';
-        const head = document.createElement('div');
-        head.className = 'shacct-head';
-        const name = document.createElement('span'); name.className = 'shacct-name'; name.textContent = a.label;
-        head.appendChild(name);
-        if (a.key === mineKey) { const m = document.createElement('span'); m.className = 'mine'; m.textContent = 'yours'; head.appendChild(m); }
-        const meta = document.createElement('span'); meta.className = 'shacct-meta';
-        meta.textContent = 'shared ' + ago(a.sharedAt) + ' ago' + (a.iptv ? ' · Live TV' : ' · no Live TV');
-        if (a.premium === false) { const w = document.createElement('span'); w.className = 'warn'; w.textContent = ' · premium locked'; meta.appendChild(w); }
-        const n = document.createElement('span'); n.className = 'shacct-n'; n.textContent = a.used + ' / ' + a.max;
-        const x = document.createElement('button'); x.className = 'shacct-x'; x.textContent = 'Remove';
-        x.onclick = () => {
-          if (confirm('Stop sharing "' + a.label + '"? Anyone borrowing it drops to free servers.')) poolAction('remove', { key: a.key });
+    // ------------------------------------------------------------ devices
+    // Every device pings about once a minute, so lastSeen changes on most polls. It is written into the
+    // existing rows in place (never a rebuild), and the order uses only what a row shows, so a ping
+    // never moves a row: watching first, then roku → apk → web, then by name.
+    const PLAT_ORDER = { roku: 0, apk: 1, web: 2 };
+    const byName = (a, b) => {
+      const x = str(a.name).trim(), y = str(b.name).trim();
+      return (!x - !y) || x.localeCompare(y, undefined, { numeric: true, sensitivity: 'base' });
+    };
+    function renderDevices() {
+      const list = (Array.isArray(S.data.devices) ? S.data.devices : []).filter((x) => x && typeof x === 'object');
+      const devs = list.slice().sort((a, b) =>
+        (!!b.watching - !!a.watching)
+        || ((PLAT_ORDER[a.platform] ?? 3) - (PLAT_ORDER[b.platform] ?? 3))
+        || byName(a, b));
+      const meta = devs.length ? devs.length + ' online' : '';
+      if ($('dev-meta').textContent !== meta) $('dev-meta').textContent = meta;
+      $('devices').hidden = devs.length === 0;
+      $('devices-empty').hidden = devs.length > 0;
+      const key = keyer();
+      syncList($('devices'), devs.map((d) => {
+        const w = d.watching && typeof d.watching === 'object' ? d.watching : null;
+        const name = str(d.name).trim();
+        return {
+          key: key(str(d.platform) + '|' + name),
+          sig: JSON.stringify([name, str(d.platform), w && [w.kind === 'tv', str(w.label), str(w.account)]]),
+          build: () => buildDevice(d, name, w),
+          update: (li) => setAgo(li.querySelector('.s-ago'), d.lastSeen),
         };
-        head.append(meta, n, x);
-        const slots = document.createElement('div'); slots.className = 'slots';
-        for (let i = 0; i < a.max; i++) {
-          const s = document.createElement('div');
-          s.className = 'slot' + (i < a.used ? ' on' : '');
-          slots.appendChild(s);
+      }));
+    }
+    function buildDevice(d, name, w) {
+      const li = h('li');
+      const ic = h('span', 's-ic'); ic.appendChild(icon(deviceIcon(d)));
+      const tx = h('div', 's-tx');
+      tx.appendChild(h('span', 's-nm' + (name ? '' : ' unnamed'), name || 'Unnamed device'));
+      const sub = h('span', 's-sub', platLabel(d.platform));
+      if (w) {
+        const shared = !!str(w.account);
+        const line = h('span', 's-w');
+        line.append(icon(w.kind === 'tv' ? 'tv' : 'play', shared ? 'gold' : ''), document.createTextNode(str(w.label) || (w.kind === 'tv' ? 'Live TV' : 'a game')));
+        tx.appendChild(line);
+        sub.append(SEP);
+        if (shared) sub.appendChild(h('span', 'gold', str(w.account)));
+        else sub.append('own account');
+      }
+      tx.appendChild(sub);
+      li.append(ic, tx, h('span', 's-ago'));
+      return li;
+    }
+
+    // ------------------------------------------------------------ premium sharing
+    function setPoolErr(text) {
+      const p = $('pool-err');
+      p.textContent = text || '';
+      p.hidden = !text;
+    }
+    /** Two-step confirm and in-flight labels, from S.armed / S.busy (survives rebuilds). */
+    function paintButtons() {
+      for (const b of document.querySelectorAll('#pool button[data-key]')) {
+        const k = b.dataset.key;
+        if (!b.dataset.label) continue;
+        const busy = S.busy === k;
+        const armed = !busy && !!S.armed && S.armed.key === k;
+        // aria-disabled, not disabled: a disabled button drops keyboard / VoiceOver focus to the body.
+        // The click handlers ignore clicks while S.busy.
+        if (busy) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
+        const text = busy ? b.dataset.busy : armed ? b.dataset.armed : b.dataset.label;
+        if (b.textContent !== text) b.textContent = text;
+        b.classList.toggle('armed', armed);
+        const w = [...document.querySelectorAll('#pool [data-warn]')].find((x) => x.dataset.warn === k);
+        if (w) { w.classList.toggle('on', armed); w.parentElement.classList.toggle('armed', armed); }
+      }
+    }
+    function disarm() {
+      if (S.armed) clearTimeout(S.armed.timer);
+      S.armed = null;
+    }
+    function confirmButton(key, cls, label, armedLabel, busyLabel, warn, run) {
+      const b = h('button', 's-b ' + cls, label);
+      b.type = 'button';
+      b.dataset.key = key;
+      b.dataset.label = label; b.dataset.armed = armedLabel; b.dataset.busy = busyLabel;
+      b.setAttribute('aria-live', 'polite');
+      b.addEventListener('click', (e) => {
+        if (S.busy) return;
+        if (S.armed && S.armed.key === key) {
+          disarm();
+          // Enter / Space, or a screen reader's activate, clicks with detail 0.
+          S.kbdClick = e.detail === 0;
+          run(key);
+          return;
         }
-        card.append(head, slots);
-        box.appendChild(card);
+        disarm();
+        S.armed = { key, timer: setTimeout(() => { S.armed = null; paintButtons(); }, ARM_MS) };
+        paintButtons();
+      });
+      const w = h('p', 's-warn', warn);
+      w.dataset.warn = key;
+      return [b, w];
+    }
+    function slots(used, max, cls) {
+      const box = h('div', 's-slots' + (cls ? ' ' + cls : ''));
+      box.setAttribute('aria-hidden', 'true');
+      if (max > 12) {
+        box.classList.add('one');
+        const t = h('i'); const f = h('i');
+        f.style.width = (max ? Math.min(100, (used / max) * 100) : 0) + '%';
+        t.appendChild(f); box.appendChild(t);
+      } else {
+        for (let i = 0; i < max; i++) box.appendChild(h('i', i < used ? 'on' : ''));
+      }
+      return box;
+    }
+    function renderPool() {
+      const p = S.pool;
+      if (!S.data && !p) return;
+      const accounts = p && Array.isArray(p.accounts) ? p.accounts.filter((a) => a && typeof a === 'object') : [];
+      const leases = p && Array.isArray(p.leases) ? p.leases.filter((l) => l && typeof l === 'object') : [];
+      const used = num(p && p.used), max = num(p && p.max);
+
+      $('pool').classList.toggle('none', !accounts.length);
+      const meta = $('pool-meta');
+      if (!p) { meta.textContent = ''; meta.className = 's-meta'; }
+      else if (!accounts.length) { meta.textContent = 'Nothing shared'; meta.className = 's-meta'; }
+      else { meta.textContent = used + ' of ' + max + ' in use'; meta.className = 's-meta' + (used > 0 ? ' gold' : ''); }
+
+      // capacity + one card per shared account
+      if (changed('pool-top', [!!p, S.meLoaded, accounts, used, max, S.mineKey])) {
+        const box = $('pool-top');
+        rebuild(box, () => {
+          box.replaceChildren();
+          if (!p) { box.appendChild(h('b', 's-none', S.meLoaded ? 'Sharing status unavailable.' : 'Loading…')); return; }
+          if (!accounts.length) { box.appendChild(h('b', 's-none', 'Nothing shared yet.')); return; }
+          const cap = h('div', 's-cap');
+          cap.append(h('b', '', String(used)), h('span', '', 'of ' + max + ' connections in use'));
+          box.append(cap, slots(used, max));
+          for (const a of accounts) {
+            const card = h('div', 's-acct');
+            const head = h('div', 's-acct-h');
+            head.appendChild(h('b', '', str(a.label) || 'Shared account'));
+            if (S.mineKey && a.key === S.mineKey) head.appendChild(h('span', 's-yours', 'yours'));
+            head.append(h('span', 's-sp'), h('span', 's-un', num(a.used) + ' / ' + num(a.max)));
+            // parts never break inside; a line breaks after a " ·"
+            const m = h('div', 's-acct-m');
+            const shared = h('span', 's-nw');
+            shared.append('Shared ', agoEl('', num(a.sharedAt)), ' ago');
+            const bits = [shared, h('span', 's-nw', a.iptv ? 'Live TV' : 'No Live TV')];
+            if (a.premium === true) bits.push(h('span', 's-nw', 'Premium'));
+            else if (a.premium === false) bits.push(h('span', 's-nw danger', 'Premium locked'));
+            bits.forEach((b, i) => { if (i) m.append(SEP); m.appendChild(b); });
+            const [x, warn] = confirmButton('remove:' + str(a.key), 's-small s-danger', 'Remove', 'Tap again to remove', 'Removing…',
+              'Anyone borrowing it drops to free servers.', () => poolAction('remove', { key: a.key }, 'remove:' + str(a.key)));
+            const mw = h('div', 's-acct-mw');
+            mw.append(m, warn);
+            card.append(head, mw);
+            // With one account the capacity bar above already is its slots.
+            if (accounts.length > 1) card.appendChild(slots(num(a.used), num(a.max)));
+            const row = h('div', 's-acct-b');
+            row.appendChild(x);
+            card.appendChild(row);
+            box.appendChild(card);
+          }
+          paintButtons();
+        });
       }
 
-      const ul = $('leases');
-      ul.replaceChildren();
-      for (const l of p.leases) {
-        const li = document.createElement('li');
-        const a = document.createElement('span');
-        a.textContent = (l.kind === 'tv' ? '📺 ' : '') + (l.label || (l.kind === 'tv' ? 'Live TV' : 'a game'));
-        const dev = document.createElement('span');
-        dev.className = 'lease-dev';
-        // pre-warm: the card has focus and the stream is resolved ahead of OK; dropped within a minute unless played
-        dev.textContent = (l.prewarm ? ' · pre-warm' : '') + (l.device ? ' · ' + l.device : '') + ' · ' + (l.account ? l.accountLabel : 'own account');
-        a.appendChild(dev);
-        const b = document.createElement('span');
-        b.textContent = (PLATFORM[l.platform] ? PLATFORM[l.platform][1] : l.platform) + ' · ' + ago(l.since);
-        li.append(a, b);
-        ul.appendChild(li);
+      // who holds a connection right now. Every lease heartbeats, so lastSeen (the "quiet" flag) is
+      // written into the existing rows in place; a row is rebuilt only when what it says changes.
+      // The server lists leases oldest first (by since), which a heartbeat never changes.
+      {
+        const box = $('pool-leases');
+        let ul = box.querySelector('ul');
+        if (!leases.length) { if (box.firstChild) box.replaceChildren(); }
+        else {
+          if (!ul) { ul = h('ul', 's-list s-inset'); box.replaceChildren(kick('In use now'), ul); }
+          const key = keyer();
+          syncList(ul, leases.map((l) => ({
+            key: key(num(l.since) + '|' + str(l.kind) + '|' + str(l.device)),
+            sig: JSON.stringify([l.kind === 'tv', str(l.label), !!l.prewarm, str(l.device), !!l.account, str(l.accountLabel)]),
+            build: () => buildLease(l),
+            update: (li) => {
+              setAgo(li.querySelector('.s-ago'), l.since);
+              const q = li.querySelector('.s-quiet');
+              const seen = String(num(l.lastSeen));
+              if (q && q.dataset.seen !== seen) q.dataset.seen = seen;
+            },
+          })));
+          paintQuiet();
+        }
       }
-      $('pool-note').textContent = accounts.length
-        ? 'Every shared account adds ' + (accounts[0].max) + ' connections. Viewers without their own account borrow one while a premium stream or Live TV plays (accounts fill in the order they were shared); a lease is dropped ' + p.ttlSec + ' s after the player closes. When all ' + p.max + ' are taken, everyone else gets the free servers. Viewers signed in with their own account are listed too but only take a slot when it is one of these accounts.'
-        : 'Sign in with a StreamEast premium account on the home page (Sign in button), come back here and press Share. Everyone using the app then gets its premium servers and Live TV, 5 at a time per shared account; the rest fall back to free streams. Share more accounts to add capacity.';
-      const actions = $('pool-actions');
-      actions.replaceChildren();
-      const btn = (label, primary, fn) => {
-        const b = document.createElement('button');
-        b.className = 'btn' + (primary ? ' primary' : '');
-        b.textContent = label;
-        b.onclick = fn;
-        actions.appendChild(b);
-        return b;
-      };
-      if (me.signedIn) {
-        const already = mineKey && accounts.some((a) => a.key === mineKey);
-        btn(already ? 'Update my shared session' : accounts.length ? 'Share my account too' : 'Share my account with everyone', true, () => {
-          let label = '';
-          if (!already) {
-            label = prompt('Name for this account on the stats page (whose it is):', 'Account ' + (accounts.length + 1));
-            if (label === null) return;
-          }
-          poolAction('share', { label });
+
+      // how sharing works (closed once accounts exist, open when none do)
+      const per = accounts.length ? num(accounts[0].max) : 5;
+      if (p && changed('pool-how', [accounts.length > 0, per, num(p.ttlSec), max])) {
+        if (S.howOpen === null) S.howOpen = accounts.length === 0;
+        const box = $('pool-how');
+        rebuild(box, () => {
+          box.replaceChildren();
+          const det = h('details', 's-how');
+          det.open = S.howOpen;
+          const sum = h('summary');
+          sum.dataset.key = 'how';
+          sum.append(icon('caret'), 'How sharing works');
+          const text = accounts.length
+            ? 'Every shared account adds ' + per + ' connections. Viewers without their own account borrow one while a premium stream or Live TV plays (accounts fill in the order they were shared); a lease is dropped ' + num(p.ttlSec) + ' s after the player closes. When all ' + max + ' are taken, everyone else gets the free servers. Viewers signed in with their own account are listed too but only take a slot when it is one of these accounts.'
+            : 'Sign in with a StreamEast premium account on the home page (Sign in button), come back here and press Share. Everyone using the app then gets its premium servers and Live TV, 5 at a time per shared account; the rest fall back to free streams. Share more accounts to add capacity.';
+          det.append(sum, h('p', '', text));
+          det.addEventListener('toggle', () => { S.howOpen = det.open; });
+          box.appendChild(det);
         });
-      } else {
-        const a = document.createElement('a');
-        a.className = 'btn primary';
-        a.href = '/';
-        a.textContent = 'Sign in on the home page to share an account';
-        actions.appendChild(a);
-      }
-      if (accounts.length > 1) btn('Stop sharing all', false, () => {
-        if (confirm('Stop sharing every account? Everyone drops to free servers immediately.')) poolAction('clear');
+      } else if (!p) { $('pool-how').replaceChildren(); S.sig['pool-how'] = ''; }
+
+      renderActions(accounts);
+    }
+    function buildLease(l) {
+      const li = h('li');
+      const ic = h('span', 's-lic' + (l.account ? ' gold' : ''));
+      ic.appendChild(icon(l.kind === 'tv' ? 'tv' : 'play'));
+      const tx = h('div', 's-tx');
+      tx.appendChild(h('span', 's-nm', str(l.label) || (l.kind === 'tv' ? 'Live TV' : 'a game')));
+      const parts = [];
+      if (l.prewarm) parts.push('pre-warm');
+      if (str(l.device)) parts.push(str(l.device));
+      parts.push(l.account ? (str(l.accountLabel) || 'shared account') : 'own account · no slot');
+      // "quiet 35s": no heartbeat for a while, about to drop (leases expire ttlSec after the last one).
+      // First on the line so a long device name never clamps it away.
+      const sub = h('span', 's-sub');
+      sub.append(h('span', 'amber s-quiet'), parts.join(SEP));
+      tx.appendChild(sub);
+      li.append(ic, tx, h('span', 's-ago'));
+      return li;
+    }
+    function renderActions(accounts) {
+      const box = $('pool-actions');
+      if (!S.meLoaded) { box.replaceChildren(); return; }
+      if (S.form) return; // never rebuild under the share form
+      const already = !!S.mineKey && accounts.some((a) => a.key === S.mineKey);
+      if (!changed('pool-actions', [!!S.me.signedIn, already, accounts.length > 0, accounts.length > 1])) return;
+      rebuild(box, () => {
+        box.replaceChildren();
+        if (S.me.signedIn) {
+          const b = h('button', 's-b s-primary');
+          b.type = 'button';
+          b.dataset.key = 'share';
+          b.dataset.label = already ? 'Update my shared session' : accounts.length ? 'Share my account too' : 'Share my account with everyone';
+          b.dataset.busy = already ? 'Updating…' : 'Sharing…';
+          b.textContent = b.dataset.label;
+          b.addEventListener('click', () => {
+            if (S.busy) return;
+            if (already) poolAction('share', { label: '' }, 'share');
+            else openShareForm(accounts.length);
+          });
+          box.appendChild(b);
+        } else {
+          // Home has the Sign in button (top bar); a fresh Home load opens at the top where it is.
+          // Short enough for one line at 320.
+          const a = h('a', 's-b s-ghost', 'Sign in on Home to share');
+          a.href = '/';
+          a.dataset.key = 'signin';
+          box.appendChild(a);
+        }
+        if (accounts.length > 1) {
+          // the warning's line is kept above the button: it sets this destructive button apart from
+          // the share button while disarmed, and reads before it once armed
+          const wrap = h('div', 's-confirm');
+          const [b, w] = confirmButton('clear', 's-ghost s-danger', 'Stop sharing all', 'Tap again to stop all', 'Stopping…',
+            'Everyone drops to free servers immediately.', () => poolAction('clear', null, 'clear'));
+          wrap.append(w, b);
+          box.appendChild(wrap);
+        }
+        paintButtons();
       });
     }
-
-    async function poolAction(what, body) {
-      $('pool-err').textContent = '';
+    function openShareForm(n) {
+      disarm();
+      S.form = true;
+      setPoolErr('');
+      const box = $('pool-actions');
+      const f = h('form', 's-share');
+      f.noValidate = true;
+      const lab = h('label', '', 'Name on this page');
+      lab.htmlFor = 'share-label';
+      const inp = h('input');
+      Object.assign(inp, { id: 'share-label', maxLength: 40, autocomplete: 'off', value: 'Account ' + (n + 1) });
+      inp.setAttribute('enterkeyhint', 'done');
+      inp.setAttribute('autocapitalize', 'words');
+      const row = h('div', 's-row2');
+      const go = h('button', 's-b s-primary', 'Share'); go.type = 'submit';
+      const no = h('button', 's-b s-ghost', 'Cancel'); no.type = 'button';
+      row.append(go, no);
+      f.append(lab, inp, row);
+      const close = (focus) => {
+        S.form = false;
+        S.sig['pool-actions'] = '';
+        renderPool();
+        if (focus) { const b = box.querySelector('[data-key="share"]'); if (b) b.focus(); }
+      };
+      no.addEventListener('click', () => close(true));
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (go.disabled) return;
+        go.disabled = true; no.disabled = true; go.textContent = 'Sharing…';
+        const ok = await poolAction('share', { label: inp.value.trim().slice(0, 40) }, null);
+        if (ok) close(true);
+        else {
+          go.disabled = false; no.disabled = false; go.textContent = 'Share';
+          if (document.activeElement === document.body) inp.focus(); // a disabled Share button dropped it
+        }
+      });
+      box.replaceChildren(f);
+      inp.focus();
+      inp.select();
+    }
+    const DONE = { remove: 'Account removed', clear: 'Sharing stopped', share: 'Account shared' };
+    function announce(text) {
+      const s = $('pool-status');
+      clearTimeout(S.statusTimer);
+      s.textContent = '';
+      // set on the next frame so the same message twice in a row is still read
+      requestAnimationFrame(() => { s.textContent = text; });
+      S.statusTimer = setTimeout(() => { s.textContent = ''; }, 6000);
+    }
+    /** After an action removed the focused control: the next account's Remove (or the one before), then
+        the first action (share / sign in), then the section heading. */
+    function refocus(what, removedKey, order) {
+      const pick = (k) => [...document.querySelectorAll('#pool [data-key]')].find((x) => x.dataset.key === k);
+      let t = null;
+      if (what === 'remove') {
+        const i = order.indexOf(removedKey);
+        for (const k of [...order.slice(i + 1), ...order.slice(0, Math.max(0, i)).reverse()]) if ((t = pick(k))) break;
+      }
+      if (!t) t = $('pool-actions').querySelector('[data-key], button, a[href]');
+      if (!t) { t = $('h-pool'); t.tabIndex = -1; }
+      t.focus({ preventScroll: true });
+      // scroll only when it is out of sight (under the sticky bar or below the screen)
+      const r = t.getBoundingClientRect();
+      if (r.top < document.querySelector('.s-bar').getBoundingClientRect().bottom || r.bottom > innerHeight) t.scrollIntoView({ block: 'center' });
+    }
+    async function poolAction(what, body, key) {
+      setPoolErr('');
+      // Whether focus is on the control that ran this (keyboard, VoiceOver, or a click that focused
+      // it): if the action takes that control away, focus moves on instead of dropping to the body.
+      const ae = document.activeElement;
+      const hadFocus = !!key && (S.kbdClick || (!!ae && ae.dataset && ae.dataset.key === key));
+      S.kbdClick = false;
+      const order = (S.pool && Array.isArray(S.pool.accounts) ? S.pool.accounts : []).filter((a) => a && typeof a === 'object').map((a) => 'remove:' + str(a.key));
+      const prevLeases = S.pool && Array.isArray(S.pool.leases) ? S.pool.leases : [];
+      const updating = what === 'share' && !!S.mineKey && order.includes('remove:' + S.mineKey);
+      S.busy = key || what;
+      paintButtons();
+      let ok = false;
       try {
         const res = await fetch('/api/pool/' + what, {
           method: 'POST', cache: 'no-store',
           headers: body ? { 'Content-Type': 'application/json' } : {},
           body: body ? JSON.stringify(body) : undefined,
         });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error || ('HTTP ' + res.status));
-        if (d.mine !== undefined) mineKey = d.mine;
-        poolState = d;
-        renderPool();
+        let d = {};
+        try { d = await res.json(); } catch { /* not JSON */ }
+        if (!res.ok) throw new Error((d && d.error) || 'HTTP ' + res.status);
+        if (d && d.mine !== undefined) S.mineKey = d.mine || null;
+        if (d && Array.isArray(d.accounts)) {
+          // The reply's leases carry no device names (only /api/stats has them): keep the ones already
+          // shown so the "In use now" rows don't lose them until the next poll.
+          if (Array.isArray(d.leases)) {
+            for (const l of d.leases) {
+              if (!l || typeof l !== 'object' || l.device != null) continue;
+              const was = prevLeases.find((o) => o && o.since === l.since && o.kind === l.kind);
+              if (was && was.device != null) l.device = was.device;
+            }
+          }
+          S.pool = d;
+        } else if (d && d.error) throw new Error(d.error);
+        ok = true;
       } catch (e) {
-        $('pool-err').textContent = e.message;
+        setPoolErr(e && e.message ? e.message : 'Something went wrong.');
+      }
+      S.busy = null;
+      // A /api/stats poll already on its way may have read the pool before this action ran; the bump
+      // tells it to keep this reply's pool and poll again as soon as it lands (load() below is a no-op then).
+      if (ok) S.poolGen++;
+      renderPool();
+      paintButtons();
+      if (hadFocus) {
+        const now = document.activeElement;
+        const lost = !now || now === document.body || !now.isConnected;
+        const same = [...document.querySelectorAll('#pool [data-key]')].find((x) => x.dataset.key === key);
+        if (same && lost) same.focus({ preventScroll: true });
+        else if (lost) refocus(what, key, order);
+      }
+      if (ok && DONE[what]) announce(updating ? 'Shared session updated' : DONE[what]);
+      if (ok) load(); // the reply has no device names; the next /api/stats does
+      return ok;
+    }
+    function paintQuiet() {
+      const now = Date.now();
+      for (const q of document.querySelectorAll('.s-quiet[data-seen]')) {
+        const seen = +q.dataset.seen;
+        const s = seen ? Math.round((now - seen) / 1000) : 0;
+        const text = s > 30 ? 'quiet ' + ago(seen) + SEP : '';
+        if (q.textContent !== text) q.textContent = text;
       }
     }
 
+    // ------------------------------------------------------------ playback
+    function renderPlayback() {
+      const pb = S.data.playback && typeof S.data.playback === 'object' ? S.data.playback : null;
+      if (!changed('playback', pb)) return;
+      const cdns = pb && Array.isArray(pb.cdns) ? pb.cdns.filter((c) => c && typeof c === 'object') : [];
+      $('pb-meta').textContent = 'last ' + (num(pb && pb.hours) || 24) + ' h';
+      const empty = cdns.length === 0;
+      $('health-empty').hidden = !empty;
+      for (const id of ['pb-sum', 'sources', 'healed', 'versions', 'updates']) { $(id).replaceChildren(); $(id).hidden = empty; }
+      if (empty) return;
+
+      // summary: starts, share of attempts that played (starts / (starts + errors)), hours watched
+      let starts = 0, attempts = 0, hours = 0;
+      for (const c of cdns) { starts += num(c.starts); attempts += num(c.starts) + num(c.errors); hours += num(c.viewerHours); }
+      const played = attempts ? Math.round((100 * starts) / attempts) : null;
+      const compact = (n) => (n >= 100000 ? Math.round(n / 1000) + 'k' : n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(n));
+      const tile = (value, label, cls) => {
+        const t = h('div', 's-card s-tile');
+        t.append(h('b', cls || '', value), h('span', '', label));
+        return t;
+      };
+      $('pb-sum').append(
+        tile(compact(starts), 'starts'),
+        tile(played == null ? '—' : played + '%', 'played', rateCls(played)),
+        tile(hours ? (hours >= 1000 ? compact(Math.round(hours)) : (Math.round(hours * 10) / 10).toFixed(1)) + ' h' : '—', 'watched'),
+      );
+
+      // one card per stream source
+      const ul = $('sources');
+      for (const c of cdns) {
+        const cdn = str(c.cdn) || 'unknown';
+        const relay = / via relay$/.test(cdn);
+        const name = relay ? cdn.replace(/ via relay$/, '') : cdn;
+        const rate = typeof c.successRate === 'number' ? c.successRate : null;
+        const rc = rateCls(rate);
+        const li = h('li', 's-card s-src');
+        // successRate is starts / (starts + errors): a share of attempts, not of starts.
+        const st0 = num(c.starts), er0 = num(c.errors);
+        li.setAttribute('aria-label', name + (relay ? ' via relay' : '') + ': '
+          + (rate == null ? 'no attempts yet'
+            : rate + ' percent of ' + plural(st0 + er0, 'attempt', 'attempts') + ' played, ' + plural(st0, 'start', 'starts') + ', ' + plural(er0, 'error', 'errors'))
+          + (c.medianTtffMs != null ? ', start time ' + (num(c.medianTtffMs) / 1000).toFixed(1) + ' seconds' : ''));
+        const head = h('div', 's-src-h');
+        const nb = h('div', 's-src-n');
+        const title = h('b');
+        if (cdn === 'premium') title.appendChild(icon('star'));
+        title.appendChild(h('span', '', name));
+        nb.appendChild(title);
+        const tags = [];
+        if (relay) tags.push(tag('via relay'));
+        if (num(c.premium) > 0 && cdn !== 'premium') { const t = tag('', 'prem'); t.append(icon('star'), num(c.premium) + ' premium'); tags.push(t); }
+        if (tags.length) { const tg = h('div', 's-tags'); tg.append(...tags); nb.appendChild(tg); }
+        const rt = h('div', 's-rate');
+        rt.append(h('b', rc, rate == null ? '—' : rate + '%'), h('span', '', 'played'));
+        head.append(nb, rt);
+        const dl = h('dl', 's-stats');
+        const cell = (label, value, cls, sub) => {
+          const d = h('div');
+          const dd = h('dd', cls || '', value);
+          if (sub) dd.appendChild(h('small', '', sub));
+          d.append(h('dt', '', label), dd);
+          dl.appendChild(d);
+        };
+        const st = num(c.starts), er = num(c.errors);
+        cell('Starts', String(st));
+        cell('Errors', String(er), er && (!st || er / st > 0.2) ? 'danger' : '');
+        cell('Start time', fmtMs(c.medianTtffMs), '', num(c.preStarts) ? fmtMs(c.medianTtffPreMs) + ' pre-loaded' : '');
+        if (typeof c.stallsPerViewerHour === 'number') cell('Stalls', String(c.stallsPerViewerHour), c.stallsPerViewerHour > 3 ? 'danger' : '', 'per viewer-hour');
+        else cell('Stalls', num(c.stalls) ? String(num(c.stalls)) : '—', '', 'too little viewing');
+        cell('Watched', num(c.viewerHours) ? num(c.viewerHours) + ' h' : '—');
+        li.append(head, meter(rate == null ? 0 : rate, rc), dl);
+        ul.appendChild(li);
+      }
+
+      // streams the players left on their own because they degraded
+      const healed = pb.healed && typeof pb.healed === 'object' ? pb.healed : {};
+      const hv = Object.entries(healed).filter(([, n]) => num(n) > 0);
+      const nHealed = hv.reduce((a, [, n]) => a + num(n), 0);
+      if (nHealed) {
+        const card = h('div', 's-card s-heal');
+        const body = h('div');
+        body.appendChild(h('b', '', 'Self-healed ' + plural(nHealed, 'stream', 'streams')));
+        const chips = h('div', 's-chips');
+        for (const [k, n] of hv) chips.appendChild(h('span', '', HEAL_WHY[k] ? plural(num(n), ...HEAL_WHY[k]) : num(n) + ' ' + k));
+        body.appendChild(chips);
+        card.append(icon('heal'), body);
+        $('healed').appendChild(card);
+      }
+
+      // who runs which version
+      const plats = Array.isArray(pb.platforms) ? pb.platforms.filter((x) => x && typeof x === 'object') : [];
+      if (plats.length) {
+        const ul2 = h('ul', 's-list s-vers');
+        for (const p of plats) {
+          const li = h('li');
+          const ic = h('span', 's-vic'); ic.appendChild(icon(p.platform === 'web' ? 'globe' : 'tv'));
+          const tx = h('div', 's-tx');
+          const l1 = h('div', 's-l1');
+          l1.appendChild(h('span', '', platLabel(p.platform) + ' ' + str(p.version)));
+          if (p.network === 'relay') l1.appendChild(tag('via relay'));
+          tx.append(l1, h('span', 's-sub', plural(num(p.devices), 'device', 'devices') + ' · ' + plural(num(p.starts), 'start', 'starts')));
+          li.append(ic, tx);
+          ul2.appendChild(li);
+        }
+        $('versions').append(kick('App versions'), ul2);
+      }
+
+      // TV app updates (the APK reports them)
+      const ups = Array.isArray(pb.updates) ? pb.updates.filter((x) => x && typeof x === 'object') : [];
+      if (ups.length) {
+        const ul3 = h('ul', 's-list s-upd');
+        for (const u of ups) {
+          const li = h('li');
+          // "from" and "→ to" are separate boxes, so a change too long for one line breaks before the
+          // arrow ("3.12.0-beta…" / "→ 3.13.0-beta…") and the new version is never cut.
+          const change = str(u.change);
+          const cut = change.indexOf('>');
+          const left = h('span', 's-uc');
+          if (!change) left.textContent = '—';
+          else if (cut < 0) left.appendChild(h('span', 's-v', change));
+          else left.append(h('span', 's-v', change.slice(0, cut)), ' ', h('span', 's-v', '→ ' + change.slice(cut + 1)));
+          const right = h('span', 's-un', plural(num(u.n), 'device', 'devices'));
+          if (u.outcome && u.outcome !== 'installed') { right.append(' · '); right.appendChild(h('span', 'danger', str(u.outcome))); }
+          li.append(left, right);
+          ul3.appendChild(li);
+        }
+        $('updates').append(kick('Updates installed'), ul3);
+      }
+    }
+
+    // ------------------------------------------------------------ status + refresh loop
+    function sync() {
+      let state, text;
+      if (S.fails) { state = 'err'; text = 'Can’t reach the server · retrying'; }
+      else if (!S.data) { state = 'load'; text = 'Loading…'; }
+      else {
+        const s = (Date.now() - S.lastOk) / 1000;
+        if (s < 15) { state = 'ok'; text = 'Live · updated ' + (s < 2 ? 'just now' : ago(S.lastOk) + ' ago'); }
+        else { state = 'old'; text = 'Updated ' + ago(S.lastOk) + ' ago'; }
+      }
+      const el = $('sync');
+      if (el.dataset.state !== state) el.dataset.state = state;
+      const t = $('sync-t');
+      if (t.textContent !== text) t.textContent = text;
+      const sr = state === 'err' ? 'Can’t reach the server, retrying' : state === 'load' ? 'Loading' : 'Live';
+      if (S.syncSr !== sr) { S.syncSr = sr; $('sync-sr').textContent = sr; }
+    }
+    function tickAgo() {
+      for (const el of document.querySelectorAll('[data-ts]')) {
+        const t = ago(+el.dataset.ts);
+        if (el.textContent !== t) el.textContent = t;
+      }
+      paintQuiet();
+      sync();
+    }
+    function apply(d, poolFresh) {
+      if (!d || typeof d !== 'object') throw new Error('Bad reply');
+      S.data = d;
+      // poolFresh is false when a share/remove/stop-all finished while this answer was on its way: its
+      // pool predates that action, so the action's own reply (already in S.pool) stays.
+      if (poolFresh && d.pool && typeof d.pool === 'object') S.pool = d.pool;
+      renderHero();
+      renderDevices();
+      renderPool();
+      renderPlayback();
+      $('hero').hidden = false;
+      $('fail').hidden = true;
+      for (const id of ['sec-devices', 'sec-pool', 'sec-play', 'foot']) $(id).hidden = false;
+    }
+    function schedule() {
+      clearTimeout(S.timer);
+      S.timer = null;
+      if (document.visibilityState !== 'visible') return;
+      S.timer = setTimeout(load, S.fails ? Math.min(30000, 5000 * 2 ** S.fails) : 5000);
+    }
+    async function load() {
+      clearTimeout(S.timer);
+      S.timer = null;
+      if (S.inflight) return;
+      S.inflight = true;
+      const gen = S.poolGen;
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 8000);
+      try {
+        const res = await fetch('/api/stats', { cache: 'no-store', signal: ctl.signal });
+        if (res.status === 401) { location.href = '/login?next=' + encodeURIComponent('/stats'); return; }
+        if (!res.ok) throw new Error('The server answered HTTP ' + res.status + '.');
+        apply(await res.json(), gen === S.poolGen);
+        S.lastOk = Date.now();
+        S.fails = 0;
+      } catch (e) {
+        S.fails++;
+        S.errText = e && e.name === 'AbortError' ? 'No answer within 8 seconds.'
+          : e instanceof TypeError ? 'Network error: check the connection.'
+          : (e && e.message) || 'Something went wrong.';
+        if (!S.data) {
+          $('fail-msg').textContent = S.errText;
+          $('fail').hidden = false;
+          $('hero').hidden = true;
+        }
+      } finally {
+        clearTimeout(t);
+        S.inflight = false;
+      }
+      sync();
+      // A pool action finished during this poll: its load() found this one in flight, so poll for the
+      // fresh pool (and the new account's device names) right away instead of in 5 s.
+      if (gen !== S.poolGen) load();
+      else schedule();
+    }
+    async function loadMe() {
+      const get = async (url) => { const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) throw new Error(); return r.json(); };
+      const [acct, pool] = await Promise.allSettled([get('/api/account'), get('/api/pool')]);
+      if (acct.status === 'fulfilled' && acct.value && typeof acct.value === 'object') S.me = acct.value;
+      if (pool.status === 'fulfilled' && pool.value && typeof pool.value === 'object') {
+        S.mineKey = pool.value.mine || null;
+        if (!S.pool && Array.isArray(pool.value.accounts)) S.pool = pool.value;
+      }
+      S.meLoaded = true;
+      renderPool();
+    }
+
+    // "Home": when this page was opened from Home in this tab, go back to it, so it returns (from the
+    // back/forward cache where it can) with its scroll position and chosen sport instead of reloading
+    // at the top. The Home-screen app has no back button of its own. href="/" stays the fallback.
+    // Home sends no referrer (<meta name="referrer" content="no-referrer">), so the previous entry is read
+    // from the Navigation API where there is one. entries() lists only same-origin entries, and an entry
+    // whose page has that no-referrer policy reports url null: Home (or /install, which never links here).
+    // document.referrer is the fallback for browsers without the API.
+    function cameFromHome() {
+      const isHome = (url) => { try { const u = new URL(url, location.href); return u.origin === location.origin && u.pathname === '/'; } catch { return false; } };
+      try {
+        const nav = window.navigation;
+        if (nav && nav.currentEntry && typeof nav.entries === 'function') {
+          const i = nav.currentEntry.index;
+          const prev = i > 0 ? nav.entries()[i - 1] : null;
+          if (prev) return prev.url == null || isHome(prev.url);
+          return false; // nothing same-origin behind this page
+        }
+      } catch { /* no Navigation API */ }
+      return !!document.referrer && isHome(document.referrer) && history.length > 1;
+    }
+    document.querySelector('.s-back').addEventListener('click', (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (!cameFromHome()) return;
+      e.preventDefault();
+      // Never a dead button: if going back didn't leave this page, load Home after all.
+      const t = setTimeout(() => location.assign('/'), 800);
+      addEventListener('pagehide', () => clearTimeout(t), { once: true });
+      history.back();
+    });
+
+    $('retry').addEventListener('click', () => {
+      $('fail-msg').textContent = 'Trying again…';
+      load();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') { tickAgo(); load(); }
+      else { clearTimeout(S.timer); S.timer = null; }
+    });
+    setInterval(() => { if (document.visibilityState === 'visible') tickAgo(); }, 1000);
+
+    heroSkeleton();
+    sync();
     loadMe();
-    refresh();
-    setInterval(refresh, 5000);
+    load();
+  })();
   </script>
 </body>
 </html>
